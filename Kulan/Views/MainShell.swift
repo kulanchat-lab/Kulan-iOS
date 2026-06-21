@@ -47,8 +47,33 @@ struct ChatsView: View {
             }
     }
 
+    // Flat top bar built as a normal view (NOT a toolbar) so iOS 26 can't wrap
+    // the avatar/compose in a Liquid-Glass pill. Crisp circle avatar like Signal.
+    private var topBar: some View {
+        ZStack {
+            Text("Chats").font(.title3.weight(.semibold))
+            HStack {
+                Button { showSettings = true } label: {
+                    AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 34)
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Button { showNew = true } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 20)).foregroundStyle(.primary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
+            VStack(spacing: 0) {
+            topBar
             Group {
                 if visible.isEmpty {
                     ContentUnavailableView("No chats yet", systemImage: "bubble.left",
@@ -82,18 +107,8 @@ struct ChatsView: View {
                     .listStyle(.plain)
                 }
             }
-            .navigationTitle("Chats")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showSettings = true } label: {
-                        AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 32)
-                    }
-                    .buttonStyle(.plain)   // no Liquid-Glass capsule / shadow — crisp circle
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showNew = true } label: { Image(systemName: "square.and.pencil") }
-                }
             }
+            .toolbar(.hidden, for: .navigationBar)
             // ONE destination type for every chat (list taps AND search results),
             // keyed by cid via .id(...) so each conversation gets a fresh ThreadView
             // identity — a new chat can never inherit the previous chat's @State

@@ -16,7 +16,9 @@ struct ThreadView: View {
     @State private var typingSent = false
     @State private var viewerImage: Message?
     @State private var keyboardHeight: CGFloat = 0
+    @State private var sendError: String?
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.dismiss) private var dismiss
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
@@ -39,6 +41,7 @@ struct ThreadView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+        header
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 4) {
@@ -82,28 +85,13 @@ struct ThreadView: View {
         .padding(.bottom, max(0, keyboardHeight - bottomSafeInset))
         .animation(.easeOut(duration: 0.25), value: keyboardHeight)
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
-        .toolbar {
-            // Left-aligned header (sits right after the back chevron) — the
-            // WhatsApp/Telegram layout, not centered in the middle.
-            ToolbarItem(placement: .topBarLeading) {
-                NavigationLink {
-                    ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
-                } label: {
-                    HStack(spacing: 9) {
-                        AvatarView(name: title, photoUrl: photoUrl, size: 34)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(title).font(.headline).foregroundStyle(.primary)
-                            if let sub = presenceSubtitle {
-                                Text(sub).font(.caption2)
-                                    .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
+        .alert("Message not sent", isPresented: Binding(get: { sendError != nil },
+                                                        set: { if !$0 { sendError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(sendError ?? "") }
         .fullScreenCover(item: $viewerImage) { msg in
             ImageViewerView(message: msg, cid: cid)
         }
@@ -153,6 +141,40 @@ struct ThreadView: View {
         return nil
     }
 
+    // Flat header (a normal view, NOT a toolbar item) so iOS 26 never wraps it in
+    // a Liquid-Glass pill — Signal layout: back chevron + avatar + name/presence.
+    private var header: some View {
+        HStack(spacing: 6) {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 30, height: 38)
+                    .contentShape(Rectangle())
+            }
+            NavigationLink {
+                ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
+            } label: {
+                HStack(spacing: 9) {
+                    AvatarView(name: title, photoUrl: photoUrl, size: 36)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title).font(.headline).foregroundStyle(.primary)
+                        if let sub = presenceSubtitle {
+                            Text(sub).font(.caption2)
+                                .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Theme.bg(dark))
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
     private func send() {
         let text = input
         input = ""
@@ -163,7 +185,19 @@ struct ThreadView: View {
         typingSent = false
         Task {
             await ChatService.setTyping(cid, false)
-            try? await ChatService.sendText(cid: cid, text: text, replyTo: reply)
+            do {
+                try await ChatService.sendText(cid: cid, text: text, replyTo: reply)
+            } catch {
+                // Don't silently drop the message — restore it and tell the user why.
+                await MainActor.run {
+                    input = text
+                    if error is MissingRecipientKeyError {
+                        sendError = "\(title) hasn't set up encryption yet (they need to open Kulan once). Your message wasn't sent."
+                    } else {
+                        sendError = "Couldn't send your message. \(error.localizedDescription)"
+                    }
+                }
+            }
         }
     }
 
