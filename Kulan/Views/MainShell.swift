@@ -32,7 +32,7 @@ struct ChatsView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var showNew = false
     @State private var showSettings = false
-    @State private var openTarget: ChatTarget?
+    @State private var path = NavigationPath()
     @State private var pendingDelete: Conversation?
 
     private var me: String { AuthService.shared.uid ?? "" }
@@ -48,14 +48,15 @@ struct ChatsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if visible.isEmpty {
                     ContentUnavailableView("No chats yet", systemImage: "bubble.left",
                                            description: Text("Tap the compose button to start one."))
                 } else {
                     List(visible) { conv in
-                        NavigationLink(value: conv) {
+                        NavigationLink(value: ChatTarget(id: conv.id, name: conv.name(for: me),
+                                                         photo: conv.photoUrl(for: me))) {
                             ChatRow(conv: conv, me: me, dark: dark)
                         }
                         .listRowSeparator(.hidden)
@@ -92,18 +93,18 @@ struct ChatsView: View {
                     Button { showNew = true } label: { Image(systemName: "square.and.pencil") }
                 }
             }
-            .navigationDestination(for: Conversation.self) { conv in
-                ThreadView(cid: conv.id, title: conv.name(for: me),
-                           photoUrl: conv.photoUrl(for: me))
-            }
-            .navigationDestination(item: $openTarget) { t in
+            // ONE destination type for every chat (list taps AND search results),
+            // keyed by cid via .id(...) so each conversation gets a fresh ThreadView
+            // identity — a new chat can never inherit the previous chat's @State
+            // (repo/cid), which was the cross-routing bug.
+            .navigationDestination(for: ChatTarget.self) { t in
                 ThreadView(cid: t.id, title: t.name, photoUrl: t.photo)
+                    .id(t.id)
             }
             .sheet(isPresented: $showNew) {
                 NewChatView { t in
-                    // Push the thread first (behind the sheet), then dismiss — so
-                    // there's no flash back to the chat list mid-transition.
-                    openTarget = t
+                    // Push behind the sheet, then dismiss — no flash back to the list.
+                    path.append(t)
                     showNew = false
                 }
             }
