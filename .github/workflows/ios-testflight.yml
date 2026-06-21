@@ -43,8 +43,13 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Resolve Swift packages (so -showBuildSettings is fast)
+        run: xcodebuild -resolvePackageDependencies -project Kulan.xcodeproj -scheme Kulan
+
       - name: Build & upload to TestFlight
         env:
           ASC_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
           BUILD_NUMBER: ${{ github.run_number }}
+          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "180"
+          FASTLANE_XCODEBUILD_SETTINGS_RETRIES: "6"
         run: fastlane beta
