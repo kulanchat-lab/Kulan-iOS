@@ -5,6 +5,7 @@ import FirebaseFirestore
 @main
 struct KulanApp: App {
     @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         FirebaseApp.configure()
@@ -20,6 +21,9 @@ struct KulanApp: App {
         WindowGroup {
             RootView()
                 .preferredColorScheme(AppAppearance(rawValue: appearanceRaw)?.colorScheme ?? nil)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            Task { await PresenceService.set(online: phase == .active) }
         }
     }
 }

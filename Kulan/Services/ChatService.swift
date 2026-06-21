@@ -111,6 +111,12 @@ enum ChatService {
             .updateData(["unreadCount.\(uid)": 0])
     }
 
+    /// Mark this conversation read up to now (drives the other person's read receipts).
+    static func markRead(_ cid: String) async {
+        try? await db.collection("conversations").document(cid)
+            .setData(["lastRead": [uid: FieldValue.serverTimestamp()]], merge: true)
+    }
+
     static func setPinned(_ cid: String, _ value: Bool) async {
         try? await db.collection("conversations").document(cid)
             .setData(["pinnedBy": [uid: value]], merge: true)

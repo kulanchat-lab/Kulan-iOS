@@ -36,7 +36,8 @@ struct ThreadView: View {
                             nameFor: { $0 == me ? "You" : title },
                             onReply: { replyingTo = $0 },
                             onDelete: { m in Task { await ChatService.deleteMessage(cid: cid, messageId: m.id) } },
-                            onTapImage: { viewerImage = $0 }
+                            onTapImage: { viewerImage = $0 },
+                            otherLastRead: repo.otherLastReadMillis
                         )
                         .id(msg.id)
                     }
@@ -49,6 +50,7 @@ struct ThreadView: View {
                 if let last = repo.messages.last {
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
+                Task { await ChatService.markRead(cid) }
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -62,8 +64,9 @@ struct ThreadView: View {
                         AvatarView(name: title, photoUrl: photoUrl, size: 30)
                         VStack(spacing: 0) {
                             Text(title).font(.headline).foregroundStyle(.primary)
-                            if repo.otherTyping {
-                                Text("typing…").font(.caption2).foregroundStyle(.secondary)
+                            if let sub = presenceSubtitle {
+                                Text(sub).font(.caption2)
+                                    .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
                             }
                         }
                     }
@@ -76,7 +79,7 @@ struct ThreadView: View {
         }
         .onAppear {
             repo.start()
-            Task { await ChatService.resetUnread(cid) }
+            Task { await ChatService.resetUnread(cid); await ChatService.markRead(cid) }
         }
         .onDisappear {
             repo.stop()
@@ -87,6 +90,16 @@ struct ThreadView: View {
 
     private var hasText: Bool {
         !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var presenceSubtitle: String? {
+        if repo.otherTyping { return "typing…" }
+        if repo.otherOnline { return "online" }
+        if let la = repo.otherLastActive {
+            let f = RelativeDateTimeFormatter(); f.unitsStyle = .short
+            return "last seen " + f.localizedString(for: la, relativeTo: Date())
+        }
+        return nil
     }
 
     private func send() {
@@ -192,11 +205,16 @@ struct MessageBubble: View {
     var onReply: (Message) -> Void = { _ in }
     var onDelete: (Message) -> Void = { _ in }
     var onTapImage: (Message) -> Void = { _ in }
+    var otherLastRead: Double = 0
 
     @State private var dragX: CGFloat = 0
 
+    private var isRead: Bool {
+        message.createdAt.timeIntervalSince1970 * 1000 <= otherLastRead
+    }
+
     var body: some View {
-        HStack {
+        HStack(alignment: .bottom, spacing: 4) {
             if isMe { Spacer(minLength: 50) }
             content
                 .contextMenu {
@@ -208,6 +226,12 @@ struct MessageBubble: View {
                         Button(role: .destructive) { onDelete(message) } label: { Label("Delete", systemImage: "trash") }
                     }
                 }
+            if isMe {
+                Image(systemName: isRead ? "checkmark.circle.fill" : "checkmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(isRead ? Color.blue : Color.secondary)
+                    .padding(.bottom, 2)
+            }
             if !isMe { Spacer(minLength: 50) }
         }
         // Telegram-style swipe-to-reply: drag the bubble left past a threshold.
