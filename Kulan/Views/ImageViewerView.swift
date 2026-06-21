@@ -11,7 +11,7 @@ struct ImageViewerView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(1 - min(abs(dragOffset.height) / 400, 0.6)).ignoresSafeArea()
+            Color.black.opacity(1 - min(Double(abs(dragOffset.height)) / 400, 0.6)).ignoresSafeArea()
 
             if let url = message.imageUrl {
                 SecureImageView(imageUrl: url, enc: message.enc, cid: cid, fill: false)
