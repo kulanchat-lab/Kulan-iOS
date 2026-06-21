@@ -215,22 +215,26 @@ struct ThreadView: View {
         }
     }
 
-    private var composer: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            PhotosPicker(selection: $photoItem, matching: .images) {
-                Group {
-                    if sendingPhoto { ProgressView() }
-                    else { Image(systemName: "paperclip").font(.system(size: 18)).foregroundStyle(.primary) }
-                }
-                .frame(width: 40, height: 40)
-            }
-            .liquidGlass(Circle())
+    // Subtle neutral fill (no glass, no shadow) — the iMessage field tint.
+    private var fieldFill: Color { dark ? Color(hex: 0x2A2A2E) : Color(hex: 0xEFEFF4) }
 
-            HStack(alignment: .bottom, spacing: 6) {
+    private var composer: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            // Far-left circular "+" — attach a photo.
+            PhotosPicker(selection: $photoItem, matching: .images) {
+                Image(systemName: sendingPhoto ? "ellipsis" : "plus")
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 34, height: 34)
+                    .background(fieldFill, in: Circle())
+            }
+
+            // Text capsule with the send arrow embedded on its inside-right edge.
+            HStack(alignment: .bottom, spacing: 4) {
                 TextField("Message", text: $input, axis: .vertical)
                     .lineLimit(1...6)
-                    .padding(.leading, 16)
-                    .padding(.vertical, 10)
+                    .padding(.leading, 14)
+                    .padding(.vertical, 7)
                     .onChange(of: input) { _, v in
                         let now = !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         if now != typingSent {
@@ -238,22 +242,20 @@ struct ThreadView: View {
                             Task { await ChatService.setTyping(cid, now) }
                         }
                     }
-                Image(systemName: "face.smiling")
-                    .font(.system(size: 20))
-                    .foregroundStyle(.secondary)
-                    .padding(.trailing, 13)
-                    .padding(.bottom, 9)
+                if hasText {
+                    Button { send() } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(Theme.accent(dark))
+                    }
+                    .padding(.trailing, 3)
+                    .padding(.bottom, 2)
+                } else {
+                    Color.clear.frame(width: 10, height: 1)
+                }
             }
-            .frame(minHeight: 40)
-            .liquidGlass(Capsule())
-
-            Button { if hasText { send() } } label: {
-                Image(systemName: hasText ? "arrow.up" : "mic.fill")
-                    .font(.system(size: 17, weight: hasText ? .bold : .regular))
-                    .foregroundStyle(.primary)
-                    .frame(width: 40, height: 40)
-            }
-            .liquidGlass(Circle())
+            .frame(minHeight: 34)
+            .background(fieldFill, in: Capsule())
         }
         .padding(.horizontal, 12)
         .padding(.top, 6)

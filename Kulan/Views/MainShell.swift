@@ -86,8 +86,9 @@ struct ChatsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showSettings = true } label: {
-                        AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 30)
+                        AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 32)
                     }
+                    .buttonStyle(.plain)   // no Liquid-Glass capsule / shadow — crisp circle
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showNew = true } label: { Image(systemName: "square.and.pencil") }
