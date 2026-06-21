@@ -2,6 +2,8 @@ import SwiftUI
 import PhotosUI
 import FirebaseAuth
 
+// Parent settings — profile cell on top, then grouped rows that push to dedicated
+// sub-screens (the Signal/Telegram structure), built our way with native List.
 struct SettingsView: View {
     var onSignOut: () -> Void
     init(onSignOut: @escaping () -> Void) { self.onSignOut = onSignOut }
@@ -10,12 +12,6 @@ struct SettingsView: View {
     private var profile = ProfileStore.shared
     @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
     @State private var showEdit = false
-    @State private var showDelete = false
-    @State private var working = false
-
-    private var appVersion: String {
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
-    }
 
     private var inviteText: String {
         let h = profile.me?.handle ?? ""
@@ -25,99 +21,153 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                // Profile card — native inset-grouped row (Apple Settings look).
                 Section {
-                    Button { showEdit = true } label: {
-                        HStack(spacing: 14) {
-                            AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 60)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(profile.me?.name ?? "You")
-                                    .font(.title3.weight(.semibold)).foregroundStyle(.primary)
-                                if let h = profile.me?.handle, !h.isEmpty {
-                                    Text("@\(h)").font(.subheadline).foregroundStyle(.secondary)
-                                }
-                                Text("Edit profile").font(.footnote).foregroundStyle(.tint)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
-                        }
-                        .padding(.vertical, 6)
-                    }
-                }
-
-                // Appearance — Light / Dark / System (applies app-wide instantly).
-                Section("Appearance") {
-                    Picker("Theme", selection: $appearanceRaw) {
-                        ForEach(AppAppearance.allCases) { Text($0.label).tag($0.rawValue) }
-                    }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
-                }
-
-                // Account details.
-                Section("Account") {
-                    LabeledContent("Name", value: profile.me?.name ?? "—")
-                    LabeledContent("Username", value: profile.me.map { "@\($0.handle)" } ?? "—")
-                    LabeledContent("Account ID", value: String((AuthService.shared.uid ?? "").prefix(10)) + "…")
+                    Button { showEdit = true } label: { profileCell }
                 }
 
                 Section {
-                    ShareLink(item: inviteText) {
-                        Label("Invite Friends", systemImage: "person.badge.plus")
+                    NavigationLink { AccountSettingsView(onSignOut: onSignOut) } label: {
+                        Label("Account", systemImage: "person.crop.circle")
                     }
                 }
 
                 Section {
-                    Label { Text("End-to-end encrypted") } icon: { Image(systemName: "lock.fill") }
-                    LabeledContent("Version", value: appVersion)
-                } header: {
-                    Text("About")
-                } footer: {
-                    Text("Kulan — a Somali messenger. Messages are end-to-end encrypted.")
+                    NavigationLink { AppearanceSettingsView() } label: {
+                        Label("Appearance", systemImage: "paintbrush")
+                    }
+                    NavigationLink { PrivacySettingsView() } label: {
+                        Label("Privacy & Security", systemImage: "lock.shield")
+                    }
                 }
 
                 Section {
-                    Button(role: .destructive) {
-                        try? Auth.auth().signOut()
-                        dismiss()
-                        onSignOut()
-                    } label: {
-                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                    Button(role: .destructive) {
-                        showDelete = true
-                    } label: {
-                        Label("Delete Account", systemImage: "trash")
+                    ShareLink(item: inviteText) { Label("Invite Friends", systemImage: "person.badge.plus") }
+                    NavigationLink { AboutView() } label: {
+                        Label("Help & About", systemImage: "questionmark.circle")
                     }
                 }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            // Flip the open sheet instantly with the appearance picker (sheets keep
-            // their own environment, so apply the scheme here too).
             .preferredColorScheme(AppAppearance(rawValue: appearanceRaw)?.colorScheme ?? nil)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
-            .disabled(working)
             .sheet(isPresented: $showEdit) { EditProfileView() }
-            .alert("Delete account?", isPresented: $showDelete) {
-                Button("Cancel", role: .cancel) {}
-                Button("Delete", role: .destructive) {
-                    Task {
-                        working = true
-                        try? await profile.deleteAccount()
-                        working = false
-                        dismiss()
-                        onSignOut()
-                    }
+        }
+    }
+
+    private var profileCell: some View {
+        HStack(spacing: 14) {
+            AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 60)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(profile.me?.name ?? "You").font(.title3.weight(.semibold)).foregroundStyle(.primary)
+                if let h = profile.me?.handle, !h.isEmpty {
+                    Text("@\(h)").font(.subheadline).foregroundStyle(.secondary)
                 }
-            } message: {
-                Text("This permanently deletes your account and profile. This can't be undone.")
+                Text("Edit profile").font(.footnote).foregroundStyle(.tint)
             }
+            Spacer()
+            Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+// MARK: - Sub-pages
+
+struct AccountSettingsView: View {
+    var onSignOut: () -> Void
+    init(onSignOut: @escaping () -> Void) { self.onSignOut = onSignOut }
+
+    @Environment(\.dismiss) private var dismiss
+    private var profile = ProfileStore.shared
+    @State private var showDelete = false
+    @State private var working = false
+
+    var body: some View {
+        List {
+            Section("Account") {
+                LabeledContent("Name", value: profile.me?.name ?? "—")
+                LabeledContent("Username", value: profile.me.map { "@\($0.handle)" } ?? "—")
+                LabeledContent("Account ID", value: String((AuthService.shared.uid ?? "").prefix(10)) + "…")
+            }
+            Section {
+                Button(role: .destructive) {
+                    try? Auth.auth().signOut(); dismiss(); onSignOut()
+                } label: { Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right") }
+                Button(role: .destructive) { showDelete = true } label: {
+                    Label("Delete Account", systemImage: "trash")
+                }
+            }
+        }
+        .navigationTitle("Account")
+        .navigationBarTitleDisplayMode(.inline)
+        .disabled(working)
+        .alert("Delete account?", isPresented: $showDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task { working = true; try? await profile.deleteAccount(); working = false; dismiss(); onSignOut() }
+            }
+        } message: {
+            Text("This permanently deletes your account and profile. This can't be undone.")
         }
     }
 }
+
+struct AppearanceSettingsView: View {
+    @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
+    var body: some View {
+        List {
+            Section {
+                Picker("Theme", selection: $appearanceRaw) {
+                    ForEach(AppAppearance.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } footer: {
+                Text("Choose how Kulan looks. System follows your device setting.")
+            }
+        }
+        .navigationTitle("Appearance")
+        .navigationBarTitleDisplayMode(.inline)
+        .preferredColorScheme(AppAppearance(rawValue: appearanceRaw)?.colorScheme ?? nil)
+    }
+}
+
+struct PrivacySettingsView: View {
+    var body: some View {
+        List {
+            Section {
+                Label("End-to-end encrypted", systemImage: "lock.fill")
+            } footer: {
+                Text("Every message is end-to-end encrypted. The private key lives only on your device — the server can never read your messages.")
+            }
+        }
+        .navigationTitle("Privacy & Security")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct AboutView: View {
+    private var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
+    }
+    var body: some View {
+        List {
+            Section {
+                LabeledContent("Version", value: appVersion)
+                Label("End-to-end encrypted", systemImage: "lock.fill")
+            } footer: {
+                Text("Kulan — a Somali messenger. Made for Somalia.")
+            }
+        }
+        .navigationTitle("Help & About")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Edit Profile
 
 struct EditProfileView: View {
     @Environment(\.dismiss) private var dismiss
