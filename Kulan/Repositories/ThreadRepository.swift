@@ -9,9 +9,11 @@ import FirebaseFirestore
 final class ThreadRepository {
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
+    private var convListener: ListenerRegistration?
     let cid: String
 
     var messages: [Message] = []
+    var otherTyping = false
 
     init(cid: String) { self.cid = cid }
 
@@ -19,6 +21,12 @@ final class ThreadRepository {
         guard let uid = Auth.auth().currentUser?.uid else { return }
         let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
         stop()
+        // Listen to the conversation doc for the other person's typing flag.
+        convListener = db.collection("conversations").document(cid)
+            .addSnapshotListener { [weak self] snap, _ in
+                let typing = (snap?.data()?["typing"] as? [String: Any])?[other] as? Bool ?? false
+                self?.otherTyping = typing
+            }
         Task {
             try? await Crypto.shared.ensureReady()
             _ = await Crypto.shared.preloadKey(other)
@@ -36,9 +44,9 @@ final class ThreadRepository {
     }
 
     func stop() {
-        listener?.remove()
-        listener = nil
+        listener?.remove(); listener = nil
+        convListener?.remove(); convListener = nil
     }
 
-    deinit { listener?.remove() }
+    deinit { listener?.remove(); convListener?.remove() }
 }

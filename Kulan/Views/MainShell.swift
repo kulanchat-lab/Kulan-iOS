@@ -57,6 +57,24 @@ struct ChatsView: View {
                             ChatRow(conv: conv, me: me, dark: dark)
                         }
                         .listRowSeparator(.hidden)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                Task { await ChatService.deleteForMe(conv.id) }
+                            } label: { Label("Delete", systemImage: "trash") }
+                            Button {
+                                let now = Date().timeIntervalSince1970 * 1000
+                                Task { await ChatService.setMuted(conv.id, !conv.isMuted(me, now: now)) }
+                            } label: { Label("Mute", systemImage: "bell.slash") }
+                            .tint(.indigo)
+                        }
+                        .swipeActions(edge: .leading) {
+                            Button {
+                                Task { await ChatService.setPinned(conv.id, !conv.isPinned(me)) }
+                            } label: {
+                                Label(conv.isPinned(me) ? "Unpin" : "Pin", systemImage: "pin")
+                            }
+                            .tint(.orange)
+                        }
                     }
                     .listStyle(.plain)
                 }

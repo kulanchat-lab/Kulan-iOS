@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UIKit
 
 struct ThreadView: View {
     let cid: String
@@ -7,6 +9,10 @@ struct ThreadView: View {
 
     @State private var repo: ThreadRepository
     @State private var input = ""
+    @State private var replyingTo: Message?
+    @State private var photoItem: PhotosPickerItem?
+    @State private var sendingPhoto = false
+    @State private var typingSent = false
     @Environment(\.colorScheme) private var scheme
 
     private var me: String { AuthService.shared.uid ?? "" }
@@ -24,8 +30,13 @@ struct ThreadView: View {
             ScrollView {
                 LazyVStack(spacing: 4) {
                     ForEach(repo.messages) { msg in
-                        MessageBubble(message: msg, isMe: msg.authorId == me, dark: dark)
-                            .id(msg.id)
+                        MessageBubble(
+                            message: msg, isMe: msg.authorId == me, dark: dark, cid: cid,
+                            nameFor: { $0 == me ? "You" : title },
+                            onReply: { replyingTo = $0 },
+                            onDelete: { m in Task { await ChatService.deleteMessage(cid: cid, messageId: m.id) } }
+                        )
+                        .id(msg.id)
                     }
                 }
                 .padding(.horizontal, 12)
@@ -41,24 +52,32 @@ struct ThreadView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
-            // The person you're talking to — avatar + name (native, centered).
             ToolbarItem(placement: .principal) {
                 NavigationLink {
                     ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
                 } label: {
                     HStack(spacing: 8) {
                         AvatarView(name: title, photoUrl: photoUrl, size: 30)
-                        Text(title).font(.headline).foregroundStyle(.primary)
+                        VStack(spacing: 0) {
+                            Text(title).font(.headline).foregroundStyle(.primary)
+                            if repo.otherTyping {
+                                Text("typing…").font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
             }
         }
-        .safeAreaInset(edge: .bottom) { composer }
+        .safeAreaInset(edge: .bottom) { composerArea }
         .onAppear {
             repo.start()
             Task { await ChatService.resetUnread(cid) }
         }
-        .onDisappear { repo.stop() }
+        .onDisappear {
+            repo.stop()
+            Task { await ChatService.setTyping(cid, false) }
+        }
+        .onChange(of: photoItem) { _, item in Task { await sendPicked(item) } }
     }
 
     private var hasText: Bool {
@@ -68,19 +87,59 @@ struct ThreadView: View {
     private func send() {
         let text = input
         input = ""
-        Task { try? await ChatService.sendText(cid: cid, text: text) }
+        let reply = replyingTo.map {
+            ReplyRef(id: $0.id, authorId: $0.authorId, text: $0.isImage ? "📷 Photo" : $0.text)
+        }
+        replyingTo = nil
+        typingSent = false
+        Task {
+            await ChatService.setTyping(cid, false)
+            try? await ChatService.sendText(cid: cid, text: text, replyTo: reply)
+        }
     }
 
-    // Liquid-Glass composer (iOS 26): floating glass pieces over the chat —
-    // a clip button, the Message capsule with an inline sticker glyph, and a
-    // mic/send button, exactly like the native reference.
+    private func sendPicked(_ item: PhotosPickerItem?) async {
+        guard let item else { return }
+        sendingPhoto = true
+        defer { sendingPhoto = false; photoItem = nil }
+        if let data = try? await item.loadTransferable(type: Data.self) {
+            try? await ChatService.sendImage(cid: cid, data: data)
+        }
+    }
+
+    // Reply preview (if any) above the Liquid-Glass composer row.
+    private var composerArea: some View {
+        VStack(spacing: 6) {
+            if let r = replyingTo {
+                HStack(spacing: 8) {
+                    RoundedRectangle(cornerRadius: 2).fill(Color.accentColor).frame(width: 3, height: 32)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Reply to \(r.authorId == me ? "yourself" : title)")
+                            .font(.caption.bold()).foregroundStyle(.tint)
+                        Text(r.isImage ? "📷 Photo" : r.text).font(.caption).lineLimit(1).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button { replyingTo = nil } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .padding(.horizontal, 12)
+            }
+            composer
+        }
+    }
+
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 10) {
-            Button {} label: {
-                Image(systemName: "paperclip")
-                    .font(.system(size: 18))
-                    .foregroundStyle(.primary)
-                    .frame(width: 40, height: 40)
+            PhotosPicker(selection: $photoItem, matching: .images) {
+                Group {
+                    if sendingPhoto { ProgressView() }
+                    else { Image(systemName: "paperclip").font(.system(size: 18)).foregroundStyle(.primary) }
+                }
+                .frame(width: 40, height: 40)
             }
             .liquidGlass(Circle())
 
@@ -89,6 +148,13 @@ struct ThreadView: View {
                     .lineLimit(1...6)
                     .padding(.leading, 16)
                     .padding(.vertical, 10)
+                    .onChange(of: input) { _, v in
+                        let now = !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        if now != typingSent {
+                            typingSent = now
+                            Task { await ChatService.setTyping(cid, now) }
+                        }
+                    }
                 Image(systemName: "face.smiling")
                     .font(.system(size: 20))
                     .foregroundStyle(.secondary)
@@ -116,35 +182,60 @@ struct MessageBubble: View {
     let message: Message
     let isMe: Bool
     let dark: Bool
+    let cid: String
+    var nameFor: (String) -> String = { _ in "" }
+    var onReply: (Message) -> Void = { _ in }
+    var onDelete: (Message) -> Void = { _ in }
 
     var body: some View {
         HStack {
             if isMe { Spacer(minLength: 50) }
-            VStack(alignment: .leading, spacing: 4) {
-                if let reply = message.replyTo {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(reply.text.isEmpty ? "Message" : reply.text)
-                            .font(.caption).lineLimit(1)
-                            .foregroundStyle(isMe ? Theme.onAccent(dark).opacity(0.85) : .secondary)
+            content
+                .contextMenu {
+                    Button { onReply(message) } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+                    if !message.isImage && !message.text.isEmpty {
+                        Button { UIPasteboard.general.string = message.text } label: { Label("Copy", systemImage: "doc.on.doc") }
                     }
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background((isMe ? Color.white.opacity(0.18) : Theme.secondary.opacity(0.18)))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    if isMe {
+                        Button(role: .destructive) { onDelete(message) } label: { Label("Delete", systemImage: "trash") }
+                    }
                 }
-                if message.isImage {
-                    Text("📷 Photo")
-                        .font(.body)
-                        .foregroundColor(isMe ? Theme.onAccent(dark) : Theme.accent(dark))
-                } else {
-                    Text(message.text)
-                        .font(.body)
-                        .foregroundColor(isMe ? Theme.onAccent(dark) : (dark ? .white : .black))
-                }
+            if !isMe { Spacer(minLength: 50) }
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        if message.isImage, let url = message.imageUrl {
+            VStack(alignment: .leading, spacing: 4) {
+                replyQuote
+                SecureImageView(imageUrl: url, enc: message.enc, cid: cid)
+                    .frame(width: 220, height: 220)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                replyQuote
+                Text(message.text)
+                    .font(.body)
+                    .foregroundColor(isMe ? Theme.onAccent(dark) : (dark ? .white : .black))
             }
             .padding(.horizontal, 13).padding(.vertical, 8)
             .background(isMe ? Theme.accent(dark) : Theme.received(dark))
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            if !isMe { Spacer(minLength: 50) }
+        }
+    }
+
+    @ViewBuilder private var replyQuote: some View {
+        if let reply = message.replyTo {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(nameFor(reply.authorId)).font(.caption.bold())
+                    .foregroundStyle(isMe ? Theme.onAccent(dark).opacity(0.9) : .secondary)
+                Text(reply.text.isEmpty ? "Message" : reply.text).font(.caption).lineLimit(1)
+                    .foregroundStyle(isMe ? Theme.onAccent(dark).opacity(0.8) : .secondary)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(isMe ? Color.white.opacity(0.18) : Theme.secondary.opacity(0.18))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
     }
 }

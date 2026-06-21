@@ -1,6 +1,7 @@
 import Foundation
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseStorage
 
 /// Write-side operations (port of the RN Db writes). All E2EE goes through Crypto.
 enum ChatService {
@@ -65,6 +66,46 @@ enum ChatService {
         try await batch.commit()
     }
 
+    /// Encrypt + send a photo. The JPEG bytes are sealed with Crypto.encryptBytes
+    /// and the ciphertext is uploaded to Storage; the server never sees the image.
+    static func sendImage(cid: String, data: Data) async throws {
+        let (cipher, meta) = try await Crypto.shared.encryptBytes(cid, data)
+        let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+        let convRef = db.collection("conversations").document(cid)
+        let msgRef = convRef.collection("messages").document()
+
+        let ref = Storage.storage().reference().child("chat/\(cid)/\(msgRef.documentID).enc")
+        let sm = StorageMetadata(); sm.contentType = "application/octet-stream"
+        _ = try await ref.putDataAsync(cipher, metadata: sm)
+        let url = try await ref.downloadURL().absoluteString
+
+        let batch = db.batch()
+        batch.setData([
+            "type": "image",
+            "imageUrl": url,
+            "enc": ["v": meta.v, "n": meta.n, "k": meta.k, "kn": meta.kn],
+            "text": "",
+            "authorId": uid,
+            "createdAt": FieldValue.serverTimestamp(),
+        ], forDocument: msgRef)
+        batch.updateData([
+            "lastMessage": "📷 Photo",   // plaintext preview (server never sees the image)
+            "updatedAt": FieldValue.serverTimestamp(),
+            "unreadCount.\(other)": FieldValue.increment(Int64(1)),
+        ], forDocument: convRef)
+        try await batch.commit()
+    }
+
+    static func deleteMessage(cid: String, messageId: String) async {
+        try? await db.collection("conversations").document(cid)
+            .collection("messages").document(messageId).delete()
+    }
+
+    static func setTyping(_ cid: String, _ typing: Bool) async {
+        try? await db.collection("conversations").document(cid)
+            .setData(["typing": [uid: typing]], merge: true)
+    }
+
     static func resetUnread(_ cid: String) async {
         try? await db.collection("conversations").document(cid)
             .updateData(["unreadCount.\(uid)": 0])
@@ -89,6 +130,14 @@ enum ChatService {
     static func setBlocked(_ cid: String, _ value: Bool) async {
         try? await db.collection("conversations").document(cid)
             .setData(["blockedBy": [uid: value]], merge: true)
+    }
+
+    /// "Delete for me" — hides the thread until a newer message arrives (clearedAt).
+    static func deleteForMe(_ cid: String) async {
+        try? await db.collection("conversations").document(cid).setData([
+            "clearedAt": [uid: Date().timeIntervalSince1970 * 1000],
+            "unreadCount": [uid: 0],
+        ], merge: true)
     }
 
     // MARK: - Discovery
