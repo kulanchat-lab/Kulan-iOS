@@ -279,7 +279,7 @@ enum Keychain {
         var add = base
         add[kSecValueData as String] = data
         // Available after first unlock; survives reboot, stays on this device only.
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstThisDeviceOnly
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         SecItemAdd(add as CFDictionary, nil)
     }
 }
