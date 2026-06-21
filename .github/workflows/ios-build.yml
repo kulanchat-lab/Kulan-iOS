@@ -1,8 +1,9 @@
 name: iOS Build
 
+# Manual only — so pushing code while developing a batch costs nothing.
+# I run this compile-check once per batch (then the TestFlight build), to keep
+# CI minutes (and your $15 budget) spent only when we mean to.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
