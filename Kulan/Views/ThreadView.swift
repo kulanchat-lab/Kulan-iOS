@@ -40,6 +40,7 @@ struct ThreadView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .safeAreaInset(edge: .bottom) { composer }
         .onAppear {
             repo.start()

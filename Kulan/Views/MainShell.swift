@@ -56,6 +56,7 @@ struct ChatsView: View {
                         NavigationLink(value: conv) {
                             ChatRow(conv: conv, me: me, dark: dark)
                         }
+                        .listRowSeparator(.hidden)
                     }
                     .listStyle(.plain)
                 }
