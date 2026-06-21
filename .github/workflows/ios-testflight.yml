@@ -35,6 +35,7 @@ jobs:
           set -o pipefail
           xcodebuild -project Kulan.xcodeproj -scheme Kulan -configuration Release \
             -archivePath "$RUNNER_TEMP/Kulan.xcarchive" archive \
+            -destination 'generic/platform=iOS' \
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
