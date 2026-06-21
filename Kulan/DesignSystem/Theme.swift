@@ -63,6 +63,18 @@ enum AvatarPalette {
     }
 }
 
+extension View {
+    /// Real iOS 26 Liquid Glass when available; frosted material fallback below it.
+    @ViewBuilder
+    func liquidGlass(_ shape: some Shape = Capsule()) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(.regular, in: shape)
+        } else {
+            self.background(.ultraThinMaterial, in: shape)
+        }
+    }
+}
+
 struct AvatarView: View {
     let name: String
     var photoUrl: String?

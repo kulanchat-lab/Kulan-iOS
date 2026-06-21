@@ -59,52 +59,43 @@ struct ThreadView: View {
         Task { try? await ChatService.sendText(cid: cid, text: text) }
     }
 
-    // Native iMessage-style composer: a left "+" circle, a unified soft-gray
-    // capsule holding the text field + inline action glyphs, on a translucent base.
+    // Liquid-Glass composer (iOS 26): floating glass pieces over the chat —
+    // a clip button, the Message capsule with an inline sticker glyph, and a
+    // mic/send button, exactly like the native reference.
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .bottom, spacing: 10) {
             Button {} label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 36, height: 36)
-                    .background(Theme.received(dark), in: Circle())
+                Image(systemName: "paperclip")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.primary)
+                    .frame(width: 44, height: 44)
             }
+            .liquidGlass(Circle())
 
             HStack(alignment: .bottom, spacing: 6) {
                 TextField("Message", text: $input, axis: .vertical)
                     .lineLimit(1...6)
-                    .padding(.leading, 14)
-                    .padding(.vertical, 9)
-
-                if hasText {
-                    Button(action: send) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(Theme.onAccent(dark))
-                            .frame(width: 30, height: 30)
-                            .background(Theme.accent(dark), in: Circle())
-                    }
-                    .padding(.trailing, 4)
-                    .padding(.bottom, 3)
-                } else {
-                    HStack(spacing: 14) {
-                        Image(systemName: "face.smiling")
-                        Image(systemName: "camera")
-                        Image(systemName: "mic")
-                    }
-                    .font(.system(size: 20))
+                    .padding(.leading, 16)
+                    .padding(.vertical, 11)
+                Image(systemName: "face.smiling")
+                    .font(.system(size: 22))
                     .foregroundStyle(.secondary)
-                    .padding(.trailing, 12)
-                    .padding(.bottom, 9)
-                }
+                    .padding(.trailing, 14)
+                    .padding(.bottom, 10)
             }
-            .background(Theme.received(dark), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .liquidGlass(Capsule())
+
+            Button { if hasText { send() } } label: {
+                Image(systemName: hasText ? "arrow.up" : "mic.fill")
+                    .font(.system(size: 19, weight: hasText ? .bold : .regular))
+                    .foregroundStyle(.primary)
+                    .frame(width: 44, height: 44)
+            }
+            .liquidGlass(Circle())
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 12)
         .padding(.top, 6)
         .padding(.bottom, 8)
-        .background(.bar)
     }
 }
 
