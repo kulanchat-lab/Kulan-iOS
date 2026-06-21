@@ -42,6 +42,15 @@ final class ProfileStore {
         me = await fetch(uid)
     }
 
+    /// Permanently delete the account (Apple requires in-app deletion): removes
+    /// the profile doc and the Firebase auth user.
+    func deleteAccount() async throws {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        try? await db.collection("users").document(uid).delete()
+        try await Auth.auth().currentUser?.delete()
+        me = nil
+    }
+
     /// Upload a profile photo. Native Data -> Firebase Storage (no Hermes blob
     /// crash). Propagates the URL to the user doc + each conversation's photo map.
     func uploadPhoto(_ data: Data) async throws {

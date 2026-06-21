@@ -8,7 +8,10 @@ struct SettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     private var profile = ProfileStore.shared
+    @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
     @State private var showEdit = false
+    @State private var showDelete = false
+    @State private var working = false
 
     private var appVersion: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
@@ -37,6 +40,22 @@ struct SettingsView: View {
                     }
                 }
 
+                // Appearance — Light / Dark / System (applies app-wide instantly).
+                Section("Appearance") {
+                    Picker("Theme", selection: $appearanceRaw) {
+                        ForEach(AppAppearance.allCases) { Text($0.label).tag($0.rawValue) }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                }
+
+                // Account details.
+                Section("Account") {
+                    LabeledContent("Name", value: profile.me?.name ?? "—")
+                    LabeledContent("Username", value: profile.me.map { "@\($0.handle)" } ?? "—")
+                    LabeledContent("Account ID", value: String((AuthService.shared.uid ?? "").prefix(10)) + "…")
+                }
+
                 Section {
                     Label { Text("End-to-end encrypted") } icon: { Image(systemName: "lock.fill") }
                     LabeledContent("Version", value: appVersion)
@@ -52,7 +71,12 @@ struct SettingsView: View {
                         dismiss()
                         onSignOut()
                     } label: {
-                        Text("Sign Out")
+                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                    Button(role: .destructive) {
+                        showDelete = true
+                    } label: {
+                        Label("Delete Account", systemImage: "trash")
                     }
                 }
             }
@@ -61,7 +85,22 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
+            .disabled(working)
             .sheet(isPresented: $showEdit) { EditProfileView() }
+            .alert("Delete account?", isPresented: $showDelete) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    Task {
+                        working = true
+                        try? await profile.deleteAccount()
+                        working = false
+                        dismiss()
+                        onSignOut()
+                    }
+                }
+            } message: {
+                Text("This permanently deletes your account and profile. This can't be undone.")
+            }
         }
     }
 }

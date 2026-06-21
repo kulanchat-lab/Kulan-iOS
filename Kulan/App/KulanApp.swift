@@ -4,6 +4,8 @@ import FirebaseFirestore
 
 @main
 struct KulanApp: App {
+    @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
+
     init() {
         FirebaseApp.configure()
 
@@ -17,6 +19,7 @@ struct KulanApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .preferredColorScheme(AppAppearance(rawValue: appearanceRaw)?.colorScheme ?? nil)
         }
     }
 }

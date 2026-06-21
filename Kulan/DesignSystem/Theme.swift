@@ -13,6 +13,26 @@ extension Color {
     }
 }
 
+// App-wide appearance override (persisted in UserDefaults via @AppStorage).
+enum AppAppearance: String, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
 enum Theme {
     static func bg(_ dark: Bool) -> Color { dark ? Color(hex: 0x121214) : Color(hex: 0xFFFFFF) }
     static func bgSecondary(_ dark: Bool) -> Color { dark ? Color(hex: 0x121214) : Color(hex: 0xF2F2F7) }
