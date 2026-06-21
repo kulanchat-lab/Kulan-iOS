@@ -6,25 +6,25 @@
 	<string>AIzaSyCpqX1z9hMe8fHaAMOROyKHQU6dCLkvfqI</string>
 	<key>GCM_SENDER_ID</key>
 	<string>522284693527</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.kulan.messenger.native</string>
 	<key>PROJECT_ID</key>
 	<string>kulan-2ef85</string>
 	<key>STORAGE_BUCKET</key>
 	<string>kulan-2ef85.firebasestorage.app</string>
-	<key>GOOGLE_APP_ID</key>
-	<string>1:522284693527:ios:6a9af156b021a41d458452</string>
-	<key>BUNDLE_ID</key>
-	<string>com.kulan.messenger.native</string>
 	<key>IS_ADS_ENABLED</key>
-	<false/>
+	<false></false>
 	<key>IS_ANALYTICS_ENABLED</key>
-	<false/>
+	<false></false>
 	<key>IS_APPINVITE_ENABLED</key>
-	<true/>
+	<true></true>
 	<key>IS_GCM_ENABLED</key>
-	<true/>
+	<true></true>
 	<key>IS_SIGNIN_ENABLED</key>
-	<true/>
-	<key>PLIST_VERSION</key>
-	<string>1</string>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:522284693527:ios:cbc1000dc4cfc889458452</string>
 </dict>
 </plist>
