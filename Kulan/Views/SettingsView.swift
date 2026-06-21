@@ -83,6 +83,7 @@ struct AccountSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     private var profile = ProfileStore.shared
     @State private var showDelete = false
+    @State private var showSignOut = false
     @State private var working = false
 
     var body: some View {
@@ -93,9 +94,9 @@ struct AccountSettingsView: View {
                 LabeledContent("Account ID", value: String((AuthService.shared.uid ?? "").prefix(10)) + "…")
             }
             Section {
-                Button(role: .destructive) {
-                    try? Auth.auth().signOut(); dismiss(); onSignOut()
-                } label: { Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right") }
+                Button(role: .destructive) { showSignOut = true } label: {
+                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                }
                 Button(role: .destructive) { showDelete = true } label: {
                     Label("Delete Account", systemImage: "trash")
                 }
@@ -104,6 +105,14 @@ struct AccountSettingsView: View {
         .navigationTitle("Account")
         .navigationBarTitleDisplayMode(.inline)
         .disabled(working)
+        .alert("Sign out?", isPresented: $showSignOut) {
+            Button("Cancel", role: .cancel) {}
+            Button("Sign Out", role: .destructive) {
+                try? Auth.auth().signOut(); dismiss(); onSignOut()
+            }
+        } message: {
+            Text("You'll need to sign back in to use Kulan on this device.")
+        }
         .alert("Delete account?", isPresented: $showDelete) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {

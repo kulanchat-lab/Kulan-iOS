@@ -32,6 +32,8 @@ struct ChatsView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var showNew = false
     @State private var showSettings = false
+    @State private var openTarget: ChatTarget?
+    @State private var pendingDelete: Conversation?
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
@@ -57,9 +59,9 @@ struct ChatsView: View {
                             ChatRow(conv: conv, me: me, dark: dark)
                         }
                         .listRowSeparator(.hidden)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
-                                Task { await ChatService.deleteForMe(conv.id) }
+                                pendingDelete = conv
                             } label: { Label("Delete", systemImage: "trash") }
                             Button {
                                 let now = Date().timeIntervalSince1970 * 1000
@@ -94,8 +96,30 @@ struct ChatsView: View {
                 ThreadView(cid: conv.id, title: conv.name(for: me),
                            photoUrl: conv.photoUrl(for: me))
             }
-            .sheet(isPresented: $showNew) { NewChatView() }
+            .navigationDestination(item: $openTarget) { t in
+                ThreadView(cid: t.id, title: t.name, photoUrl: t.photo)
+            }
+            .sheet(isPresented: $showNew) {
+                NewChatView { t in
+                    // Push the thread first (behind the sheet), then dismiss — so
+                    // there's no flash back to the chat list mid-transition.
+                    openTarget = t
+                    showNew = false
+                }
+            }
             .sheet(isPresented: $showSettings) { SettingsView(onSignOut: onSignOut) }
+            .confirmationDialog("Delete this chat?",
+                                isPresented: Binding(get: { pendingDelete != nil },
+                                                     set: { if !$0 { pendingDelete = nil } }),
+                                titleVisibility: .visible) {
+                Button("Delete Chat", role: .destructive) {
+                    if let c = pendingDelete { Task { await ChatService.deleteForMe(c.id) } }
+                    pendingDelete = nil
+                }
+                Button("Cancel", role: .cancel) { pendingDelete = nil }
+            } message: {
+                Text("This removes the chat from your list. It comes back if you get a new message.")
+            }
         }
         .onAppear { repo.start() }
     }

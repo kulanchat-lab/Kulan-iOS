@@ -18,6 +18,7 @@ final class ThreadRepository {
     var otherOnline = false
     var otherLastActive: Date?
     var otherLastReadMillis: Double = 0
+    var iBlocked = false
 
     init(cid: String) { self.cid = cid }
 
@@ -30,6 +31,7 @@ final class ThreadRepository {
             .addSnapshotListener { [weak self] snap, _ in
                 let d = snap?.data()
                 self?.otherTyping = (d?["typing"] as? [String: Any])?[other] as? Bool ?? false
+                self?.iBlocked = (d?["blockedBy"] as? [String: Any])?[uid] as? Bool ?? false
                 if let ts = (d?["lastRead"] as? [String: Any])?[other] as? Timestamp {
                     self?.otherLastReadMillis = ts.dateValue().timeIntervalSince1970 * 1000
                 }

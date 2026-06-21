@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import Combine
 
 struct ThreadView: View {
     let cid: String
@@ -14,10 +15,20 @@ struct ThreadView: View {
     @State private var sendingPhoto = false
     @State private var typingSent = false
     @State private var viewerImage: Message?
+    @State private var keyboardHeight: CGFloat = 0
     @Environment(\.colorScheme) private var scheme
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
+
+    // Real bottom safe-area (home indicator) so the composer pins exactly to the
+    // keyboard top with no gap — read from the key window, not a GeometryReader.
+    private var bottomSafeInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }?.safeAreaInsets.bottom ?? 0
+    }
 
     init(cid: String, title: String, photoUrl: String?) {
         self.cid = cid
@@ -27,6 +38,7 @@ struct ThreadView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 4) {
@@ -59,17 +71,29 @@ struct ThreadView: View {
                 }
                 Task { await ChatService.markRead(cid) }
             }
+            .onChange(of: keyboardHeight) { _, _ in
+                if let last = repo.messages.last {
+                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(last.id, anchor: .bottom) }
+                }
+            }
         }
+        if repo.iBlocked { blockedBar } else { composerArea }
+        }
+        .padding(.bottom, max(0, keyboardHeight - bottomSafeInset))
+        .animation(.easeOut(duration: 0.25), value: keyboardHeight)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
-            ToolbarItem(placement: .principal) {
+            // Left-aligned header (sits right after the back chevron) — the
+            // WhatsApp/Telegram layout, not centered in the middle.
+            ToolbarItem(placement: .topBarLeading) {
                 NavigationLink {
                     ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
                 } label: {
-                    HStack(spacing: 8) {
-                        AvatarView(name: title, photoUrl: photoUrl, size: 30)
-                        VStack(spacing: 0) {
+                    HStack(spacing: 9) {
+                        AvatarView(name: title, photoUrl: photoUrl, size: 34)
+                        VStack(alignment: .leading, spacing: 1) {
                             Text(title).font(.headline).foregroundStyle(.primary)
                             if let sub = presenceSubtitle {
                                 Text(sub).font(.caption2)
@@ -80,9 +104,16 @@ struct ThreadView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom) { composerArea }
         .fullScreenCover(item: $viewerImage) { msg in
             ImageViewerView(message: msg, cid: cid)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            if let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                keyboardHeight = max(0, UIScreen.main.bounds.height - f.minY)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardHeight = 0
         }
         .onAppear {
             repo.start()
@@ -143,6 +174,20 @@ struct ThreadView: View {
         if let data = try? await item.loadTransferable(type: Data.self) {
             try? await ChatService.sendImage(cid: cid, data: data)
         }
+    }
+
+    // When I've blocked this contact, the composer is replaced by an unblock bar —
+    // you genuinely can't send while blocked (real enforcement, not cosmetic).
+    private var blockedBar: some View {
+        VStack(spacing: 6) {
+            Text("You blocked \(title)").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+            Button("Unblock") { Task { await ChatService.setBlocked(cid, false) } }
+                .font(.subheadline.weight(.semibold))
+                .tint(.red)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(.bar)
     }
 
     // Reply preview (if any) above the Liquid-Glass composer row.
@@ -228,6 +273,7 @@ struct MessageBubble: View {
     var otherLastRead: Double = 0
 
     @State private var dragX: CGFloat = 0
+    @State private var showDelete = false
 
     private var isRead: Bool {
         message.createdAt.timeIntervalSince1970 * 1000 <= otherLastRead
@@ -259,8 +305,12 @@ struct MessageBubble: View {
                         Button { UIPasteboard.general.string = message.text } label: { Label("Copy", systemImage: "doc.on.doc") }
                     }
                     if isMe {
-                        Button(role: .destructive) { onDelete(message) } label: { Label("Delete", systemImage: "trash") }
+                        Button(role: .destructive) { showDelete = true } label: { Label("Delete", systemImage: "trash") }
                     }
+                }
+                .confirmationDialog("Delete this message?", isPresented: $showDelete, titleVisibility: .visible) {
+                    Button("Delete", role: .destructive) { onDelete(message) }
+                    Button("Cancel", role: .cancel) {}
                 }
             if !isMe { Spacer(minLength: 50) }
         }
@@ -305,18 +355,20 @@ struct MessageBubble: View {
         } else {
             VStack(alignment: .leading, spacing: 4) {
                 replyQuote
-                Text(message.text)
-                    .font(.body)
-                    .foregroundColor(isMe ? Theme.onAccent(dark) : (dark ? .white : .black))
+                // Text + time laid out in a real HStack so the time can never
+                // overlap the words. Short msgs => same line; long msgs => the
+                // text wraps and the time stays at the bottom-right corner.
+                HStack(alignment: .bottom, spacing: 6) {
+                    Text(message.text)
+                        .font(.body)
+                        .foregroundColor(isMe ? Theme.onAccent(dark) : (dark ? .white : .black))
+                    metaRow.padding(.bottom, 1)
+                }
             }
-            .padding(.leading, 13)
-            .padding(.trailing, isMe ? 56 : 46)   // reserve room for the inline time/check
+            .padding(.horizontal, 13)
             .padding(.vertical, 7)
             .background(isMe ? Theme.accent(dark) : Theme.received(dark))
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(alignment: .bottomTrailing) {
-                metaRow.padding(.trailing, 10).padding(.bottom, 6)
-            }
         }
     }
 

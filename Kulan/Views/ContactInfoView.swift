@@ -17,6 +17,7 @@ struct ContactInfoView: View {
     @State private var media: [Message] = []
     @State private var viewerImage: Message?
     @State private var showClear = false
+    @State private var showBlock = false
 
     private var otherUid: String {
         let me = AuthService.shared.uid ?? ""
@@ -68,8 +69,15 @@ struct ContactInfoView: View {
             }
 
             Section {
-                Toggle(isOn: $blocked) { Label("Block \(name)", systemImage: "hand.raised").foregroundStyle(.red) }
-                    .onChange(of: blocked) { _, v in if loaded { Task { await ChatService.setBlocked(cid, v) } } }
+                if blocked {
+                    Button { Task { await ChatService.setBlocked(cid, false); blocked = false } } label: {
+                        Label("Unblock \(name)", systemImage: "hand.raised.slash")
+                    }
+                } else {
+                    Button(role: .destructive) { showBlock = true } label: {
+                        Label("Block \(name)", systemImage: "hand.raised")
+                    }
+                }
                 Button(role: .destructive) { showClear = true } label: {
                     Label("Clear my messages", systemImage: "trash")
                 }
@@ -86,6 +94,14 @@ struct ContactInfoView: View {
             }
         } message: {
             Text("This deletes the messages you sent in this chat. It can't be undone.")
+        }
+        .alert("Block \(name)?", isPresented: $showBlock) {
+            Button("Cancel", role: .cancel) {}
+            Button("Block", role: .destructive) {
+                Task { await ChatService.setBlocked(cid, true); blocked = true }
+            }
+        } message: {
+            Text("You won't be able to send messages in this chat until you unblock. \(name) won't be told they were blocked.")
         }
     }
 
