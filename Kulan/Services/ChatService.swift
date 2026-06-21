@@ -80,6 +80,17 @@ enum ChatService {
             .setData(["archivedBy": [uid: value]], merge: true)
     }
 
+    static func setMuted(_ cid: String, _ value: Bool) async {
+        let until: Double = value ? 9_999_999_999_999 : 0
+        try? await db.collection("conversations").document(cid)
+            .setData(["mutedBy": [uid: until]], merge: true)
+    }
+
+    static func setBlocked(_ cid: String, _ value: Bool) async {
+        try? await db.collection("conversations").document(cid)
+            .setData(["blockedBy": [uid: value]], merge: true)
+    }
+
     // MARK: - Discovery
 
     static func findByHandle(_ handle: String) async -> UserProfile? {

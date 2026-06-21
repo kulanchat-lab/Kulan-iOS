@@ -43,9 +43,13 @@ struct ThreadView: View {
         .toolbar {
             // The person you're talking to — avatar + name (native, centered).
             ToolbarItem(placement: .principal) {
-                HStack(spacing: 8) {
-                    AvatarView(name: title, photoUrl: photoUrl, size: 30)
-                    Text(title).font(.headline)
+                NavigationLink {
+                    ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
+                } label: {
+                    HStack(spacing: 8) {
+                        AvatarView(name: title, photoUrl: photoUrl, size: 30)
+                        Text(title).font(.headline).foregroundStyle(.primary)
+                    }
                 }
             }
         }
