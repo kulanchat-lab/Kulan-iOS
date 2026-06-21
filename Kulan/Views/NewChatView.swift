@@ -7,7 +7,8 @@ struct ChatTarget: Identifiable, Hashable {
 }
 
 struct NewChatView: View {
-    var onOpen: (ChatTarget) -> Void = { _ in }
+    let onOpen: (ChatTarget) -> Void
+    init(onOpen: @escaping (ChatTarget) -> Void = { _ in }) { self.onOpen = onOpen }
 
     @Environment(\.dismiss) private var dismiss
     private var convRepo = ConversationsRepository.shared
