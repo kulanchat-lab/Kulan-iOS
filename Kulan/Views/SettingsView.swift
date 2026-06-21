@@ -17,6 +17,11 @@ struct SettingsView: View {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
     }
 
+    private var inviteText: String {
+        let h = profile.me?.handle ?? ""
+        return h.isEmpty ? "Chat with me on Kulan." : "Chat with me on Kulan — my username is @\(h)"
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -54,6 +59,12 @@ struct SettingsView: View {
                     LabeledContent("Name", value: profile.me?.name ?? "—")
                     LabeledContent("Username", value: profile.me.map { "@\($0.handle)" } ?? "—")
                     LabeledContent("Account ID", value: String((AuthService.shared.uid ?? "").prefix(10)) + "…")
+                }
+
+                Section {
+                    ShareLink(item: inviteText) {
+                        Label("Invite Friends", systemImage: "person.badge.plus")
+                    }
                 }
 
                 Section {
