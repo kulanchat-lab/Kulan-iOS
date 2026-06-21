@@ -1,0 +1,37 @@
+name: iOS Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Resolve Swift packages
+        run: xcodebuild -resolvePackageDependencies -project Kulan.xcodeproj -scheme Kulan
+
+      # First milestone: compile for the simulator (no signing). Proves the whole
+      # stack builds — SwiftUI + Firebase + libsodium + Crypto.swift — before we
+      # add signing/TestFlight.
+      - name: Build (simulator, no signing)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Kulan.xcodeproj \
+            -scheme Kulan \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO
