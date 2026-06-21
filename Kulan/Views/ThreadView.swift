@@ -38,9 +38,17 @@ struct ThreadView: View {
                 }
             }
         }
-        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            // The person you're talking to — avatar + name (native, centered).
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 8) {
+                    AvatarView(name: title, photoUrl: photoUrl, size: 30)
+                    Text(title).font(.headline)
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom) { composer }
         .onAppear {
             repo.start()
