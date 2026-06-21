@@ -7,6 +7,7 @@ struct SecureImageView: View {
     let imageUrl: String
     let enc: EncMeta?
     let cid: String
+    var fill: Bool = true
 
     @State private var image: UIImage?
     @State private var failed = false
@@ -14,7 +15,11 @@ struct SecureImageView: View {
     var body: some View {
         ZStack {
             if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+                if fill {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else {
+                    Image(uiImage: image).resizable().scaledToFit()
+                }
             } else {
                 Rectangle().fill(Color.gray.opacity(0.18))
                     .overlay {

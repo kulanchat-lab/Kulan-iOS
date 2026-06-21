@@ -13,6 +13,7 @@ struct ThreadView: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var sendingPhoto = false
     @State private var typingSent = false
+    @State private var viewerImage: Message?
     @Environment(\.colorScheme) private var scheme
 
     private var me: String { AuthService.shared.uid ?? "" }
@@ -34,7 +35,8 @@ struct ThreadView: View {
                             message: msg, isMe: msg.authorId == me, dark: dark, cid: cid,
                             nameFor: { $0 == me ? "You" : title },
                             onReply: { replyingTo = $0 },
-                            onDelete: { m in Task { await ChatService.deleteMessage(cid: cid, messageId: m.id) } }
+                            onDelete: { m in Task { await ChatService.deleteMessage(cid: cid, messageId: m.id) } },
+                            onTapImage: { viewerImage = $0 }
                         )
                         .id(msg.id)
                     }
@@ -69,6 +71,9 @@ struct ThreadView: View {
             }
         }
         .safeAreaInset(edge: .bottom) { composerArea }
+        .fullScreenCover(item: $viewerImage) { msg in
+            ImageViewerView(message: msg, cid: cid)
+        }
         .onAppear {
             repo.start()
             Task { await ChatService.resetUnread(cid) }
@@ -186,6 +191,9 @@ struct MessageBubble: View {
     var nameFor: (String) -> String = { _ in "" }
     var onReply: (Message) -> Void = { _ in }
     var onDelete: (Message) -> Void = { _ in }
+    var onTapImage: (Message) -> Void = { _ in }
+
+    @State private var dragX: CGFloat = 0
 
     var body: some View {
         HStack {
@@ -202,6 +210,26 @@ struct MessageBubble: View {
                 }
             if !isMe { Spacer(minLength: 50) }
         }
+        // Telegram-style swipe-to-reply: drag the bubble left past a threshold.
+        .overlay(alignment: .trailing) {
+            Image(systemName: "arrowshape.turn.up.left.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .opacity(Double(min(abs(min(dragX, 0)) / 50, 1)))
+                .padding(.trailing, 6)
+        }
+        .offset(x: dragX)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 18)
+                .onChanged { v in if v.translation.width < 0 { dragX = max(v.translation.width, -70) } }
+                .onEnded { _ in
+                    if dragX < -50 {
+                        onReply(message)
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { dragX = 0 }
+                }
+        )
     }
 
     @ViewBuilder private var content: some View {
@@ -211,6 +239,7 @@ struct MessageBubble: View {
                 SecureImageView(imageUrl: url, enc: message.enc, cid: cid)
                     .frame(width: 220, height: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .onTapGesture { onTapImage(message) }
             }
         } else {
             VStack(alignment: .leading, spacing: 4) {
