@@ -25,7 +25,8 @@ struct CallsView: View {
 }
 
 struct ChatsView: View {
-    var onSignOut: () -> Void = {}
+    var onSignOut: () -> Void
+    init(onSignOut: @escaping () -> Void = {}) { self.onSignOut = onSignOut }
     private var repo = ConversationsRepository.shared
     private var profile = ProfileStore.shared
     @Environment(\.colorScheme) private var scheme

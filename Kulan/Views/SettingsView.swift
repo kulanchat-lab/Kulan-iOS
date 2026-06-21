@@ -3,10 +3,12 @@ import PhotosUI
 import FirebaseAuth
 
 struct SettingsView: View {
+    var onSignOut: () -> Void
+    init(onSignOut: @escaping () -> Void) { self.onSignOut = onSignOut }
+
     @Environment(\.dismiss) private var dismiss
     private var profile = ProfileStore.shared
     @State private var showEdit = false
-    var onSignOut: () -> Void
 
     private var appVersion: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
