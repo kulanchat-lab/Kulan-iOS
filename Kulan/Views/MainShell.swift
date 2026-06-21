@@ -3,9 +3,10 @@ import SwiftUI
 // Native TabView keeps both tabs permanently mounted -> the header avatar never
 // unmounts/blinks on tab switch (the RN bug, solved structurally).
 struct MainShell: View {
+    var onSignOut: () -> Void
     var body: some View {
         TabView {
-            ChatsView()
+            ChatsView(onSignOut: onSignOut)
                 .tabItem { Label("Chats", systemImage: "bubble.left.fill") }
             CallsView()
                 .tabItem { Label("Calls", systemImage: "phone.fill") }
@@ -24,9 +25,12 @@ struct CallsView: View {
 }
 
 struct ChatsView: View {
+    var onSignOut: () -> Void = {}
     private var repo = ConversationsRepository.shared
+    private var profile = ProfileStore.shared
     @Environment(\.colorScheme) private var scheme
     @State private var showNew = false
+    @State private var showSettings = false
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
@@ -57,6 +61,11 @@ struct ChatsView: View {
             }
             .navigationTitle("Chats")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showSettings = true } label: {
+                        AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 30)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showNew = true } label: { Image(systemName: "square.and.pencil") }
                 }
@@ -66,6 +75,7 @@ struct ChatsView: View {
                            photoUrl: conv.photoUrl(for: me))
             }
             .sheet(isPresented: $showNew) { NewChatView() }
+            .sheet(isPresented: $showSettings) { SettingsView(onSignOut: onSignOut) }
         }
         .onAppear { repo.start() }
     }

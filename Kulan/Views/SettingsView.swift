@@ -1,0 +1,154 @@
+import SwiftUI
+import PhotosUI
+import FirebaseAuth
+
+struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    private var profile = ProfileStore.shared
+    @State private var showEdit = false
+    var onSignOut: () -> Void
+
+    private var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                // Profile card — native inset-grouped row (Apple Settings look).
+                Section {
+                    Button { showEdit = true } label: {
+                        HStack(spacing: 14) {
+                            AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 60)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(profile.me?.name ?? "You")
+                                    .font(.title3.weight(.semibold)).foregroundStyle(.primary)
+                                if let h = profile.me?.handle, !h.isEmpty {
+                                    Text("@\(h)").font(.subheadline).foregroundStyle(.secondary)
+                                }
+                                Text("Edit profile").font(.footnote).foregroundStyle(.tint)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+
+                Section {
+                    Label { Text("End-to-end encrypted") } icon: { Image(systemName: "lock.fill") }
+                    LabeledContent("Version", value: appVersion)
+                } header: {
+                    Text("About")
+                } footer: {
+                    Text("Kulan — a Somali messenger. Messages are end-to-end encrypted.")
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        try? Auth.auth().signOut()
+                        dismiss()
+                        onSignOut()
+                    } label: {
+                        Text("Sign Out")
+                    }
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+            }
+            .sheet(isPresented: $showEdit) { EditProfileView() }
+        }
+    }
+}
+
+struct EditProfileView: View {
+    @Environment(\.dismiss) private var dismiss
+    private var profile = ProfileStore.shared
+    @State private var name = ""
+    @State private var handle = ""
+    @State private var photoItem: PhotosPickerItem?
+    @State private var uploading = false
+    @State private var saving = false
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack {
+                        Spacer()
+                        PhotosPicker(selection: $photoItem, matching: .images) {
+                            ZStack(alignment: .bottomTrailing) {
+                                AvatarView(name: name, photoUrl: profile.me?.photoUrl, size: 96)
+                                if uploading {
+                                    ProgressView().padding(8).background(.thinMaterial, in: Circle())
+                                } else {
+                                    Image(systemName: "camera.fill")
+                                        .font(.caption).padding(7)
+                                        .background(.thinMaterial, in: Circle())
+                                }
+                            }
+                        }
+                        Spacer()
+                    }
+                    .listRowBackground(Color.clear)
+                }
+
+                Section("Name") {
+                    TextField("Your name", text: $name).textInputAutocapitalization(.words)
+                }
+                Section("Username") {
+                    TextField("username", text: $handle)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                }
+                if let error { Text(error).foregroundStyle(.red) }
+            }
+            .navigationTitle("Edit Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") { Task { await save() } }.disabled(saving).fontWeight(.semibold)
+                }
+            }
+            .onAppear {
+                name = profile.me?.name ?? ""
+                handle = profile.me?.handle ?? ""
+            }
+            .onChange(of: photoItem) { _, item in Task { await upload(item) } }
+        }
+    }
+
+    private func upload(_ item: PhotosPickerItem?) async {
+        guard let item else { return }
+        uploading = true; error = nil
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else { uploading = false; return }
+            try await profile.uploadPhoto(data)
+        } catch {
+            self.error = "Photo upload failed: \(error.localizedDescription)"
+        }
+        uploading = false
+    }
+
+    private func save() async {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        let h = handle.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !n.isEmpty else { error = "Enter your name"; return }
+        guard h.count >= 3 else { error = "Username must be at least 3 characters"; return }
+        saving = true; error = nil
+        do {
+            if let existing = await ChatService.findByHandle(h), existing.id != AuthService.shared.uid {
+                error = "That username is taken"; saving = false; return
+            }
+            try await profile.updateProfile(name: n, handle: h)
+            dismiss()
+        } catch {
+            self.error = "Could not save: \(error.localizedDescription)"
+        }
+        saving = false
+    }
+}

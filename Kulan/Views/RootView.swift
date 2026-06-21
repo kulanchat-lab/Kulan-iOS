@@ -14,15 +14,18 @@ struct RootView: View {
             case .onboarding:
                 OnboardingView { phase = .main }
             case .main:
-                MainShell()
+                MainShell(onSignOut: { Task { await route() } })
             }
         }
-        .task {
-            await AuthService.shared.bootstrap()
-            try? await Crypto.shared.ensureReady()
-            await ProfileStore.shared.loadMine()
-            phase = (ProfileStore.shared.me?.handle.isEmpty == false) ? .main : .onboarding
-        }
+        .task { await route() }
+    }
+
+    private func route() async {
+        phase = .loading
+        await AuthService.shared.bootstrap()
+        try? await Crypto.shared.ensureReady()
+        await ProfileStore.shared.loadMine()
+        phase = (ProfileStore.shared.me?.handle.isEmpty == false) ? .main : .onboarding
     }
 }
 

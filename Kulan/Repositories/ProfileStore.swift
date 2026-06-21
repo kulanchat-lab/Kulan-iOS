@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseStorage
 
 /// My profile + lookups for other users. The header avatar reads `me` (loaded
 /// once at launch) — native TabView keeps it mounted, so no re-fetch/blink.
@@ -38,6 +39,26 @@ final class ProfileStore {
             "handle": h,
             "handleLower": h.lowercased(),
         ], merge: true)
+        me = await fetch(uid)
+    }
+
+    /// Upload a profile photo. Native Data -> Firebase Storage (no Hermes blob
+    /// crash). Propagates the URL to the user doc + each conversation's photo map.
+    func uploadPhoto(_ data: Data) async throws {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        let ref = Storage.storage().reference().child("profiles/\(uid).jpg")
+        let meta = StorageMetadata(); meta.contentType = "image/jpeg"
+        _ = try await ref.putDataAsync(data, metadata: meta)
+        let url = try await ref.downloadURL().absoluteString
+
+        try await db.collection("users").document(uid).setData(["photoUrl": url], merge: true)
+
+        let snap = try await db.collection("conversations")
+            .whereField("users", arrayContains: uid).getDocuments()
+        let batch = db.batch()
+        for d in snap.documents { batch.updateData(["photos.\(uid)": url], forDocument: d.reference) }
+        try await batch.commit()
+
         me = await fetch(uid)
     }
 }
