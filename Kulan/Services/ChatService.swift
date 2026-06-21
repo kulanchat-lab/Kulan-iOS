@@ -96,6 +96,32 @@ enum ChatService {
         try await batch.commit()
     }
 
+    /// Recent image messages in a conversation (for the Shared Media section).
+    /// Filters client-side to avoid needing a composite index.
+    static func sharedMedia(_ cid: String) async -> [Message] {
+        do {
+            let snap = try await db.collection("conversations").document(cid).collection("messages")
+                .order(by: "createdAt", descending: true)
+                .limit(to: 60).getDocuments()
+            return snap.documents
+                .map { Message(id: $0.documentID, data: $0.data(), cid: cid, crypto: Crypto.shared) }
+                .filter { $0.isImage }
+        } catch {
+            return []
+        }
+    }
+
+    /// Delete all of MY messages in this conversation ("Clear chat" for me).
+    static func clearMyMessages(_ cid: String) async {
+        do {
+            let snap = try await db.collection("conversations").document(cid).collection("messages")
+                .whereField("authorId", isEqualTo: uid).getDocuments()
+            let batch = db.batch()
+            snap.documents.forEach { batch.deleteDocument($0.reference) }
+            try await batch.commit()
+        } catch { /* ignore */ }
+    }
+
     static func deleteMessage(cid: String, messageId: String) async {
         try? await db.collection("conversations").document(cid)
             .collection("messages").document(messageId).delete()
