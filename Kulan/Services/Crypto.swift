@@ -21,6 +21,7 @@
 //                       Firebase (FirebaseFirestore, FirebaseAuth)
 
 import Foundation
+import Security
 import Sodium
 import FirebaseFirestore
 import FirebaseAuth
