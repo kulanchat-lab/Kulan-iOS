@@ -62,7 +62,7 @@ struct Message: Identifiable, Equatable {
     }
 }
 
-struct Conversation: Identifiable, Equatable {
+struct Conversation: Identifiable, Equatable, Hashable {
     let id: String            // cid ("uidA_uidB")
     var users: [String]
     var names: [String: String]
