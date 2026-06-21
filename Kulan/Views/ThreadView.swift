@@ -30,7 +30,14 @@ struct ThreadView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 4) {
-                    ForEach(repo.messages) { msg in
+                    ForEach(Array(repo.messages.enumerated()), id: \.element.id) { index, msg in
+                        if shouldShowDate(at: index) {
+                            Text(dayLabel(msg.createdAt))
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                        }
                         MessageBubble(
                             message: msg, isMe: msg.authorId == me, dark: dark, cid: cid,
                             nameFor: { $0 == me ? "You" : title },
@@ -90,6 +97,19 @@ struct ThreadView: View {
 
     private var hasText: Bool {
         !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func shouldShowDate(at index: Int) -> Bool {
+        guard index > 0 else { return true }
+        return !Calendar.current.isDate(repo.messages[index - 1].createdAt,
+                                        inSameDayAs: repo.messages[index].createdAt)
+    }
+
+    private func dayLabel(_ d: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(d) { return "Today" }
+        if cal.isDateInYesterday(d) { return "Yesterday" }
+        return d.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
     }
 
     private var presenceSubtitle: String? {
@@ -213,8 +233,24 @@ struct MessageBubble: View {
         message.createdAt.timeIntervalSince1970 * 1000 <= otherLastRead
     }
 
+    private var timeString: String {
+        message.createdAt.formatted(date: .omitted, time: .shortened)
+    }
+
+    // Time + read-check, shown INSIDE the bubble bottom-right (Signal style).
+    @ViewBuilder private var metaRow: some View {
+        HStack(spacing: 3) {
+            Text(timeString).font(.system(size: 10))
+            if isMe {
+                Image(systemName: isRead ? "checkmark.circle.fill" : "checkmark")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+        }
+        .foregroundStyle(isMe ? Theme.onAccent(dark).opacity(0.7) : Color.secondary)
+    }
+
     var body: some View {
-        HStack(alignment: .bottom, spacing: 4) {
+        HStack {
             if isMe { Spacer(minLength: 50) }
             content
                 .contextMenu {
@@ -226,12 +262,6 @@ struct MessageBubble: View {
                         Button(role: .destructive) { onDelete(message) } label: { Label("Delete", systemImage: "trash") }
                     }
                 }
-            if isMe {
-                Image(systemName: isRead ? "checkmark.circle.fill" : "checkmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(isRead ? Color.blue : Color.secondary)
-                    .padding(.bottom, 2)
-            }
             if !isMe { Spacer(minLength: 50) }
         }
         // Telegram-style swipe-to-reply: drag the bubble left past a threshold.
@@ -263,6 +293,13 @@ struct MessageBubble: View {
                 SecureImageView(imageUrl: url, enc: message.enc, cid: cid)
                     .frame(width: 220, height: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(alignment: .bottomTrailing) {
+                        metaRow
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(.black.opacity(0.35), in: Capsule())
+                            .foregroundStyle(.white)
+                            .padding(7)
+                    }
                     .onTapGesture { onTapImage(message) }
             }
         } else {
@@ -272,9 +309,14 @@ struct MessageBubble: View {
                     .font(.body)
                     .foregroundColor(isMe ? Theme.onAccent(dark) : (dark ? .white : .black))
             }
-            .padding(.horizontal, 13).padding(.vertical, 8)
+            .padding(.leading, 13)
+            .padding(.trailing, isMe ? 56 : 46)   // reserve room for the inline time/check
+            .padding(.vertical, 7)
             .background(isMe ? Theme.accent(dark) : Theme.received(dark))
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(alignment: .bottomTrailing) {
+                metaRow.padding(.trailing, 10).padding(.bottom, 6)
+            }
         }
     }
 

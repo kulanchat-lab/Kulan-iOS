@@ -112,22 +112,43 @@ struct ChatRow: View {
     }
     private var unread: Int { conv.unread(me) }
 
+    private var timeStr: String {
+        let ms = conv.updatedAtMillis
+        guard ms > 0 else { return "" }
+        let d = Date(timeIntervalSince1970: ms / 1000)
+        let cal = Calendar.current
+        if cal.isDateInToday(d) { return d.formatted(date: .omitted, time: .shortened) }
+        if cal.isDateInYesterday(d) { return "Yesterday" }
+        if let days = cal.dateComponents([.day], from: d, to: Date()).day, days < 7 {
+            return d.formatted(.dateTime.weekday(.abbreviated))
+        }
+        return d.formatted(.dateTime.month(.abbreviated).day())
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             AvatarView(name: conv.name(for: me), photoUrl: conv.photoUrl(for: me), size: 52)
             VStack(alignment: .leading, spacing: 3) {
-                Text(conv.name(for: me))
-                    .font(.system(size: 17, weight: unread > 0 ? .semibold : .regular))
-                    .lineLimit(1)
-                Text(preview)
-                    .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer()
-            if unread > 0 {
-                Text("\(min(unread, 99))")
-                    .font(.caption2.bold()).foregroundColor(Theme.onAccent(dark))
-                    .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(Theme.accent(dark)).clipShape(Capsule())
+                HStack {
+                    Text(conv.name(for: me))
+                        .font(.system(size: 17, weight: unread > 0 ? .semibold : .regular))
+                        .lineLimit(1)
+                    Spacer()
+                    Text(timeStr)
+                        .font(.caption)
+                        .foregroundStyle(unread > 0 ? Theme.accent(dark) : .secondary)
+                }
+                HStack {
+                    Text(preview)
+                        .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer()
+                    if unread > 0 {
+                        Text("\(min(unread, 99))")
+                            .font(.caption2.bold()).foregroundColor(Theme.onAccent(dark))
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Theme.accent(dark)).clipShape(Capsule())
+                    }
+                }
             }
         }
         .padding(.vertical, 6)
