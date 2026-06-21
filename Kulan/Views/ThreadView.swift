@@ -49,30 +49,61 @@ struct ThreadView: View {
         .onDisappear { repo.stop() }
     }
 
-    private var composer: some View {
-        HStack(spacing: 8) {
-            TextField("Message", text: $input, axis: .vertical)
-                .lineLimit(1...6)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(Theme.received(dark))
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    private var hasText: Bool {
+        !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
-            Button {
-                let text = input
-                input = ""
-                Task { try? await ChatService.sendText(cid: cid, text: text) }
-            } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(Theme.onAccent(dark))
-                    .frame(width: 40, height: 40)
-                    .background(Theme.accent(dark))
-                    .clipShape(Circle())
+    private func send() {
+        let text = input
+        input = ""
+        Task { try? await ChatService.sendText(cid: cid, text: text) }
+    }
+
+    // Native iMessage-style composer: a left "+" circle, a unified soft-gray
+    // capsule holding the text field + inline action glyphs, on a translucent base.
+    private var composer: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            Button {} label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, height: 36)
+                    .background(Theme.received(dark), in: Circle())
             }
-            .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            HStack(alignment: .bottom, spacing: 6) {
+                TextField("Message", text: $input, axis: .vertical)
+                    .lineLimit(1...6)
+                    .padding(.leading, 14)
+                    .padding(.vertical, 9)
+
+                if hasText {
+                    Button(action: send) {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(Theme.onAccent(dark))
+                            .frame(width: 30, height: 30)
+                            .background(Theme.accent(dark), in: Circle())
+                    }
+                    .padding(.trailing, 4)
+                    .padding(.bottom, 3)
+                } else {
+                    HStack(spacing: 14) {
+                        Image(systemName: "face.smiling")
+                        Image(systemName: "camera")
+                        Image(systemName: "mic")
+                    }
+                    .font(.system(size: 20))
+                    .foregroundStyle(.secondary)
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 9)
+                }
+            }
+            .background(Theme.received(dark), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
         .background(.bar)
     }
 }
