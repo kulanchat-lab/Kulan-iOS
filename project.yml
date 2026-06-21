@@ -1,0 +1,52 @@
+# XcodeGen spec — generates Kulan.xcodeproj on the CI runner (no Mac needed to author).
+# Run: `xcodegen generate` inside native/
+name: Kulan
+options:
+  bundleIdPrefix: com.kulan
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: "11.4.0"
+  Sodium:
+    url: https://github.com/jedisct1/swift-sodium
+    from: "0.9.1"
+
+targets:
+  Kulan:
+    type: application
+    platform: iOS
+    sources:
+      - path: Kulan
+    info:
+      path: Kulan/Info.plist
+      properties:
+        CFBundleDisplayName: Kulan
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        ITSAppUsesNonExemptEncryption: false
+        NSPhotoLibraryUsageDescription: "Kulan needs photo access so you can send pictures in chats."
+        NSCameraUsageDescription: "Kulan needs camera access so you can take photos in chats."
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kulan.messenger.native
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.10"
+    dependencies:
+      - package: Firebase
+        product: FirebaseFirestore
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseStorage
+      - package: Sodium
+        product: Sodium
