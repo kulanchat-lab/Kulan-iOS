@@ -208,7 +208,7 @@ struct ThreadView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .background(fieldFill, in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 12)
             }
             composer
