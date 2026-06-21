@@ -31,48 +31,46 @@ struct RootView: View {
 
 struct OnboardingView: View {
     var onDone: () -> Void
-    @Environment(\.colorScheme) private var scheme
     @State private var name = ""
     @State private var handle = ""
     @State private var saving = false
     @State private var error: String?
 
-    private var dark: Bool { scheme == .dark }
-
     var body: some View {
-        VStack(spacing: 18) {
-            Spacer()
-            Text("Welcome to Kulan").font(.largeTitle.weight(.bold))
-            Text("Pick a name and a username so friends can find you.")
-                .font(.subheadline).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-
-            VStack(spacing: 12) {
-                TextField("Your name", text: $name)
-                    .textInputAutocapitalization(.words)
-                    .padding().background(Theme.card(dark)).clipShape(RoundedRectangle(cornerRadius: 14))
-                TextField("username", text: $handle)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .padding().background(Theme.card(dark)).clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-
-            if let error { Text(error).foregroundStyle(.red).font(.footnote) }
-
-            Button {
-                Task { await save() }
-            } label: {
-                Group {
-                    if saving { ProgressView().tint(Theme.onAccent(dark)) }
-                    else { Text("Continue").fontWeight(.semibold) }
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Your name", text: $name)
+                        .textInputAutocapitalization(.words)
+                    TextField("Username", text: $handle)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                } header: {
+                    Text("Create your profile")
+                } footer: {
+                    Text("Pick a name and a username so friends can find you.")
                 }
-                .frame(maxWidth: .infinity).frame(height: 50)
-                .background(Theme.accent(dark)).foregroundColor(Theme.onAccent(dark))
-                .clipShape(RoundedRectangle(cornerRadius: 25))
+                if let error {
+                    Section { Text(error).foregroundStyle(.red) }
+                }
             }
-            .disabled(saving)
-            Spacer()
+            .navigationTitle("Welcome to Kulan")
+            .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    Task { await save() }
+                } label: {
+                    if saving {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Text("Continue").fontWeight(.semibold).frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .padding()
+                .disabled(saving)
+            }
         }
-        .padding(24)
     }
 
     private func save() async {
