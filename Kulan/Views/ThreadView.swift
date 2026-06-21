@@ -66,9 +66,9 @@ struct ThreadView: View {
         HStack(alignment: .bottom, spacing: 10) {
             Button {} label: {
                 Image(systemName: "paperclip")
-                    .font(.system(size: 20))
+                    .font(.system(size: 18))
                     .foregroundStyle(.primary)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 40, height: 40)
             }
             .liquidGlass(Circle())
 
@@ -76,20 +76,21 @@ struct ThreadView: View {
                 TextField("Message", text: $input, axis: .vertical)
                     .lineLimit(1...6)
                     .padding(.leading, 16)
-                    .padding(.vertical, 11)
+                    .padding(.vertical, 10)
                 Image(systemName: "face.smiling")
-                    .font(.system(size: 22))
+                    .font(.system(size: 20))
                     .foregroundStyle(.secondary)
-                    .padding(.trailing, 14)
-                    .padding(.bottom, 10)
+                    .padding(.trailing, 13)
+                    .padding(.bottom, 9)
             }
+            .frame(minHeight: 40)
             .liquidGlass(Capsule())
 
             Button { if hasText { send() } } label: {
                 Image(systemName: hasText ? "arrow.up" : "mic.fill")
-                    .font(.system(size: 19, weight: hasText ? .bold : .regular))
+                    .font(.system(size: 17, weight: hasText ? .bold : .regular))
                     .foregroundStyle(.primary)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 40, height: 40)
             }
             .liquidGlass(Circle())
         }
