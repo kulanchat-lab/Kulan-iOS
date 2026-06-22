@@ -2,15 +2,18 @@ import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
 
-// Conversation info — reached by tapping the chat header. Our take on the
-// WhatsApp/Telegram/Signal contact screen: identity, shared media, mute, block,
-// clear chat. (Calls/search/disappearing-msgs omitted until those features exist.)
+// Telegram-style profile screen: hero avatar, quick-action tiles, bio card, and a
+// shared-media card. Real where the data exists (name/@handle, mute, block, clear,
+// shared media, bio); honest "coming soon" for features not built yet (calls live
+// on a separate branch; in-chat search isn't built). No fabricated data — the title
+// is the @handle (Kulan has no phone numbers).
 struct ContactInfoView: View {
     let cid: String
     let name: String
     let photoUrl: String?
 
     @State private var handle = ""
+    @State private var about = ""
     @State private var muted = false
     @State private var blocked = false
     @State private var loaded = false
@@ -18,75 +21,34 @@ struct ContactInfoView: View {
     @State private var viewerImage: Message?
     @State private var showClear = false
     @State private var showBlock = false
+    @State private var showCallSoon = false
+    @State private var showSearchSoon = false
+    @State private var showAllMedia = false
+    @Environment(\.colorScheme) private var scheme
 
+    private var dark: Bool { scheme == .dark }
+    private var cardColor: Color { dark ? Color(hex: 0x1C1C1E) : Color(hex: 0xF2F2F7) }
     private var otherUid: String {
         let me = AuthService.shared.uid ?? ""
         return cid.split(separator: "_").map(String.init).first { $0 != me } ?? ""
     }
 
     var body: some View {
-        List {
-            // Identity header (centered).
-            Section {
-                VStack(spacing: 10) {
-                    AvatarView(name: name, photoUrl: photoUrl, size: 96)
-                    Text(name).font(.title2.weight(.bold))
-                    if !handle.isEmpty {
-                        Text("@\(handle)").font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    Label("End-to-end encrypted", systemImage: "lock.fill")
-                        .font(.footnote).foregroundStyle(.secondary)
-                        .padding(.top, 2)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .listRowBackground(Color.clear)
+        ScrollView {
+            VStack(spacing: 16) {
+                hero
+                quickActions
+                if !about.isEmpty { bioCard }
+                if !media.isEmpty { mediaCard }
             }
-
-            // Shared media strip (real — the encrypted images shared in this chat).
-            if !media.isEmpty {
-                Section("Shared Media") {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(media) { m in
-                                if let url = m.imageUrl {
-                                    SecureImageView(imageUrl: url, enc: m.enc, cid: cid)
-                                        .frame(width: 80, height: 80)
-                                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                                        .onTapGesture { viewerImage = m }
-                                }
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
-                }
-            }
-
-            Section {
-                Toggle(isOn: $muted) { Label("Mute", systemImage: "bell.slash") }
-                    .onChange(of: muted) { _, v in if loaded { Task { await ChatService.setMuted(cid, v) } } }
-            }
-
-            Section {
-                if blocked {
-                    Button { Task { await ChatService.setBlocked(cid, false); blocked = false } } label: {
-                        Label("Unblock \(name)", systemImage: "hand.raised.slash")
-                    }
-                } else {
-                    Button(role: .destructive) { showBlock = true } label: {
-                        Label("Block \(name)", systemImage: "hand.raised")
-                    }
-                }
-                Button(role: .destructive) { showClear = true } label: {
-                    Label("Clear my messages", systemImage: "trash")
-                }
-            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
         }
-        .navigationTitle("Info")
+        .navigationTitle(handle.isEmpty ? name : "@\(handle)")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .fullScreenCover(item: $viewerImage) { msg in ImageViewerView(message: msg, cid: cid) }
+        .sheet(isPresented: $showAllMedia) { SharedMediaGridView(cid: cid, media: media) }
         .alert("Clear your messages?", isPresented: $showClear) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
@@ -103,10 +65,106 @@ struct ContactInfoView: View {
         } message: {
             Text("You won't be able to send messages in this chat until you unblock. \(name) won't be told they were blocked.")
         }
+        .alert("Voice calls", isPresented: $showCallSoon) {
+            Button("OK", role: .cancel) {}
+        } message: { Text("Voice calling is coming soon.") }
+        .alert("Search", isPresented: $showSearchSoon) {
+            Button("OK", role: .cancel) {}
+        } message: { Text("In-chat search is coming soon.") }
+    }
+
+    // MARK: - Sections
+
+    private var hero: some View {
+        VStack(spacing: 6) {
+            AvatarView(name: name, photoUrl: photoUrl, size: 104)
+            Text(name).font(.title.weight(.bold))
+            if !handle.isEmpty {
+                Text("@\(handle)").font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+    }
+
+    private var quickActions: some View {
+        HStack(spacing: 12) {
+            actionTile("call", "phone.fill") { showCallSoon = true }
+            actionTile(muted ? "unmute" : "mute", muted ? "bell.fill" : "bell.slash.fill") { toggleMute() }
+            actionTile("search", "magnifyingglass") { showSearchSoon = true }
+            Menu {
+                if blocked {
+                    Button { Task { await ChatService.setBlocked(cid, false); blocked = false } } label: {
+                        Label("Unblock", systemImage: "hand.raised.slash")
+                    }
+                } else {
+                    Button(role: .destructive) { showBlock = true } label: {
+                        Label("Block \(name)", systemImage: "hand.raised")
+                    }
+                }
+                Button(role: .destructive) { showClear = true } label: {
+                    Label("Clear my messages", systemImage: "trash")
+                }
+            } label: { tileLabel("more", "ellipsis") }
+                .tint(.primary)
+        }
+    }
+
+    private func actionTile(_ title: String, _ icon: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) { tileLabel(title, icon) }.tint(.primary)
+    }
+
+    private func tileLabel(_ title: String, _ icon: String) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 19))
+            Text(title).font(.caption)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .foregroundStyle(.primary)
+        .background(cardColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var bioCard: some View {
+        Text(about)
+            .font(.body)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(cardColor, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var mediaCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(media.prefix(12)) { m in
+                        if let url = m.imageUrl {
+                            SecureImageView(imageUrl: url, enc: m.enc, cid: cid)
+                                .frame(width: 84, height: 84)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .onTapGesture { viewerImage = m }
+                        }
+                    }
+                }
+            }
+            Button("See All") { showAllMedia = true }
+                .font(.subheadline.weight(.medium))
+                .tint(.primary)
+        }
+        .padding(14)
+        .background(cardColor, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    // MARK: - Logic
+
+    private func toggleMute() {
+        muted.toggle()
+        let v = muted
+        Task { await ChatService.setMuted(cid, v) }
     }
 
     private func load() async {
-        if let p = await ProfileStore.shared.fetch(otherUid) { handle = p.handle }
+        if let p = await ProfileStore.shared.fetch(otherUid) { handle = p.handle; about = p.about }
         if let snap = try? await Firestore.firestore().collection("conversations").document(cid).getDocument(),
            let d = snap.data() {
             let me = AuthService.shared.uid ?? ""
@@ -116,5 +174,39 @@ struct ContactInfoView: View {
         }
         media = await ChatService.sharedMedia(cid)
         loaded = true
+    }
+}
+
+// Full shared-media gallery (reached via "See All").
+struct SharedMediaGridView: View {
+    let cid: String
+    let media: [Message]
+    @Environment(\.dismiss) private var dismiss
+    @State private var viewer: Message?
+    private let cols = [GridItem(.flexible(), spacing: 3),
+                        GridItem(.flexible(), spacing: 3),
+                        GridItem(.flexible(), spacing: 3)]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(columns: cols, spacing: 3) {
+                    ForEach(media) { m in
+                        if let url = m.imageUrl {
+                            SecureImageView(imageUrl: url, enc: m.enc, cid: cid)
+                                .frame(height: 116)
+                                .frame(maxWidth: .infinity)
+                                .clipped()
+                                .onTapGesture { viewer = m }
+                        }
+                    }
+                }
+                .padding(2)
+            }
+            .navigationTitle("Shared Media")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .fullScreenCover(item: $viewer) { ImageViewerView(message: $0, cid: cid) }
+        }
     }
 }

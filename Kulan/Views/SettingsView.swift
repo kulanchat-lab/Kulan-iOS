@@ -206,6 +206,7 @@ struct EditProfileView: View {
     private var profile = ProfileStore.shared
     @State private var name = ""
     @State private var handle = ""
+    @State private var about = ""
     @State private var photoItem: PhotosPickerItem?
     @State private var uploading = false
     @State private var saving = false
@@ -241,6 +242,10 @@ struct EditProfileView: View {
                     TextField("username", text: $handle)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                 }
+                Section("Bio") {
+                    TextField("A few words about you", text: $about, axis: .vertical)
+                        .lineLimit(1...4)
+                }
                 if let error { Text(error).foregroundStyle(.red) }
             }
             .navigationTitle("Edit Profile")
@@ -254,6 +259,7 @@ struct EditProfileView: View {
             .onAppear {
                 name = profile.me?.name ?? ""
                 handle = profile.me?.handle ?? ""
+                about = profile.me?.about ?? ""
             }
             .onChange(of: photoItem) { _, item in Task { await upload(item) } }
         }
@@ -281,7 +287,7 @@ struct EditProfileView: View {
             if let existing = await ChatService.findByHandle(h), existing.id != AuthService.shared.uid {
                 error = "That username is taken"; saving = false; return
             }
-            try await profile.updateProfile(name: n, handle: h)
+            try await profile.updateProfile(name: n, handle: h, about: about)
             dismiss()
         } catch {
             self.error = "Could not save: \(error.localizedDescription)"

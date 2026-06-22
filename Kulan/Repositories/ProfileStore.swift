@@ -31,13 +31,14 @@ final class ProfileStore {
         }
     }
 
-    func updateProfile(name: String, handle: String) async throws {
+    func updateProfile(name: String, handle: String, about: String = "") async throws {
         guard let uid = Auth.auth().currentUser?.uid else { return }
         let h = handle.trimmingCharacters(in: .whitespaces)
         try await db.collection("users").document(uid).setData([
             "name": name.trimmingCharacters(in: .whitespaces),
             "handle": h,
             "handleLower": h.lowercased(),
+            "about": about.trimmingCharacters(in: .whitespacesAndNewlines),
         ], merge: true)
         me = await fetch(uid)
     }

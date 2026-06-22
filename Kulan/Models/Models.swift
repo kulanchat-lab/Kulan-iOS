@@ -8,6 +8,7 @@ struct UserProfile: Identifiable, Equatable {
     let id: String            // uid
     var name: String
     var handle: String
+    var about: String
     var photoUrl: String?
     var publicKeyB64: String?
 
@@ -15,6 +16,7 @@ struct UserProfile: Identifiable, Equatable {
         self.id = id
         self.name = data["name"] as? String ?? ""
         self.handle = data["handle"] as? String ?? ""
+        self.about = data["about"] as? String ?? ""
         self.photoUrl = data["photoUrl"] as? String
         self.publicKeyB64 = data["publicKey"] as? String
     }
