@@ -28,10 +28,12 @@ struct NotificationsSettingsView: View {
                 Text("Get notified of new messages when Kulan is closed.")
             }
 
-            Section("IN-APP NOTIFICATIONS") {
+            Section {
                 Toggle("In-App Sounds", isOn: $inAppSound)
                 Toggle("In-App Vibrate", isOn: $inAppVibrate)
                 Toggle("In-App Preview", isOn: $inAppPreview)
+            } header: {
+                Text("IN-APP NOTIFICATIONS")
             } footer: {
                 Text("Controls alerts while Kulan is open. (Message previews can't show text in the lock-screen notification — that stays private with end-to-end encryption.)")
             }
@@ -65,7 +67,7 @@ struct DevicesView: View {
                 .listRowBackground(Color.clear)
             }
 
-            Section("THIS DEVICE") {
+            Section {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(UIDevice.current.name).font(.headline)
                     Text("Kulan iOS \(appVersion)").font(.subheadline).foregroundStyle(.secondary)
@@ -77,6 +79,8 @@ struct DevicesView: View {
                     Label("Terminate all other sessions", systemImage: "rectangle.portrait.and.arrow.right")
                         .fontWeight(.semibold)
                 }
+            } header: {
+                Text("THIS DEVICE")
             } footer: {
                 Text("Logs out all devices except for this one.")
             }
@@ -159,7 +163,7 @@ struct PhoneNumberPrivacyView: View {
 
     var body: some View {
         List {
-            Section("WHO CAN SEE MY PHONE NUMBER") {
+            Section {
                 ForEach(Audience.allCases) { option in
                     Button { raw = option.rawValue } label: {
                         HStack {
@@ -171,6 +175,8 @@ struct PhoneNumberPrivacyView: View {
                         }
                     }
                 }
+            } header: {
+                Text("WHO CAN SEE MY PHONE NUMBER")
             } footer: {
                 Text("Kulan doesn't use phone numbers yet (sign-in is by username). This preference is saved for when phone numbers are added.")
             }
