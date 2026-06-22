@@ -256,18 +256,20 @@ struct ThreadView: View {
     }
 
     // Subtle neutral fill (no glass, no shadow) — the iMessage field tint.
-    private var fieldFill: Color { dark ? Color(hex: 0x2A2A2E) : Color(hex: 0xEFEFF4) }
+    private var fieldFill: Color { dark ? Color(hex: 0x2A2A2E) : Color(hex: 0xEEEEF2) }
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            // Far-left circular "+" — attach a photo.
+            // Far-left circular "+" — attach a photo. Forced to the label colour
+            // (PhotosPicker otherwise tints it accent-blue).
             PhotosPicker(selection: $photoItem, matching: .images) {
                 Image(systemName: sendingPhoto ? "ellipsis" : "plus")
-                    .font(.system(size: 19, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 34, height: 34)
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .frame(width: 36, height: 36)
                     .background(fieldFill, in: Circle())
             }
+            .tint(.primary)
 
             // Text capsule with the send arrow embedded on its inside-right edge.
             HStack(alignment: .bottom, spacing: 4) {
@@ -295,7 +297,7 @@ struct ThreadView: View {
                     Color.clear.frame(width: 10, height: 1)
                 }
             }
-            .frame(minHeight: 34)
+            .frame(minHeight: 36)
             .background(fieldFill, in: Capsule())
         }
         .padding(.horizontal, 12)
