@@ -36,7 +36,7 @@ struct ThreadView: View {
         VStack(spacing: 0) {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 4) {
+                LazyVStack(spacing: 0) {
                     ForEach(Array(repo.messages.enumerated()), id: \.element.id) { index, msg in
                         if shouldShowDate(at: index) {
                             Text(dayLabel(msg.createdAt))
@@ -54,6 +54,7 @@ struct ThreadView: View {
                             onReact: { emoji in Task { await ChatService.setReaction(cid: cid, messageId: msg.id, emoji: emoji) } },
                             otherLastRead: repo.otherLastReadMillis
                         )
+                        .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
                         .id(msg.id)
                     }
                 }
@@ -103,6 +104,14 @@ struct ThreadView: View {
         guard index > 0 else { return true }
         return !Calendar.current.isDate(repo.messages[index - 1].createdAt,
                                         inSameDayAs: repo.messages[index].createdAt)
+    }
+
+    // Grouping: tight (3pt) when the previous message is from the same sender,
+    // standard (14pt) on a sender change. The date separator carries its own gap.
+    private func topGap(at index: Int) -> CGFloat {
+        guard index > 0 else { return 0 }
+        if shouldShowDate(at: index) { return 0 }
+        return repo.messages[index - 1].authorId == repo.messages[index].authorId ? 3 : 14
     }
 
     private func dayLabel(_ d: Date) -> String {
@@ -378,9 +387,13 @@ struct MessageBubble: View {
         .foregroundStyle(isMe ? Theme.onAccent(dark).opacity(0.7) : Color.secondary)
     }
 
+    // Bubbles cap at 72% of screen width and wrap; the right (sent) / left (received)
+    // edge stays a clean, uniform line regardless of length.
+    private var maxBubbleWidth: CGFloat { UIScreen.main.bounds.width * 0.72 }
+
     var body: some View {
         HStack {
-            if isMe { Spacer(minLength: 50) }
+            if isMe { Spacer(minLength: 0) }
             VStack(alignment: isMe ? .trailing : .leading, spacing: 3) {
                 content
                     .contextMenu {
@@ -410,7 +423,8 @@ struct MessageBubble: View {
                         .overlay(Capsule().stroke(dark ? Color(hex: 0x121214) : .white, lineWidth: 2))
                 }
             }
-            if !isMe { Spacer(minLength: 50) }
+            .frame(maxWidth: maxBubbleWidth, alignment: isMe ? .trailing : .leading)
+            if !isMe { Spacer(minLength: 0) }
         }
         // Telegram-style swipe-to-reply: drag the bubble left past a threshold.
         .overlay(alignment: .trailing) {
