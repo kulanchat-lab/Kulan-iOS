@@ -25,6 +25,10 @@ struct RootView: View {
         await AuthService.shared.bootstrap()
         try? await Crypto.shared.ensureReady()
         await ProfileStore.shared.loadMine()
+        // Re-publish the public key now that the profile doc exists — self-heals
+        // accounts that failed to publish on a first launch (otherwise others can
+        // never message them: "hasn't set up encryption yet").
+        await Crypto.shared.publishPublicKey()
         phase = (ProfileStore.shared.me?.handle.isEmpty == false) ? .main : .onboarding
     }
 }
@@ -84,6 +88,7 @@ struct OnboardingView: View {
                 error = "That username is taken"; saving = false; return
             }
             try await ProfileStore.shared.updateProfile(name: n, handle: h)
+            await Crypto.shared.publishPublicKey()   // doc now exists — ensure key is live
             onDone()
         } catch {
             self.error = "Could not save: \(error.localizedDescription)"

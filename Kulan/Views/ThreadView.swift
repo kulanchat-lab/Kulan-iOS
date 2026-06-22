@@ -88,6 +88,7 @@ struct ThreadView: View {
         .toolbar(.hidden, for: .tabBar)
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
+        .background(SwipeBackEnabler())   // keep edge swipe-back with the bar hidden
         .alert("Message not sent", isPresented: Binding(get: { sendError != nil },
                                                         set: { if !$0 { sendError = nil } })) {
             Button("OK", role: .cancel) {}

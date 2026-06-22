@@ -111,6 +111,25 @@ final class Crypto {
         }
     }
 
+    /// Re-publish my public key (idempotent, self-healing). Safe to call on every
+    /// launch AFTER the profile doc exists — recovers accounts whose key publish
+    /// failed earlier (e.g. the write lost a race with profile creation), which
+    /// otherwise leaves them permanently unmessageable.
+    func publishPublicKey() async {
+        do { try await ensureReady() } catch { return }
+        guard let uid = currentUid(), let pk = myPublicKey else { return }
+        let b64 = Data(pk).base64EncodedString()
+        do {
+            let snap = try await db.collection("users").document(uid).getDocument()
+            if (snap.data()?["publicKey"] as? String) != b64 {
+                try await db.collection("users").document(uid)
+                    .setData(["publicKey": b64], merge: true)
+            }
+        } catch {
+            print("crypto: publishPublicKey failed:", error)
+        }
+    }
+
     /// Fetch + cache another user's public key. Returns nil if they have none yet.
     @discardableResult
     func preloadKey(_ uid: String) async -> Bytes? {
