@@ -30,14 +30,17 @@ struct Message: Identifiable, Equatable {
     let id: String
     var authorId: String
     var text: String          // DECRYPTED for display
-    var type: String?         // "image" for photos
+    var type: String?         // "image" for photos, "audio" for voice notes
     var imageUrl: String?
+    var audioUrl: String?
+    var duration: Double?     // voice note length (seconds)
     var enc: EncMeta?
     var clientId: String?
     var replyTo: ReplyRef?
     var createdAt: Date
 
     var isImage: Bool { type == "image" && (imageUrl?.isEmpty == false) }
+    var isAudio: Bool { type == "audio" && (audioUrl?.isEmpty == false) }
 
     init(id: String, data: [String: Any], cid: String, crypto: Crypto) {
         self.id = id
@@ -45,6 +48,8 @@ struct Message: Identifiable, Equatable {
         self.text = crypto.decrypt(data["text"] as? String ?? "", cid: cid)
         self.type = data["type"] as? String
         self.imageUrl = data["imageUrl"] as? String
+        self.audioUrl = data["audioUrl"] as? String
+        self.duration = (data["duration"] as? NSNumber)?.doubleValue
         self.clientId = data["clientId"] as? String
         self.enc = (data["enc"] as? [String: Any]).flatMap(EncMeta.init(map:))
         if let r = data["replyTo"] as? [String: Any] {

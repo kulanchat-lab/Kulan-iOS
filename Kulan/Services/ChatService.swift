@@ -112,6 +112,42 @@ enum ChatService {
         try await batch.commit()
     }
 
+    /// Encrypt + send a voice note. Same E2EE pipeline as photos: the m4a bytes
+    /// are sealed and the ciphertext uploaded; the server never hears the audio.
+    static func sendAudio(cid: String, data: Data, duration: Double) async throws {
+        let (cipher, meta) = try await Crypto.shared.encryptBytes(cid, data)
+        let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+        let convRef = db.collection("conversations").document(cid)
+
+        try await convRef.setData([
+            "users": [uid, other],
+            "updatedAt": FieldValue.serverTimestamp(),
+        ], merge: true)
+
+        let msgRef = convRef.collection("messages").document()
+        let ref = Storage.storage().reference().child("chat/\(cid)/\(msgRef.documentID).m4a.enc")
+        let sm = StorageMetadata(); sm.contentType = "application/octet-stream"
+        _ = try await ref.putDataAsync(cipher, metadata: sm)
+        let url = try await ref.downloadURL().absoluteString
+
+        let batch = db.batch()
+        batch.setData([
+            "type": "audio",
+            "audioUrl": url,
+            "duration": duration,
+            "enc": ["v": meta.v, "n": meta.n, "k": meta.k, "kn": meta.kn],
+            "text": "",
+            "authorId": uid,
+            "createdAt": FieldValue.serverTimestamp(),
+        ], forDocument: msgRef)
+        batch.updateData([
+            "lastMessage": "🎤 Voice message",
+            "updatedAt": FieldValue.serverTimestamp(),
+            "unreadCount.\(other)": FieldValue.increment(Int64(1)),
+        ], forDocument: convRef)
+        try await batch.commit()
+    }
+
     /// Recent image messages in a conversation (for the Shared Media section).
     /// Filters client-side to avoid needing a composite index.
     static func sharedMedia(_ cid: String) async -> [Message] {

@@ -18,6 +18,7 @@ struct ThreadView: View {
     @State private var showAttachMenu = false
     @State private var showCamera = false
     @State private var showLibrary = false
+    @State private var recorder = AudioRecorder()
     @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
 
@@ -161,7 +162,8 @@ struct ThreadView: View {
         let text = input
         input = ""
         let reply = replyingTo.map {
-            ReplyRef(id: $0.id, authorId: $0.authorId, text: $0.isImage ? "📷 Photo" : $0.text)
+            ReplyRef(id: $0.id, authorId: $0.authorId,
+                     text: $0.isImage ? "📷 Photo" : ($0.isAudio ? "🎤 Voice message" : $0.text))
         }
         replyingTo = nil
         typingSent = false
@@ -235,6 +237,25 @@ struct ThreadView: View {
     private var fieldFill: Color { dark ? Color(hex: 0x2A2A2E) : Color(hex: 0xEEEEF2) }
 
     private var composer: some View {
+        Group {
+            if recorder.isRecording { recordingBar } else { inputRow }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
+        .confirmationDialog("Send a photo", isPresented: $showAttachMenu, titleVisibility: .visible) {
+            Button("Take Photo") { showCamera = true }
+            Button("Photo Library") { showLibrary = true }
+            Button("Cancel", role: .cancel) {}
+        }
+        .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { data in Task { await sendCaptured(data) } }
+                .ignoresSafeArea()
+        }
+    }
+
+    private var inputRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             // Far-left circular "+" — Take Photo (camera) or Photo Library.
             Button { showAttachMenu = true } label: {
@@ -246,7 +267,7 @@ struct ThreadView: View {
             }
             .tint(.primary)
 
-            // Text capsule with the send arrow embedded on its inside-right edge.
+            // Text capsule: send arrow when typing, mic to record a voice note when empty.
             HStack(alignment: .bottom, spacing: 4) {
                 TextField("Message", text: $input, axis: .vertical)
                     .lineLimit(1...6)
@@ -269,25 +290,49 @@ struct ThreadView: View {
                     .padding(.trailing, 3)
                     .padding(.bottom, 2)
                 } else {
-                    Color.clear.frame(width: 10, height: 1)
+                    Button { recorder.requestAndStart() } label: {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 19))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.trailing, 11)
+                    .padding(.bottom, 7)
                 }
             }
             .frame(minHeight: 36)
             .liquidGlass(Capsule())   // real iOS 26 Liquid Glass shine
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
-        .confirmationDialog("Send a photo", isPresented: $showAttachMenu, titleVisibility: .visible) {
-            Button("Take Photo") { showCamera = true }
-            Button("Photo Library") { showLibrary = true }
-            Button("Cancel", role: .cancel) {}
+    }
+
+    // Shown while recording a voice note: cancel · red dot + timer · send.
+    private var recordingBar: some View {
+        HStack(spacing: 12) {
+            Button { recorder.cancel() } label: {
+                Image(systemName: "trash").font(.system(size: 18)).foregroundStyle(.red)
+                    .frame(width: 36, height: 36)
+            }
+            HStack(spacing: 8) {
+                Circle().fill(.red).frame(width: 9, height: 9)
+                Text(timeString(recorder.elapsed)).font(.subheadline.monospacedDigit())
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 36)
+            .liquidGlass(Capsule())
+            Button { Task { await stopAndSendAudio() } } label: {
+                Image(systemName: "arrow.up.circle.fill").font(.system(size: 32))
+                    .foregroundStyle(Theme.accent(dark))
+            }
         }
-        .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
-        .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { data in Task { await sendCaptured(data) } }
-                .ignoresSafeArea()
-        }
+    }
+
+    private func timeString(_ t: TimeInterval) -> String {
+        let s = Int(t); return String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    private func stopAndSendAudio() async {
+        guard let (data, dur) = recorder.finish() else { return }
+        try? await ChatService.sendAudio(cid: cid, data: data, duration: dur)
     }
 
     private func sendCaptured(_ data: Data) async {
@@ -373,7 +418,16 @@ struct MessageBubble: View {
     }
 
     @ViewBuilder private var content: some View {
-        if message.isImage, let url = message.imageUrl {
+        if message.isAudio {
+            VStack(alignment: .leading, spacing: 4) {
+                replyQuote
+                VoiceMessageView(message: message, cid: cid, isMe: isMe, dark: dark)
+            }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 9)
+            .background(isMe ? Theme.accent(dark) : Theme.received(dark))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        } else if message.isImage, let url = message.imageUrl {
             VStack(alignment: .leading, spacing: 4) {
                 replyQuote
                 SecureImageView(imageUrl: url, enc: message.enc, cid: cid)

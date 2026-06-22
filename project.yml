@@ -31,6 +31,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         NSPhotoLibraryUsageDescription: "Kulan needs photo access so you can send pictures in chats."
         NSCameraUsageDescription: "Kulan needs camera access so you can take photos in chats."
+        NSMicrophoneUsageDescription: "Kulan needs microphone access so you can send voice messages."
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
     settings:
