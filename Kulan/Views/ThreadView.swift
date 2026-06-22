@@ -17,6 +17,7 @@ struct ThreadView: View {
     @State private var viewerImage: Message?
     @State private var keyboardHeight: CGFloat = 0
     @State private var sendError: String?
+    @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
 
     private var me: String { AuthService.shared.uid ?? "" }
@@ -66,6 +67,10 @@ struct ThreadView: View {
                 .padding(.vertical, 8)
             }
             .defaultScrollAnchor(.bottom)
+            .scrollDismissesKeyboard(.interactively)   // drag the messages down -> keyboard follows
+            // Tap anywhere in the message area to close the keyboard (taps on
+            // image bubbles still open the viewer — simultaneous, not consumed).
+            .simultaneousGesture(TapGesture().onEnded { inputFocused = false })
             .onChange(of: repo.messages.count) { _, _ in
                 if let last = repo.messages.last {
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last.id, anchor: .bottom) }
@@ -268,6 +273,7 @@ struct ThreadView: View {
             HStack(alignment: .bottom, spacing: 4) {
                 TextField("Message", text: $input, axis: .vertical)
                     .lineLimit(1...6)
+                    .focused($inputFocused)
                     .padding(.leading, 14)
                     .padding(.vertical, 7)
                     .onChange(of: input) { _, v in
