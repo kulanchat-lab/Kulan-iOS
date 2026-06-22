@@ -35,6 +35,11 @@ struct ChatsView: View {
     @State private var path = NavigationPath()
     @State private var pendingDelete: Conversation?
     @State private var search = ""
+    // Multi-select edit mode (Telegram-style).
+    @State private var selecting = false
+    @State private var selection = Set<String>()
+    @State private var showArchived = false
+    @State private var showDeleteSelected = false
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
@@ -58,11 +63,15 @@ struct ChatsView: View {
     // Native nav bar with a crisp circle avatar — glass stripped via the iOS 26
     // opt-out, same as the chat header. Keeps the large "Chats" title + smooth
     // push transitions instead of a hand-rolled bar.
-    private var avatarButton: some View {
-        Button { showSettings = true } label: {
+    // Avatar dropdown menu: Select Chats / Settings / Archive (Telegram-style).
+    private var avatarMenu: some View {
+        Menu {
+            Button { selecting = true } label: { Label("Select Chats", systemImage: "checkmark.circle") }
+            Button { showSettings = true } label: { Label("Settings", systemImage: "gear") }
+            Button { showArchived = true } label: { Label("Archive", systemImage: "archivebox") }
+        } label: {
             AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 32)
         }
-        .buttonStyle(.plain)
     }
     private var composeButton: some View {
         Button { showNew = true } label: {
@@ -70,16 +79,64 @@ struct ChatsView: View {
         }
         .tint(.primary)   // glass circle (default), black glyph
     }
+
     @ToolbarContentBuilder private var homeToolbar: some ToolbarContent {
-        if #available(iOS 26.0, *) {
-            // Avatar stays a crisp plain circle; compose keeps its glass circle.
-            ToolbarItem(placement: .topBarLeading) { avatarButton }
+        if selecting {
+            ToolbarItem(placement: .topBarLeading) { Button("Cancel") { exitSelect() } }
+            ToolbarItem(placement: .principal) {
+                Text(selection.isEmpty ? "Select Chats" : "\(selection.count) Selected").font(.headline)
+            }
+            ToolbarItem(placement: .topBarTrailing) { Button("Select All") { selectAll() } }
+        } else if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarLeading) { avatarMenu }
                 .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) { composeButton }
         } else {
-            ToolbarItem(placement: .topBarLeading) { avatarButton }
+            ToolbarItem(placement: .topBarLeading) { avatarMenu }
             ToolbarItem(placement: .topBarTrailing) { composeButton }
         }
+    }
+
+    // Bottom action bar shown in edit mode (replaces the tab bar).
+    private var selectionBar: some View {
+        HStack(spacing: 0) {
+            selectionAction("Archive", "archivebox") { archiveSelected() }
+            selectionAction("Mark Read", "checkmark.message") { markReadSelected() }
+            selectionAction("Delete", "trash", destructive: true) { showDeleteSelected = true }
+        }
+        .padding(.top, 10).padding(.bottom, 6)
+        .background(.bar)
+        .disabled(selection.isEmpty)
+        .opacity(selection.isEmpty ? 0.45 : 1)
+    }
+    private func selectionAction(_ title: String, _ icon: String, destructive: Bool = false,
+                                 _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 20))
+                Text(title).font(.caption2)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .tint(destructive ? .red : .primary)
+    }
+
+    private func exitSelect() { selecting = false; selection = [] }
+    private func selectAll() { selection = Set(filtered.map { $0.id }) }
+    private func archiveSelected() {
+        let ids = selection
+        Task { for id in ids { await ChatService.setArchived(id, true) } }
+        exitSelect()
+    }
+    private func markReadSelected() {
+        let ids = selection
+        Task { for id in ids { await ChatService.resetUnread(id); await ChatService.markRead(id) } }
+        exitSelect()
+    }
+    private func deleteSelected() {
+        let ids = selection
+        Task { for id in ids { await ChatService.deleteForMe(id) } }
+        exitSelect()
     }
 
     var body: some View {
@@ -89,11 +146,13 @@ struct ChatsView: View {
                     ContentUnavailableView("No chats yet", systemImage: "bubble.left",
                                            description: Text("Tap the compose button to start one."))
                 } else {
-                    List(filtered) { conv in
+                    List(selection: $selection) {
+                      ForEach(filtered) { conv in
                         NavigationLink(value: ChatTarget(id: conv.id, name: conv.name(for: me),
                                                          photo: conv.photoUrl(for: me))) {
                             ChatRow(conv: conv, me: me, dark: dark)
                         }
+                        .tag(conv.id)
                         .listRowSeparator(.hidden)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
@@ -113,8 +172,10 @@ struct ChatsView: View {
                             }
                             .tint(.orange)
                         }
+                      }
                     }
                     .listStyle(.plain)
+                    .environment(\.editMode, .constant(selecting ? .active : .inactive))
                 }
             }
             .navigationTitle("Chats")
@@ -149,8 +210,52 @@ struct ChatsView: View {
             } message: {
                 Text("This removes the chat from your list. It comes back if you get a new message.")
             }
+            .toolbar(selecting ? .hidden : .automatic, for: .tabBar)
+            .safeAreaInset(edge: .bottom) { if selecting { selectionBar } }
+            .sheet(isPresented: $showArchived) { ArchivedChatsView() }
+            .confirmationDialog("Delete \(selection.count) chat\(selection.count == 1 ? "" : "s")?",
+                                isPresented: $showDeleteSelected, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) { deleteSelected() }
+                Button("Cancel", role: .cancel) {}
+            }
         }
         .onAppear { repo.start() }
+    }
+}
+
+// Archived chats (reached from the avatar menu). Swipe to unarchive.
+struct ArchivedChatsView: View {
+    private var repo = ConversationsRepository.shared
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
+    private var me: String { AuthService.shared.uid ?? "" }
+    private var archived: [Conversation] {
+        repo.conversations.filter { $0.isArchived(me) && !$0.isCleared(me) }
+            .sorted { $0.updatedAtMillis > $1.updatedAtMillis }
+    }
+    var body: some View {
+        NavigationStack {
+            Group {
+                if archived.isEmpty {
+                    ContentUnavailableView("No archived chats", systemImage: "archivebox",
+                                           description: Text("Chats you archive will show here."))
+                } else {
+                    List(archived) { conv in
+                        ChatRow(conv: conv, me: me, dark: scheme == .dark)
+                            .listRowSeparator(.hidden)
+                            .swipeActions(edge: .trailing) {
+                                Button { Task { await ChatService.setArchived(conv.id, false) } } label: {
+                                    Label("Unarchive", systemImage: "tray.and.arrow.up")
+                                }.tint(.indigo)
+                            }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("Archived")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+        }
     }
 }
 
