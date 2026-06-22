@@ -212,6 +212,12 @@ enum ChatService {
             .setData(["pinnedBy": [uid: value]], merge: true)
     }
 
+    /// Per-user manual order value for a pinned chat (fractional indexing).
+    static func setPinOrder(_ cid: String, _ value: Double) async {
+        try? await db.collection("conversations").document(cid)
+            .setData(["pinOrder": [uid: value]], merge: true)
+    }
+
     static func setArchived(_ cid: String, _ value: Bool) async {
         try? await db.collection("conversations").document(cid)
             .setData(["archivedBy": [uid: value]], merge: true)

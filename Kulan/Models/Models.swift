@@ -82,6 +82,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
     var archivedBy: [String: Bool]
     var clearedAt: [String: Double]    // delete-for-me, ms
     var blockedBy: [String: Bool]
+    var pinOrder: [String: Double]     // per-user manual order for pinned chats
     var updatedAtMillis: Double
 
     init(id: String, data: [String: Any]) {
@@ -97,6 +98,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
         self.archivedBy = boolMap(data["archivedBy"])
         self.clearedAt = doubleMap(data["clearedAt"])
         self.blockedBy = boolMap(data["blockedBy"])
+        self.pinOrder = doubleMap(data["pinOrder"])
         if let ts = data["updatedAt"] as? Timestamp {
             self.updatedAtMillis = ts.dateValue().timeIntervalSince1970 * 1000
         } else {
@@ -110,6 +112,8 @@ struct Conversation: Identifiable, Equatable, Hashable {
     func unread(_ me: String) -> Int { unreadCount[me] ?? 0 }
     func isMuted(_ me: String, now: Double) -> Bool { (mutedBy[me] ?? 0) > now }
     func isPinned(_ me: String) -> Bool { pinnedBy[me] ?? false }
+    /// Manual order for pinned chats; defaults to recency so never-moved pins stay sensible.
+    func pinRank(_ me: String) -> Double { pinOrder[me] ?? updatedAtMillis }
     func isArchived(_ me: String) -> Bool { archivedBy[me] ?? false }
     /// "delete for me" until a newer message arrives (parity with RN Db.isCleared).
     func isCleared(_ me: String) -> Bool { updatedAtMillis <= (clearedAt[me] ?? 0) }

@@ -47,9 +47,14 @@ struct ChatsView: View {
     private var visible: [Conversation] {
         repo.conversations
             .filter { !$0.isCleared(me) && !$0.isArchived(me) }
-            .sorted {
-                if $0.isPinned(me) != $1.isPinned(me) { return $0.isPinned(me) }
-                return $0.updatedAtMillis > $1.updatedAtMillis
+            .sorted { a, b in
+                if a.isPinned(me) != b.isPinned(me) { return a.isPinned(me) }
+                // Both pinned: manual order (higher rank = higher in list).
+                if a.isPinned(me) && b.isPinned(me) {
+                    if a.pinRank(me) != b.pinRank(me) { return a.pinRank(me) > b.pinRank(me) }
+                    return a.updatedAtMillis > b.updatedAtMillis
+                }
+                return a.updatedAtMillis > b.updatedAtMillis   // both unpinned: recency
             }
     }
 
@@ -121,6 +126,36 @@ struct ChatsView: View {
         .tint(destructive ? .red : .primary)
     }
 
+    // Persist a pinned-chat reorder via fractional indexing (Telegram-style).
+    private func reorderPinned(from source: IndexSet, to destination: Int) {
+        guard search.isEmpty else { return }            // indices map to a subset while searching
+        let rows = filtered
+        guard let from = source.first, rows.indices.contains(from) else { return }
+        let moved = rows[from]
+        guard moved.isPinned(me) else { return }
+
+        let pinnedCount = rows.prefix { $0.isPinned(me) }.count
+        guard pinnedCount > 1 else { return }
+
+        // Clamp into the pinned block so a pin can't be dropped among unpinned chats.
+        let dest = min(max(destination, 0), pinnedCount)
+        var pinned = Array(rows[0..<pinnedCount])
+        pinned.move(fromOffsets: IndexSet(integer: from), toOffset: dest)
+        guard let pos = pinned.firstIndex(where: { $0.id == moved.id }) else { return }
+
+        let above = pos > 0 ? pinned[pos - 1].pinRank(me) : nil          // higher in list = bigger rank
+        let below = pos < pinned.count - 1 ? pinned[pos + 1].pinRank(me) : nil
+        let step = 1_000_000.0
+        let newRank: Double
+        switch (above, below) {
+        case let (a?, b?): newRank = (a + b) / 2
+        case let (a?, nil): newRank = a - step
+        case let (nil, b?): newRank = b + step
+        case (nil, nil): return
+        }
+        Task { await ChatService.setPinOrder(moved.id, newRank) }
+    }
+
     private func exitSelect() { selecting = false; selection = [] }
     private func selectAll() { selection = Set(filtered.map { $0.id }) }
     private func archiveSelected() {
@@ -154,6 +189,7 @@ struct ChatsView: View {
                         }
                         .tag(conv.id)
                         .listRowSeparator(.hidden)
+                        .moveDisabled(!conv.isPinned(me) || !search.isEmpty)   // only pinned drag
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
                                 pendingDelete = conv
@@ -172,6 +208,9 @@ struct ChatsView: View {
                             }
                             .tint(.orange)
                         }
+                      }
+                      .onMove { source, destination in
+                          reorderPinned(from: source, to: destination)
                       }
                     }
                     .listStyle(.plain)
