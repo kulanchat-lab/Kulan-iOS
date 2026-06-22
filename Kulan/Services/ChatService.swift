@@ -48,8 +48,18 @@ enum ChatService {
 
         let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
         let convRef = db.collection("conversations").document(cid)
-        let msgRef = convRef.collection("messages").document()
 
+        // Ensure the conversation exists BEFORE the message. The rules require
+        // convData().users to authorize a message create; on a brand-new chat the
+        // create otherwise loses the race and is rolled back server-side (message
+        // "sends" locally then silently vanishes). Awaiting this first send keeps
+        // the writes ordered so the conv is committed before the message.
+        try await convRef.setData([
+            "users": [uid, other],
+            "updatedAt": FieldValue.serverTimestamp(),
+        ], merge: true)
+
+        let msgRef = convRef.collection("messages").document()
         let batch = db.batch()
         var msg: [String: Any] = [
             "text": cipher,
@@ -72,8 +82,14 @@ enum ChatService {
         let (cipher, meta) = try await Crypto.shared.encryptBytes(cid, data)
         let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
         let convRef = db.collection("conversations").document(cid)
-        let msgRef = convRef.collection("messages").document()
 
+        // Same ordering guarantee as sendText — conversation must exist first.
+        try await convRef.setData([
+            "users": [uid, other],
+            "updatedAt": FieldValue.serverTimestamp(),
+        ], merge: true)
+
+        let msgRef = convRef.collection("messages").document()
         let ref = Storage.storage().reference().child("chat/\(cid)/\(msgRef.documentID).enc")
         let sm = StorageMetadata(); sm.contentType = "application/octet-stream"
         _ = try await ref.putDataAsync(cipher, metadata: sm)
