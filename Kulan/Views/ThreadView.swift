@@ -164,12 +164,15 @@ struct ThreadView: View {
         .buttonStyle(.plain)
     }
 
+    // .principal (the title slot) so iOS animates the avatar+name 1:1 with the
+    // body during the interactive swipe-back — leading/trailing bar items don't
+    // ride that transition and would freeze, then snap.
     @ToolbarContentBuilder private var headerToolbar: some ToolbarContent {
         if #available(iOS 26.0, *) {
-            ToolbarItem(placement: .topBarLeading) { headerLabel }
+            ToolbarItem(placement: .principal) { headerLabel }
                 .sharedBackgroundVisibility(.hidden)
         } else {
-            ToolbarItem(placement: .topBarLeading) { headerLabel }
+            ToolbarItem(placement: .principal) { headerLabel }
         }
     }
 
