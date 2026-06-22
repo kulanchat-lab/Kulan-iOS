@@ -8,7 +8,7 @@ struct MainShell: View {
     var body: some View {
         TabView {
             ChatsView(onSignOut: onSignOut)
-                .tabItem { Label("Chats", systemImage: "bubble.left.fill") }
+                .tabItem { Label("Chats", systemImage: "bubble.left.and.bubble.right.fill") }
             CallsView()
                 .tabItem { Label("Calls", systemImage: "phone.fill") }
         }
