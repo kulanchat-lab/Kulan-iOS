@@ -21,6 +21,7 @@ struct ThreadView: View {
     @State private var recorder = AudioRecorder()
     @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.dismiss) private var dismiss
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
@@ -164,42 +165,40 @@ struct ThreadView: View {
     }
 
     // Signal-style header: a flat title view INSIDE the native nav bar (next to the
-    // system back button) so we keep the smooth push animation and edge swipe-back.
-    // On iOS 26 the toolbar would wrap it in a Liquid-Glass pill, so we strip that
-    // with .sharedBackgroundVisibility(.hidden) — the official opt-out.
+    // Pure-native header: avatar + name packed into a single .topBarLeading item,
+    // pulled tight to the back arrow with negative leading padding. Native toolbar =
+    // native back arrow + native transition; no custom body header.
     @ViewBuilder private var headerLabel: some View {
         NavigationLink {
             ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
         } label: {
             HStack(spacing: 10) {
-                AvatarView(name: title, photoUrl: photoUrl, size: 40)   // larger, prominent
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.headline.weight(.bold)).foregroundStyle(.primary).lineLimit(1)
+                AvatarView(name: title, photoUrl: photoUrl, size: 36)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
                     if let sub = presenceSubtitle {
-                        Text(sub).font(.caption2)
+                        Text(sub).font(.system(size: 12))
                             .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
                             .lineLimit(1)
                     }
                 }
             }
-            .fixedSize()   // keep the name's natural width — nav bar was crushing it to 0
+            .padding(.leading, -8)   // pull tight to the native back arrow
+            .fixedSize()
         }
         .buttonStyle(.plain)
     }
 
-    // .principal (the title slot) so iOS animates the avatar+name 1:1 with the
-    // body during the interactive swipe-back — leading/trailing bar items don't
-    // ride that transition and would freeze, then snap.
     private var otherUid: String {
         cid.split(separator: "_").map(String.init).first { $0 != me } ?? ""
     }
 
     @ToolbarContentBuilder private var headerToolbar: some ToolbarContent {
         if #available(iOS 26.0, *) {
-            ToolbarItem(placement: .principal) { headerLabel }
+            ToolbarItem(placement: .topBarLeading) { headerLabel }
                 .sharedBackgroundVisibility(.hidden)
         } else {
-            ToolbarItem(placement: .principal) { headerLabel }
+            ToolbarItem(placement: .topBarLeading) { headerLabel }
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { CallService.shared.startCall(to: otherUid, name: title) } label: {

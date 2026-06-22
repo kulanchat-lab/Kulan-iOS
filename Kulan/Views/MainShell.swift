@@ -83,7 +83,7 @@ struct ChatsView: View {
             Button { showSettings = true } label: { Label("Settings", systemImage: "gear") }
             Button { showArchived = true } label: { Label("Archive", systemImage: "archivebox") }
         } label: {
-            AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 32)
+            AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 40)
         }
     }
     private var composeButton: some View {
@@ -197,7 +197,7 @@ struct ChatsView: View {
                     ContentUnavailableView("No chats yet", systemImage: "bubble.left",
                                            description: Text("Tap the compose button to start one."))
                 } else {
-                    List(selection: $selection) {
+                    List(selection: selecting ? $selection : .constant(Set<String>())) {
                       ForEach(filtered) { conv in
                         NavigationLink(value: ChatTarget(id: conv.id, name: conv.name(for: me),
                                                          photo: conv.photoUrl(for: me))) {

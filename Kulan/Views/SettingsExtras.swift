@@ -21,6 +21,7 @@ struct NotificationsSettingsView: View {
         List {
             Section {
                 Toggle("Message Notifications", isOn: $pushOn)
+                    .tint(.green)
                     .onChange(of: pushOn) { _, on in
                         if on { Push.register() } else { Push.unregister() }
                     }
@@ -29,9 +30,9 @@ struct NotificationsSettingsView: View {
             }
 
             Section {
-                Toggle("In-App Sounds", isOn: $inAppSound)
-                Toggle("In-App Vibrate", isOn: $inAppVibrate)
-                Toggle("In-App Preview", isOn: $inAppPreview)
+                Toggle("In-App Sounds", isOn: $inAppSound).tint(.green)
+                Toggle("In-App Vibrate", isOn: $inAppVibrate).tint(.green)
+                Toggle("In-App Preview", isOn: $inAppPreview).tint(.green)
             } header: {
                 Text("IN-APP NOTIFICATIONS")
             } footer: {
