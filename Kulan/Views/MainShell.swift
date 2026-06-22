@@ -58,16 +58,16 @@ struct ChatsView: View {
     }
     private var composeButton: some View {
         Button { showNew = true } label: {
-            Image(systemName: "square.and.pencil").font(.system(size: 19)).foregroundStyle(.primary)
+            Image(systemName: "square.and.pencil").font(.system(size: 18))
         }
-        .buttonStyle(.plain)
+        .tint(.primary)   // glass circle (default), black glyph
     }
     @ToolbarContentBuilder private var homeToolbar: some ToolbarContent {
         if #available(iOS 26.0, *) {
+            // Avatar stays a crisp plain circle; compose keeps its glass circle.
             ToolbarItem(placement: .topBarLeading) { avatarButton }
                 .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) { composeButton }
-                .sharedBackgroundVisibility(.hidden)
         } else {
             ToolbarItem(placement: .topBarLeading) { avatarButton }
             ToolbarItem(placement: .topBarTrailing) { composeButton }
@@ -110,6 +110,7 @@ struct ChatsView: View {
                 }
             }
             .navigationTitle("Chats")
+            .navigationBarTitleDisplayMode(.inline)   // one row: avatar · Chats · compose
             .toolbar { homeToolbar }
             // ONE destination type for every chat (list taps AND search results),
             // keyed by cid via .id(...) so each conversation gets a fresh ThreadView
