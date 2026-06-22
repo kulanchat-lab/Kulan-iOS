@@ -4,8 +4,7 @@ import SwiftUI
 // unmounts/blinks on tab switch (the RN bug, solved structurally).
 struct MainShell: View {
     var onSignOut: () -> Void
-    init(onSignOut: @escaping () -> Void = {}) { self.onSignOut = onSignOut }
-    private var call = CallService.shared
+    private var call: CallService { CallService.shared }
     var body: some View {
         TabView {
             ChatsView(onSignOut: onSignOut)
