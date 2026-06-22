@@ -151,12 +151,15 @@ struct ThreadView: View {
                 AvatarView(name: title, photoUrl: photoUrl, size: 32)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.headline).foregroundStyle(.primary)
+                        .lineLimit(1)
                     if let sub = presenceSubtitle {
                         Text(sub).font(.caption2)
                             .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
+                            .lineLimit(1)
                     }
                 }
             }
+            .fixedSize()   // keep the name's natural width — nav bar was crushing it to 0
         }
         .buttonStyle(.plain)
     }
