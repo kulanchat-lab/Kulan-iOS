@@ -29,9 +29,15 @@ struct SettingsView: View {
                     NavigationLink { AccountSettingsView(onSignOut: onSignOut) } label: {
                         Label("Account", systemImage: "person.crop.circle")
                     }
+                    NavigationLink { DevicesView() } label: {
+                        Label("Devices", systemImage: "laptopcomputer.and.iphone")
+                    }
                 }
 
                 Section {
+                    NavigationLink { NotificationsSettingsView() } label: {
+                        Label("Notifications", systemImage: "bell.badge")
+                    }
                     NavigationLink { AppearanceSettingsView() } label: {
                         Label("Appearance", systemImage: "paintbrush")
                     }
@@ -145,8 +151,25 @@ struct AppearanceSettingsView: View {
 }
 
 struct PrivacySettingsView: View {
+    private var repo = ConversationsRepository.shared
+    private var me: String { AuthService.shared.uid ?? "" }
+    private var blockedCount: Int { repo.conversations.filter { $0.blockedBy[me] == true }.count }
+
     var body: some View {
         List {
+            Section {
+                NavigationLink { BlockedUsersView() } label: {
+                    HStack {
+                        Label("Blocked Users", systemImage: "hand.raised")
+                        Spacer()
+                        Text("\(blockedCount)").foregroundStyle(.secondary)
+                    }
+                }
+                NavigationLink { PhoneNumberPrivacyView() } label: {
+                    Label("Phone Number", systemImage: "phone")
+                }
+            }
+
             Section {
                 Label("End-to-end encrypted", systemImage: "lock.fill")
             } footer: {

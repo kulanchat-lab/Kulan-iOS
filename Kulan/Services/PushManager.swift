@@ -58,4 +58,11 @@ enum Push {
             DispatchQueue.main.async { UIApplication.shared.registerForRemoteNotifications() }
         }
     }
+
+    /// Stop push to this device: drop its FCM token so the Cloud Function skips it.
+    static func unregister() {
+        guard let uid = Auth.auth().currentUser?.uid, let token = Messaging.messaging().fcmToken else { return }
+        Firestore.firestore().collection("users").document(uid)
+            .updateData(["fcmTokens": FieldValue.arrayRemove([token])])
+    }
 }
