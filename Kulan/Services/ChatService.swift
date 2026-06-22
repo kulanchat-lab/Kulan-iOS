@@ -218,6 +218,12 @@ enum ChatService {
             .setData(["pinOrder": [uid: value]], merge: true)
     }
 
+    /// Pin (or clear, with nil) a message in a conversation — shared by both members.
+    static func setPinnedMessage(_ cid: String, _ messageId: String?) async {
+        try? await db.collection("conversations").document(cid)
+            .setData(["pinnedMessageId": messageId ?? ""], merge: true)
+    }
+
     static func setArchived(_ cid: String, _ value: Bool) async {
         try? await db.collection("conversations").document(cid)
             .setData(["archivedBy": [uid: value]], merge: true)

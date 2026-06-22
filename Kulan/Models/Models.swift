@@ -85,6 +85,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
     var clearedAt: [String: Double]    // delete-for-me, ms
     var blockedBy: [String: Bool]
     var pinOrder: [String: Double]     // per-user manual order for pinned chats
+    var pinnedMessageId: String        // a pinned message in this chat ("" = none)
     var updatedAtMillis: Double
 
     init(id: String, data: [String: Any]) {
@@ -101,6 +102,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
         self.clearedAt = doubleMap(data["clearedAt"])
         self.blockedBy = boolMap(data["blockedBy"])
         self.pinOrder = doubleMap(data["pinOrder"])
+        self.pinnedMessageId = data["pinnedMessageId"] as? String ?? ""
         if let ts = data["updatedAt"] as? Timestamp {
             self.updatedAtMillis = ts.dateValue().timeIntervalSince1970 * 1000
         } else {

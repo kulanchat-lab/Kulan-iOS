@@ -35,6 +35,8 @@ struct ThreadView: View {
     var body: some View {
         VStack(spacing: 0) {
         ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+            pinnedBar(proxy)
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(repo.messages.enumerated()), id: \.element.id) { index, msg in
@@ -52,6 +54,7 @@ struct ThreadView: View {
                             onDelete: { m in Task { await ChatService.deleteMessage(cid: cid, messageId: m.id) } },
                             onTapImage: { viewerImage = $0 },
                             onReact: { emoji in Task { await ChatService.setReaction(cid: cid, messageId: msg.id, emoji: emoji) } },
+                            onPin: { m in Task { await ChatService.setPinnedMessage(cid, m.id) } },
                             otherLastRead: repo.otherLastReadMillis
                         )
                         .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
@@ -71,6 +74,7 @@ struct ThreadView: View {
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
                 Task { await ChatService.markRead(cid) }
+            }
             }
         }
         if repo.iBlocked { blockedBar } else { composerArea }
@@ -121,6 +125,34 @@ struct ThreadView: View {
         return d.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
     }
 
+    // Liquid-Glass pinned-message bar below the nav (tap to scroll to it; pin.slash to unpin).
+    @ViewBuilder private func pinnedBar(_ proxy: ScrollViewProxy) -> some View {
+        if !repo.pinnedMessageId.isEmpty {
+            let msg = repo.messages.first { $0.id == repo.pinnedMessageId }
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 1.5).fill(Color.accentColor).frame(width: 3, height: 30)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Pinned Message").font(.caption.weight(.semibold)).foregroundStyle(.tint)
+                    Text(msg.map { $0.isImage ? "📷 Photo" : ($0.isAudio ? "🎤 Voice message" : $0.text) } ?? "Tap to view")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                Button { Task { await ChatService.setPinnedMessage(cid, nil) } } label: {
+                    Image(systemName: "pin.slash").font(.system(size: 15)).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 46)
+            .liquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.5), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.05), radius: 8, y: 3)
+            .padding(.horizontal, 12).padding(.top, 8)
+            .contentShape(Rectangle())
+            .onTapGesture { if let id = msg?.id { withAnimation { proxy.scrollTo(id, anchor: .center) } } }
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
     private var presenceSubtitle: String? {
         if repo.otherTyping { return "typing…" }
         if repo.otherOnline { return "online" }
@@ -140,8 +172,15 @@ struct ThreadView: View {
             ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
         } label: {
             HStack(spacing: 8) {
-                AvatarView(name: title, photoUrl: photoUrl, size: 32)
-                Text(title).font(.headline.weight(.bold)).foregroundStyle(.primary).lineLimit(1)
+                AvatarView(name: title, photoUrl: photoUrl, size: 34)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.headline.weight(.bold)).foregroundStyle(.primary).lineLimit(1)
+                    if let sub = presenceSubtitle {
+                        Text(sub).font(.caption2)
+                            .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
+                            .lineLimit(1)
+                    }
+                }
             }
             .fixedSize()   // keep the name's natural width — nav bar was crushing it to 0
         }
@@ -294,12 +333,15 @@ struct ThreadView: View {
                         .padding(.trailing, 3)
                         .padding(.bottom, 2)
                     } else {
-                        Button { recorder.requestAndStart() } label: {
-                            Image(systemName: "waveform")
-                                .font(.system(size: 19))
-                                .foregroundStyle(.secondary)
+                        HStack(spacing: 14) {
+                            Button { showCamera = true } label: {
+                                Image(systemName: "camera").font(.system(size: 19)).foregroundStyle(.secondary)
+                            }
+                            Button { recorder.requestAndStart() } label: {
+                                Image(systemName: "mic").font(.system(size: 19)).foregroundStyle(.secondary)
+                            }
                         }
-                        .padding(.trailing, 11)
+                        .padding(.trailing, 12)
                         .padding(.bottom, 7)
                     }
                 }
@@ -357,6 +399,7 @@ struct MessageBubble: View {
     var onDelete: (Message) -> Void = { _ in }
     var onTapImage: (Message) -> Void = { _ in }
     var onReact: (String?) -> Void = { _ in }
+    var onPin: (Message) -> Void = { _ in }
     var otherLastRead: Double = 0
 
     @State private var dragX: CGFloat = 0
@@ -404,6 +447,7 @@ struct MessageBubble: View {
                         }
                         Divider()
                         Button { onReply(message) } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+                        Button { onPin(message) } label: { Label("Pin", systemImage: "pin") }
                         if !message.isImage && !message.text.isEmpty {
                             Button { UIPasteboard.general.string = message.text } label: { Label("Copy", systemImage: "doc.on.doc") }
                         }
