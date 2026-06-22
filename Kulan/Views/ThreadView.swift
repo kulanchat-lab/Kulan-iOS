@@ -240,7 +240,7 @@ struct ThreadView: View {
                     .font(.system(size: 22, weight: .regular))
                     .foregroundStyle(.primary)
                     .frame(width: 36, height: 36)
-                    .background(fieldFill, in: Circle())
+                    .liquidGlass(Circle())   // real iOS 26 Liquid Glass
             }
             .tint(.primary)
 
@@ -271,7 +271,7 @@ struct ThreadView: View {
                 }
             }
             .frame(minHeight: 36)
-            .background(fieldFill, in: Capsule())
+            .liquidGlass(Capsule())   // real iOS 26 Liquid Glass shine
         }
         .padding(.horizontal, 12)
         .padding(.top, 6)
