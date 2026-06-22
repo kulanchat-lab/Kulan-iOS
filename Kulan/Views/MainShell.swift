@@ -34,6 +34,7 @@ struct ChatsView: View {
     @State private var showSettings = false
     @State private var path = NavigationPath()
     @State private var pendingDelete: Conversation?
+    @State private var search = ""
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
@@ -45,6 +46,13 @@ struct ChatsView: View {
                 if $0.isPinned(me) != $1.isPinned(me) { return $0.isPinned(me) }
                 return $0.updatedAtMillis > $1.updatedAtMillis
             }
+    }
+
+    // Real search: filter the visible chats by contact name.
+    private var filtered: [Conversation] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return visible }
+        return visible.filter { $0.name(for: me).lowercased().contains(q) }
     }
 
     // Native nav bar with a crisp circle avatar — glass stripped via the iOS 26
@@ -81,7 +89,7 @@ struct ChatsView: View {
                     ContentUnavailableView("No chats yet", systemImage: "bubble.left",
                                            description: Text("Tap the compose button to start one."))
                 } else {
-                    List(visible) { conv in
+                    List(filtered) { conv in
                         NavigationLink(value: ChatTarget(id: conv.id, name: conv.name(for: me),
                                                          photo: conv.photoUrl(for: me))) {
                             ChatRow(conv: conv, me: me, dark: dark)
@@ -111,6 +119,7 @@ struct ChatsView: View {
             }
             .navigationTitle("Chats")
             .navigationBarTitleDisplayMode(.inline)   // one row: avatar · Chats · compose
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
             .toolbar { homeToolbar }
             // ONE destination type for every chat (list taps AND search results),
             // keyed by cid via .id(...) so each conversation gets a fresh ThreadView
@@ -175,7 +184,7 @@ struct ChatRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
                     Text(conv.name(for: me))
-                        .font(.system(size: 17, weight: unread > 0 ? .semibold : .regular))
+                        .font(.system(size: 17, weight: .semibold))
                         .lineLimit(1)
                     Spacer()
                     Text(timeStr)
@@ -195,6 +204,6 @@ struct ChatRow: View {
                 }
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
     }
 }

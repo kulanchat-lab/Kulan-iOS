@@ -10,6 +10,7 @@ struct KulanApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .tint(.primary)   // monochrome: no iOS system-blue anywhere
                 .preferredColorScheme(AppAppearance(rawValue: appearanceRaw)?.colorScheme ?? nil)
         }
         .onChange(of: scenePhase) { _, phase in

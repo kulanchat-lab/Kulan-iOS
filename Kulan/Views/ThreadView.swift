@@ -132,15 +132,7 @@ struct ThreadView: View {
         } label: {
             HStack(spacing: 8) {
                 AvatarView(name: title, photoUrl: photoUrl, size: 32)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.headline).foregroundStyle(.primary)
-                        .lineLimit(1)
-                    if let sub = presenceSubtitle {
-                        Text(sub).font(.caption2)
-                            .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
-                            .lineLimit(1)
-                    }
-                }
+                Text(title).font(.headline.weight(.bold)).foregroundStyle(.primary).lineLimit(1)
             }
             .fixedSize()   // keep the name's natural width — nav bar was crushing it to 0
         }
@@ -209,29 +201,25 @@ struct ThreadView: View {
         .background(.bar)
     }
 
-    // Reply preview (if any) above the Liquid-Glass composer row.
-    private var composerArea: some View {
-        VStack(spacing: 6) {
-            if let r = replyingTo {
-                HStack(spacing: 8) {
-                    RoundedRectangle(cornerRadius: 2).fill(Color.accentColor).frame(width: 3, height: 32)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Reply to \(r.authorId == me ? "yourself" : title)")
-                            .font(.caption.bold()).foregroundStyle(.tint)
-                        Text(r.isImage ? "📷 Photo" : r.text).font(.caption).lineLimit(1).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button { replyingTo = nil } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
-                .background(fieldFill, in: RoundedRectangle(cornerRadius: 14))
-                .padding(.horizontal, 12)
+    // The reply preview now nests INSIDE the input capsule (see inputRow).
+    private var composerArea: some View { composer }
+
+    // Active-reply preview row, shown inside the input capsule above the text field.
+    private func replyPreviewRow(_ r: Message) -> some View {
+        HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 1.5).fill(Color.primary.opacity(0.6)).frame(width: 3, height: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Reply to \(r.authorId == me ? "yourself" : title)")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.primary)
+                Text(r.isImage ? "📷 Photo" : (r.isAudio ? "🎤 Voice message" : r.text))
+                    .font(.caption).lineLimit(1).foregroundStyle(.secondary)
             }
-            composer
+            Spacer(minLength: 0)
+            Button { replyingTo = nil } label: {
+                Image(systemName: "xmark.circle.fill").font(.system(size: 18)).foregroundStyle(.secondary)
+            }
         }
+        .padding(.leading, 14).padding(.trailing, 10).padding(.top, 8).padding(.bottom, 4)
     }
 
     // Subtle neutral fill (no glass, no shadow) — the iMessage field tint.
@@ -268,40 +256,47 @@ struct ThreadView: View {
             }
             .tint(.primary)
 
-            // Text capsule: send arrow when typing, mic to record a voice note when empty.
-            HStack(alignment: .bottom, spacing: 4) {
-                TextField("Message", text: $input, axis: .vertical)
-                    .lineLimit(1...6)
-                    .focused($inputFocused)
-                    .padding(.leading, 14)
-                    .padding(.vertical, 7)
-                    .onChange(of: input) { _, v in
-                        let now = !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        if now != typingSent {
-                            typingSent = now
-                            Task { await ChatService.setTyping(cid, now) }
+            // Input container: optional reply preview + divider, then the text row.
+            VStack(spacing: 0) {
+                if let r = replyingTo {
+                    replyPreviewRow(r)
+                    Divider().padding(.horizontal, 12)
+                }
+                // Text row: send arrow when typing, mic to record a voice note when empty.
+                HStack(alignment: .bottom, spacing: 4) {
+                    TextField("Message", text: $input, axis: .vertical)
+                        .lineLimit(1...6)
+                        .focused($inputFocused)
+                        .padding(.leading, 14)
+                        .padding(.vertical, 7)
+                        .onChange(of: input) { _, v in
+                            let now = !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            if now != typingSent {
+                                typingSent = now
+                                Task { await ChatService.setTyping(cid, now) }
+                            }
                         }
+                    if hasText {
+                        Button { send() } label: {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundStyle(Theme.accent(dark))
+                        }
+                        .padding(.trailing, 3)
+                        .padding(.bottom, 2)
+                    } else {
+                        Button { recorder.requestAndStart() } label: {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 19))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.trailing, 11)
+                        .padding(.bottom, 7)
                     }
-                if hasText {
-                    Button { send() } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundStyle(Theme.accent(dark))
-                    }
-                    .padding(.trailing, 3)
-                    .padding(.bottom, 2)
-                } else {
-                    Button { recorder.requestAndStart() } label: {
-                        Image(systemName: "waveform")
-                            .font(.system(size: 19))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.trailing, 11)
-                    .padding(.bottom, 7)
                 }
             }
             .frame(minHeight: 36)
-            .liquidGlass(Capsule())   // real iOS 26 Liquid Glass shine
+            .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))   // real iOS 26 Liquid Glass
         }
     }
 
@@ -486,15 +481,23 @@ struct MessageBubble: View {
 
     @ViewBuilder private var replyQuote: some View {
         if let reply = message.replyTo {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(nameFor(reply.authorId)).font(.caption.bold())
-                    .foregroundStyle(isMe ? Theme.onAccent(dark).opacity(0.9) : .secondary)
-                Text(reply.text.isEmpty ? "Message" : reply.text).font(.caption).lineLimit(1)
-                    .foregroundStyle(isMe ? Theme.onAccent(dark).opacity(0.8) : .secondary)
+            let fg = isMe ? Theme.onAccent(dark) : (dark ? Color.white : .black)
+            HStack(spacing: 7) {
+                // Left accent line signalling a quoted reply.
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(fg.opacity(0.7))
+                    .frame(width: 3)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(nameFor(reply.authorId)).font(.caption.weight(.semibold))
+                        .foregroundStyle(fg.opacity(0.9))
+                    Text(reply.text.isEmpty ? "Message" : reply.text).font(.caption).lineLimit(1)
+                        .foregroundStyle(fg.opacity(0.75))
+                }
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(isMe ? Color.white.opacity(0.18) : Theme.secondary.opacity(0.18))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .background(isMe ? Color.white.opacity(0.15) : Color.primary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
     }
 }
