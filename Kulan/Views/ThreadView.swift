@@ -15,6 +15,9 @@ struct ThreadView: View {
     @State private var typingSent = false
     @State private var viewerImage: Message?
     @State private var sendError: String?
+    @State private var showAttachMenu = false
+    @State private var showCamera = false
+    @State private var showLibrary = false
     @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
 
@@ -233,9 +236,8 @@ struct ThreadView: View {
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            // Far-left circular "+" — attach a photo. Forced to the label colour
-            // (PhotosPicker otherwise tints it accent-blue).
-            PhotosPicker(selection: $photoItem, matching: .images) {
+            // Far-left circular "+" — Take Photo (camera) or Photo Library.
+            Button { showAttachMenu = true } label: {
                 Image(systemName: sendingPhoto ? "ellipsis" : "plus")
                     .font(.system(size: 22, weight: .regular))
                     .foregroundStyle(.primary)
@@ -276,6 +278,22 @@ struct ThreadView: View {
         .padding(.horizontal, 12)
         .padding(.top, 6)
         .padding(.bottom, 8)
+        .confirmationDialog("Send a photo", isPresented: $showAttachMenu, titleVisibility: .visible) {
+            Button("Take Photo") { showCamera = true }
+            Button("Photo Library") { showLibrary = true }
+            Button("Cancel", role: .cancel) {}
+        }
+        .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { data in Task { await sendCaptured(data) } }
+                .ignoresSafeArea()
+        }
+    }
+
+    private func sendCaptured(_ data: Data) async {
+        sendingPhoto = true
+        try? await ChatService.sendImage(cid: cid, data: data)
+        sendingPhoto = false
     }
 }
 
