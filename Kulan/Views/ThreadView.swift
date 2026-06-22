@@ -1,7 +1,6 @@
 import SwiftUI
 import PhotosUI
 import UIKit
-import Combine
 
 struct ThreadView: View {
     let cid: String
@@ -15,22 +14,12 @@ struct ThreadView: View {
     @State private var sendingPhoto = false
     @State private var typingSent = false
     @State private var viewerImage: Message?
-    @State private var keyboardHeight: CGFloat = 0
     @State private var sendError: String?
     @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
-
-    // Real bottom safe-area (home indicator) so the composer pins exactly to the
-    // keyboard top with no gap — read from the key window, not a GeometryReader.
-    private var bottomSafeInset: CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }?.safeAreaInsets.bottom ?? 0
-    }
 
     init(cid: String, title: String, photoUrl: String?) {
         self.cid = cid
@@ -77,17 +66,9 @@ struct ThreadView: View {
                 }
                 Task { await ChatService.markRead(cid) }
             }
-            .onChange(of: keyboardHeight) { _, _ in
-                if let last = repo.messages.last {
-                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(last.id, anchor: .bottom) }
-                }
-            }
         }
         if repo.iBlocked { blockedBar } else { composerArea }
         }
-        .padding(.bottom, max(0, keyboardHeight - bottomSafeInset))
-        .animation(.easeOut(duration: 0.25), value: keyboardHeight)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .toolbar { headerToolbar }
@@ -97,14 +78,6 @@ struct ThreadView: View {
         } message: { Text(sendError ?? "") }
         .fullScreenCover(item: $viewerImage) { msg in
             ImageViewerView(message: msg, cid: cid)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
-            if let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
-                keyboardHeight = max(0, UIScreen.main.bounds.height - f.minY)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardHeight = 0
         }
         .onAppear {
             repo.start()
