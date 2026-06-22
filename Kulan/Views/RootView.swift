@@ -29,7 +29,9 @@ struct RootView: View {
         // accounts that failed to publish on a first launch (otherwise others can
         // never message them: "hasn't set up encryption yet").
         await Crypto.shared.publishPublicKey()
-        phase = (ProfileStore.shared.me?.handle.isEmpty == false) ? .main : .onboarding
+        let ready = ProfileStore.shared.me?.handle.isEmpty == false
+        if ready { Push.register() }   // ask for notifications once we have a real account
+        phase = ready ? .main : .onboarding
     }
 }
 
