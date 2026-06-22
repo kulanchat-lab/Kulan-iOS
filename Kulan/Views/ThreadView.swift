@@ -151,12 +151,21 @@ struct ThreadView: View {
     // .principal (the title slot) so iOS animates the avatar+name 1:1 with the
     // body during the interactive swipe-back — leading/trailing bar items don't
     // ride that transition and would freeze, then snap.
+    private var otherUid: String {
+        cid.split(separator: "_").map(String.init).first { $0 != me } ?? ""
+    }
+
     @ToolbarContentBuilder private var headerToolbar: some ToolbarContent {
         if #available(iOS 26.0, *) {
             ToolbarItem(placement: .principal) { headerLabel }
                 .sharedBackgroundVisibility(.hidden)
         } else {
             ToolbarItem(placement: .principal) { headerLabel }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { CallService.shared.startCall(to: otherUid, name: title) } label: {
+                Image(systemName: "phone.fill")
+            }
         }
     }
 

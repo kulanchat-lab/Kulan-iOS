@@ -14,6 +14,9 @@ packages:
   Sodium:
     url: https://github.com/jedisct1/swift-sodium
     from: "0.9.1"
+  WebRTC:
+    url: https://github.com/stasel/WebRTC
+    from: "120.0.0"
 
 targets:
   Kulan:
@@ -55,3 +58,5 @@ targets:
         product: FirebaseMessaging
       - package: Sodium
         product: Sodium
+      - package: WebRTC
+        product: WebRTC

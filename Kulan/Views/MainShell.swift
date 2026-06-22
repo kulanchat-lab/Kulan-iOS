@@ -4,12 +4,20 @@ import SwiftUI
 // unmounts/blinks on tab switch (the RN bug, solved structurally).
 struct MainShell: View {
     var onSignOut: () -> Void
+    private var call = CallService.shared
     var body: some View {
         TabView {
             ChatsView(onSignOut: onSignOut)
                 .tabItem { Label("Chats", systemImage: "bubble.left.fill") }
             CallsView()
                 .tabItem { Label("Calls", systemImage: "phone.fill") }
+        }
+        .onAppear { call.observeIncoming() }
+        .fullScreenCover(isPresented: Binding(
+            get: { call.state != .idle },
+            set: { if !$0 && call.state != .idle { call.hangUp() } }
+        )) {
+            CallView()
         }
     }
 }
