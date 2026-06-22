@@ -103,27 +103,35 @@ struct ChatsView: View {
     }
 
     // Bottom action bar shown in edit mode (replaces the tab bar).
+    // Three floating glass buttons: Archive ○ · "Read All" capsule · Delete ○ (red).
     private var selectionBar: some View {
-        HStack(spacing: 0) {
-            selectionAction("Archive", "archivebox") { archiveSelected() }
-            selectionAction("Mark Read", "checkmark.message") { markReadSelected() }
-            selectionAction("Delete", "trash", destructive: true) { showDeleteSelected = true }
-        }
-        .padding(.top, 10).padding(.bottom, 6)
-        .background(.bar)
-        .disabled(selection.isEmpty)
-        .opacity(selection.isEmpty ? 0.45 : 1)
-    }
-    private func selectionAction(_ title: String, _ icon: String, destructive: Bool = false,
-                                 _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 20))
-                Text(title).font(.caption2)
+        HStack {
+            Button { archiveSelected() } label: {
+                Image(systemName: "archivebox").font(.system(size: 20))
+                    .frame(width: 48, height: 48)
             }
-            .frame(maxWidth: .infinity)
+            .liquidGlass(Circle())
+            .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
+            Spacer()
+            Button { markReadSelected() } label: {
+                Text("Read All").font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 22).frame(height: 48)
+            }
+            .liquidGlass(Capsule())
+            .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
+            Spacer()
+            Button { showDeleteSelected = true } label: {
+                Image(systemName: "trash").font(.system(size: 20)).foregroundStyle(.red)
+                    .frame(width: 48, height: 48)
+            }
+            .liquidGlass(Circle())
+            .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
         }
-        .tint(destructive ? .red : .primary)
+        .tint(.primary)
+        .padding(.horizontal, 28)
+        .padding(.bottom, 16)
+        .disabled(selection.isEmpty)
+        .opacity(selection.isEmpty ? 0.5 : 1)
     }
 
     // Persist a pinned-chat reorder via fractional indexing (Telegram-style).
@@ -194,6 +202,10 @@ struct ChatsView: View {
                             Button(role: .destructive) {
                                 pendingDelete = conv
                             } label: { Label("Delete", systemImage: "trash") }
+                            Button {
+                                Task { await ChatService.setArchived(conv.id, true) }
+                            } label: { Label("Archive", systemImage: "archivebox") }
+                            .tint(.gray)
                             Button {
                                 let now = Date().timeIntervalSince1970 * 1000
                                 Task { await ChatService.setMuted(conv.id, !conv.isMuted(me, now: now)) }
@@ -323,9 +335,9 @@ struct ChatRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            AvatarView(name: conv.name(for: me), photoUrl: conv.photoUrl(for: me), size: 52)
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 16) {
+            AvatarView(name: conv.name(for: me), photoUrl: conv.photoUrl(for: me), size: 72)
+            VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(conv.name(for: me))
                         .font(.system(size: 17, weight: .semibold))
@@ -348,6 +360,6 @@ struct ChatRow: View {
                 }
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 10)   // ~92pt row height with the 72pt avatar
     }
 }
