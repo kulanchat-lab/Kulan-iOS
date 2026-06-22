@@ -18,7 +18,6 @@ struct ThreadView: View {
     @State private var keyboardHeight: CGFloat = 0
     @State private var sendError: String?
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.dismiss) private var dismiss
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
@@ -41,7 +40,6 @@ struct ThreadView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-        header
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 4) {
@@ -85,10 +83,9 @@ struct ThreadView: View {
         .padding(.bottom, max(0, keyboardHeight - bottomSafeInset))
         .animation(.easeOut(duration: 0.25), value: keyboardHeight)
         .ignoresSafeArea(.keyboard, edges: .bottom)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationBarBackButtonHidden(true)
-        .background(SwipeBackEnabler())   // keep edge swipe-back with the bar hidden
+        .toolbar { headerToolbar }
         .alert("Message not sent", isPresented: Binding(get: { sendError != nil },
                                                         set: { if !$0 { sendError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -142,38 +139,35 @@ struct ThreadView: View {
         return nil
     }
 
-    // Flat header (a normal view, NOT a toolbar item) so iOS 26 never wraps it in
-    // a Liquid-Glass pill — Signal layout: back chevron + avatar + name/presence.
-    private var header: some View {
-        HStack(spacing: 6) {
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.backward")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 30, height: 38)
-                    .contentShape(Rectangle())
-            }
-            NavigationLink {
-                ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
-            } label: {
-                HStack(spacing: 9) {
-                    AvatarView(name: title, photoUrl: photoUrl, size: 36)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(title).font(.headline).foregroundStyle(.primary)
-                        if let sub = presenceSubtitle {
-                            Text(sub).font(.caption2)
-                                .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
-                        }
+    // Signal-style header: a flat title view INSIDE the native nav bar (next to the
+    // system back button) so we keep the smooth push animation and edge swipe-back.
+    // On iOS 26 the toolbar would wrap it in a Liquid-Glass pill, so we strip that
+    // with .sharedBackgroundVisibility(.hidden) — the official opt-out.
+    @ViewBuilder private var headerLabel: some View {
+        NavigationLink {
+            ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
+        } label: {
+            HStack(spacing: 8) {
+                AvatarView(name: title, photoUrl: photoUrl, size: 32)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.headline).foregroundStyle(.primary)
+                    if let sub = presenceSubtitle {
+                        Text(sub).font(.caption2)
+                            .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
                     }
                 }
             }
-            .buttonStyle(.plain)
-            Spacer()
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(Theme.bg(dark))
-        .overlay(alignment: .bottom) { Divider() }
+        .buttonStyle(.plain)
+    }
+
+    @ToolbarContentBuilder private var headerToolbar: some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarLeading) { headerLabel }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarLeading) { headerLabel }
+        }
     }
 
     private func send() {
