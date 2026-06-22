@@ -174,6 +174,18 @@ enum ChatService {
         } catch { /* ignore */ }
     }
 
+    /// Set or clear my emoji reaction on a message. The emoji is E2E-encrypted
+    /// (same as text) so the server never sees the reaction.
+    static func setReaction(cid: String, messageId: String, emoji: String?) async {
+        let ref = db.collection("conversations").document(cid)
+            .collection("messages").document(messageId)
+        if let emoji, let enc = try? await Crypto.shared.encryptForConversation(cid, emoji) {
+            try? await ref.setData(["reactions": [uid: enc]], merge: true)
+        } else {
+            try? await ref.updateData(["reactions.\(uid)": FieldValue.delete()])
+        }
+    }
+
     static func deleteMessage(cid: String, messageId: String) async {
         try? await db.collection("conversations").document(cid)
             .collection("messages").document(messageId).delete()

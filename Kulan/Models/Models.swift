@@ -37,6 +37,7 @@ struct Message: Identifiable, Equatable {
     var enc: EncMeta?
     var clientId: String?
     var replyTo: ReplyRef?
+    var reactions: [String: String]   // uid -> decrypted emoji
     var createdAt: Date
 
     var isImage: Bool { type == "image" && (imageUrl?.isEmpty == false) }
@@ -52,6 +53,7 @@ struct Message: Identifiable, Equatable {
         self.duration = (data["duration"] as? NSNumber)?.doubleValue
         self.clientId = data["clientId"] as? String
         self.enc = (data["enc"] as? [String: Any]).flatMap(EncMeta.init(map:))
+        self.reactions = (data["reactions"] as? [String: String])?.mapValues { crypto.decrypt($0, cid: cid) } ?? [:]
         if let r = data["replyTo"] as? [String: Any] {
             self.replyTo = ReplyRef(
                 id: r["id"] as? String ?? "",

@@ -51,6 +51,7 @@ struct ThreadView: View {
                             onReply: { replyingTo = $0 },
                             onDelete: { m in Task { await ChatService.deleteMessage(cid: cid, messageId: m.id) } },
                             onTapImage: { viewerImage = $0 },
+                            onReact: { emoji in Task { await ChatService.setReaction(cid: cid, messageId: msg.id, emoji: emoji) } },
                             otherLastRead: repo.otherLastReadMillis
                         )
                         .id(msg.id)
@@ -351,10 +352,16 @@ struct MessageBubble: View {
     var onReply: (Message) -> Void = { _ in }
     var onDelete: (Message) -> Void = { _ in }
     var onTapImage: (Message) -> Void = { _ in }
+    var onReact: (String?) -> Void = { _ in }
     var otherLastRead: Double = 0
 
     @State private var dragX: CGFloat = 0
     @State private var showDelete = false
+
+    private static let reactionChoices = ["❤️", "👍", "😂", "😮", "😢", "🙏"]
+    private var myUid: String { AuthService.shared.uid ?? "" }
+    private var myReaction: String? { message.reactions[myUid] }
+    private var reactionEmojis: [String] { Array(Set(message.reactions.values)).sorted() }
 
     private var isRead: Bool {
         message.createdAt.timeIntervalSince1970 * 1000 <= otherLastRead
@@ -379,20 +386,35 @@ struct MessageBubble: View {
     var body: some View {
         HStack {
             if isMe { Spacer(minLength: 50) }
-            content
-                .contextMenu {
-                    Button { onReply(message) } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
-                    if !message.isImage && !message.text.isEmpty {
-                        Button { UIPasteboard.general.string = message.text } label: { Label("Copy", systemImage: "doc.on.doc") }
+            VStack(alignment: isMe ? .trailing : .leading, spacing: 3) {
+                content
+                    .contextMenu {
+                        ForEach(Self.reactionChoices, id: \.self) { emoji in
+                            Button { onReact(myReaction == emoji ? nil : emoji) } label: {
+                                Text(myReaction == emoji ? "\(emoji)  ✓ Remove" : emoji)
+                            }
+                        }
+                        Divider()
+                        Button { onReply(message) } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+                        if !message.isImage && !message.text.isEmpty {
+                            Button { UIPasteboard.general.string = message.text } label: { Label("Copy", systemImage: "doc.on.doc") }
+                        }
+                        if isMe {
+                            Button(role: .destructive) { showDelete = true } label: { Label("Delete", systemImage: "trash") }
+                        }
                     }
-                    if isMe {
-                        Button(role: .destructive) { showDelete = true } label: { Label("Delete", systemImage: "trash") }
+                    .confirmationDialog("Delete this message?", isPresented: $showDelete, titleVisibility: .visible) {
+                        Button("Delete", role: .destructive) { onDelete(message) }
+                        Button("Cancel", role: .cancel) {}
                     }
+                if !reactionEmojis.isEmpty {
+                    Text(reactionEmojis.joined())
+                        .font(.system(size: 13))
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Theme.received(dark), in: Capsule())
+                        .overlay(Capsule().stroke(dark ? Color(hex: 0x121214) : .white, lineWidth: 2))
                 }
-                .confirmationDialog("Delete this message?", isPresented: $showDelete, titleVisibility: .visible) {
-                    Button("Delete", role: .destructive) { onDelete(message) }
-                    Button("Cancel", role: .cancel) {}
-                }
+            }
             if !isMe { Spacer(minLength: 50) }
         }
         // Telegram-style swipe-to-reply: drag the bubble left past a threshold.
