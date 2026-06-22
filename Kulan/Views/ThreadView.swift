@@ -171,8 +171,8 @@ struct ThreadView: View {
         NavigationLink {
             ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
         } label: {
-            HStack(spacing: 8) {
-                AvatarView(name: title, photoUrl: photoUrl, size: 34)
+            HStack(spacing: 10) {
+                AvatarView(name: title, photoUrl: photoUrl, size: 40)   // larger, prominent
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.headline.weight(.bold)).foregroundStyle(.primary).lineLimit(1)
                     if let sub = presenceSubtitle {
