@@ -13,12 +13,7 @@ struct MainShell: View {
                 .tabItem { Label("Calls", systemImage: "phone.fill") }
         }
         .onAppear { call.observeIncoming() }
-        .fullScreenCover(isPresented: Binding(
-            get: { call.state != .idle },
-            set: { if !$0 && call.state != .idle { call.hangUp() } }
-        )) {
-            CallView()
-        }
+        // Call UI is now the native CallKit system screen (no custom CallView).
     }
 }
 

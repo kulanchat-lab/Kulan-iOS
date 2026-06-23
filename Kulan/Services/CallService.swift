@@ -70,12 +70,14 @@ final class CallService: NSObject {
 
     func startCall(to uid: String, name: String, photo: String? = nil) {
         guard state == .idle, !uid.isEmpty else { return }
-        configureAudio()
         isCaller = true
         otherUid = uid
         otherName = name
         otherPhotoUrl = photo
         state = .outgoing
+        // CallKit owns the call UI + audio session.
+        _ = CallKitManager.shared.startOutgoing(name: name)
+        CallKitManager.shared.reportConnecting()
 
         let ref = db.collection("calls").document()
         callId = ref.documentID
@@ -122,12 +124,12 @@ final class CallService: NSObject {
                 self.otherPhotoUrl = photo.isEmpty ? nil : photo
                 self.isCaller = false
                 self.state = .incoming
+                CallKitManager.shared.reportIncoming(name: self.otherName)   // native ringing UI
             }
     }
 
     func answer() {
         guard state == .incoming, let id = callId else { return }
-        configureAudio()
         let ref = db.collection("calls").document(id)
         pc = makePeerConnection()
         ref.getDocument { [weak self] snap, _ in
@@ -163,6 +165,7 @@ final class CallService: NSObject {
                self.pc?.remoteDescription == nil {
                 self.pc?.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { _ in }
                 self.state = .active
+                CallKitManager.shared.reportConnected()
             }
             if (d["status"] as? String) == "ended" { self.cleanup(updateRemote: false) }
         }
@@ -201,14 +204,12 @@ final class CallService: NSObject {
         if updateRemote, let id = callId {
             db.collection("calls").document(id).updateData(["status": "ended"])
         }
+        CallKitManager.shared.reportEnded()   // clear the system call UI (remote-ended case)
         listeners.forEach { $0.remove() }
         listeners = []
         pc?.close()
         pc = nil
-        let session = RTCAudioSession.sharedInstance()
-        session.lockForConfiguration()
-        try? session.setActive(false)
-        session.unlockForConfiguration()
+        RTCAudioSession.sharedInstance().isAudioEnabled = false
         callId = nil
         otherUid = ""
         isCaller = false
