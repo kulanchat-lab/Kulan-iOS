@@ -228,6 +228,28 @@ struct ChatsView: View {
                             }
                             .tint(.orange)
                         }
+                        // Long-press menu (like Telegram/Signal) — same actions as the swipes.
+                        .contextMenu {
+                            Button { Task { await ChatService.setPinned(conv.id, !conv.isPinned(me)) } } label: {
+                                Label(conv.isPinned(me) ? "Unpin" : "Pin", systemImage: "pin")
+                            }
+                            if conv.unread(me) > 0 {
+                                Button { Task { await ChatService.resetUnread(conv.id) } } label: {
+                                    Label("Mark as Read", systemImage: "envelope.open")
+                                }
+                            } else {
+                                Button { Task { await ChatService.markUnread(conv.id) } } label: {
+                                    Label("Mark as Unread", systemImage: "envelope.badge")
+                                }
+                            }
+                            Button { pendingMute = conv } label: { Label("Mute", systemImage: "bell.slash") }
+                            Button { Task { await ChatService.setArchived(conv.id, true) } } label: {
+                                Label("Archive", systemImage: "archivebox")
+                            }
+                            Button(role: .destructive) { pendingDelete = conv } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                       }
                       .onMove { source, destination in
                           reorderPinned(from: source, to: destination)

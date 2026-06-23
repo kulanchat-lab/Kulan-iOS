@@ -228,6 +228,12 @@ enum ChatService {
             .updateData(["unreadCount.\(uid)": 0])
     }
 
+    /// Manually flag a chat as unread (Telegram-style) — shows a badge until reopened.
+    static func markUnread(_ cid: String) async {
+        try? await db.collection("conversations").document(cid)
+            .updateData(["unreadCount.\(uid)": 1])
+    }
+
     /// Mark this conversation read up to now (drives the other person's read receipts).
     static func markRead(_ cid: String) async {
         try? await db.collection("conversations").document(cid)
