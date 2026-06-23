@@ -35,7 +35,7 @@ enum ChatService {
 
     /// Encrypt + send a text message and bump the conversation. Throws
     /// MissingRecipientKeyError if the recipient has no key yet (never sends plaintext).
-    static func sendText(cid: String, text: String, replyTo: ReplyRef? = nil) async throws {
+    static func sendText(cid: String, text: String, replyTo: ReplyRef? = nil, clientId: String? = nil) async throws {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
 
@@ -66,6 +66,7 @@ enum ChatService {
             "authorId": uid,
             "createdAt": FieldValue.serverTimestamp(),
         ]
+        if let clientId { msg["clientId"] = clientId }   // lets the client reconcile its optimistic copy
         if let replyEnc { msg["replyTo"] = replyEnc }
         batch.setData(msg, forDocument: msgRef)
         batch.updateData([

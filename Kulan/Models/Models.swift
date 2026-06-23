@@ -28,6 +28,10 @@ struct ReplyRef: Equatable {
     var text: String          // decrypted snippet
 }
 
+// Local delivery state for a message I'm sending. nil = a confirmed server message
+// (its receipt is derived from the other person's lastRead instead).
+enum MessageSendState: Equatable { case sending, failed }
+
 struct Message: Identifiable, Equatable {
     let id: String
     var authorId: String
@@ -41,9 +45,23 @@ struct Message: Identifiable, Equatable {
     var replyTo: ReplyRef?
     var reactions: [String: String]   // uid -> decrypted emoji
     var createdAt: Date
+    var sendState: MessageSendState? = nil  // set only on local optimistic messages
 
     var isImage: Bool { type == "image" && (imageUrl?.isEmpty == false) }
     var isAudio: Bool { type == "audio" && (audioUrl?.isEmpty == false) }
+
+    /// Local optimistic message shown instantly before the server confirms it.
+    /// `id` = clientId until the server echo (matched by clientId) replaces it.
+    init(localText: String, authorId: String, clientId: String, replyTo: ReplyRef?, sendState: MessageSendState) {
+        self.id = clientId
+        self.authorId = authorId
+        self.text = localText
+        self.clientId = clientId
+        self.replyTo = replyTo
+        self.reactions = [:]
+        self.createdAt = Date()
+        self.sendState = sendState
+    }
 
     init(id: String, data: [String: Any], cid: String, crypto: Crypto) {
         self.id = id

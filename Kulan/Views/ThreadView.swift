@@ -41,7 +41,7 @@ struct ThreadView: View {
             pinnedBar(proxy)
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(Array(repo.messages.enumerated()), id: \.element.id) { index, msg in
+                    ForEach(Array(repo.items.enumerated()), id: \.element.id) { index, msg in
                         if shouldShowDate(at: index) {
                             Text(dayLabel(msg.createdAt))
                                 .font(.caption.weight(.medium))
@@ -57,6 +57,7 @@ struct ThreadView: View {
                             onTapImage: { viewerImage = $0 },
                             onReact: { emoji in Task { await ChatService.setReaction(cid: cid, messageId: msg.id, emoji: emoji) } },
                             onPin: { m in Task { await ChatService.setPinnedMessage(cid, m.id) } },
+                            onResend: { m in resend(m) },
                             otherLastRead: repo.otherLastReadMillis
                         )
                         .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
@@ -71,8 +72,8 @@ struct ThreadView: View {
             // Tap anywhere in the message area to close the keyboard (taps on
             // image bubbles still open the viewer — simultaneous, not consumed).
             .simultaneousGesture(TapGesture().onEnded { inputFocused = false })
-            .onChange(of: repo.messages.count) { _, _ in
-                if let last = repo.messages.last {
+            .onChange(of: repo.items.count) { _, _ in
+                if let last = repo.items.last {
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
                 Task { await ChatService.markRead(cid) }
@@ -113,17 +114,18 @@ struct ThreadView: View {
     }
 
     private func shouldShowDate(at index: Int) -> Bool {
-        guard index > 0 else { return true }
-        return !Calendar.current.isDate(repo.messages[index - 1].createdAt,
-                                        inSameDayAs: repo.messages[index].createdAt)
+        let items = repo.items
+        guard index > 0, index < items.count else { return true }
+        return !Calendar.current.isDate(items[index - 1].createdAt, inSameDayAs: items[index].createdAt)
     }
 
     // Grouping: tight (3pt) when the previous message is from the same sender,
     // standard (14pt) on a sender change. The date separator carries its own gap.
     private func topGap(at index: Int) -> CGFloat {
-        guard index > 0 else { return 0 }
+        let items = repo.items
+        guard index > 0, index < items.count else { return 0 }
         if shouldShowDate(at: index) { return 0 }
-        return repo.messages[index - 1].authorId == repo.messages[index].authorId ? 3 : 14
+        return items[index - 1].authorId == items[index].authorId ? 3 : 14
     }
 
     private func dayLabel(_ d: Date) -> String {
@@ -216,7 +218,8 @@ struct ThreadView: View {
     }
 
     private func send() {
-        let text = input
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
         input = ""
         let reply = replyingTo.map {
             ReplyRef(id: $0.id, authorId: $0.authorId,
@@ -224,19 +227,33 @@ struct ThreadView: View {
         }
         replyingTo = nil
         typingSent = false
+        // Show the bubble INSTANTLY (optimistic), then reconcile when the server echoes it.
+        let clientId = UUID().uuidString
+        repo.addPending(Message(localText: text, authorId: me, clientId: clientId, replyTo: reply, sendState: .sending))
         Task {
             await ChatService.setTyping(cid, false)
-            do {
-                try await ChatService.sendText(cid: cid, text: text, replyTo: reply)
-            } catch {
-                // Don't silently drop the message — restore it and tell the user why.
-                await MainActor.run {
-                    input = text
-                    if error is MissingRecipientKeyError {
-                        sendError = "\(title) hasn't set up encryption yet (they need to open Kulan once). Your message wasn't sent."
-                    } else {
-                        sendError = "Couldn't send your message. \(error.localizedDescription)"
-                    }
+            await deliver(text: text, reply: reply, clientId: clientId)
+        }
+    }
+
+    // Re-try a failed message: flip its bubble back to .sending and send again.
+    private func resend(_ m: Message) {
+        let clientId = m.clientId ?? UUID().uuidString
+        repo.removePending(clientId: clientId)
+        repo.addPending(Message(localText: m.text, authorId: me, clientId: clientId,
+                                replyTo: m.replyTo, sendState: .sending))
+        Task { await deliver(text: m.text, reply: m.replyTo, clientId: clientId) }
+    }
+
+    private func deliver(text: String, reply: ReplyRef?, clientId: String) async {
+        do {
+            try await ChatService.sendText(cid: cid, text: text, replyTo: reply, clientId: clientId)
+        } catch {
+            // Keep the message as a failed bubble (tap to retry); flag the encryption case.
+            await MainActor.run {
+                repo.markFailed(clientId: clientId)
+                if error is MissingRecipientKeyError {
+                    sendError = "\(title) hasn't opened Kulan yet, so encryption isn't set up. Your message will send once they do."
                 }
             }
         }
@@ -423,6 +440,7 @@ struct MessageBubble: View {
     var onReact: (String?) -> Void = { _ in }
     var onPin: (Message) -> Void = { _ in }
     var onTapReactions: () -> Void = {}
+    var onResend: (Message) -> Void = { _ in }
     var otherLastRead: Double = 0
 
     @State private var dragX: CGFloat = 0
@@ -448,13 +466,21 @@ struct MessageBubble: View {
         message.createdAt.formatted(date: .omitted, time: .shortened)
     }
 
-    // Time + read-check, shown INSIDE the bubble bottom-right (Signal style).
+    // Time + status, shown INSIDE the bubble bottom-right. Status = clock while sending,
+    // red "!" if it failed, single check when sent, filled check once the other read it.
     @ViewBuilder private var metaRow: some View {
         HStack(spacing: 3) {
             Text(timeString).font(.system(size: 10))
             if isMe {
-                Image(systemName: isRead ? "checkmark.circle.fill" : "checkmark")
-                    .font(.system(size: 9, weight: .semibold))
+                switch message.sendState {
+                case .sending:
+                    Image(systemName: "clock").font(.system(size: 9, weight: .semibold))
+                case .failed:
+                    Image(systemName: "exclamationmark.circle.fill").font(.system(size: 10)).foregroundStyle(.red)
+                case nil:
+                    Image(systemName: isRead ? "checkmark.circle.fill" : "checkmark")
+                        .font(.system(size: 9, weight: .semibold))
+                }
             }
         }
         .foregroundStyle(isMe ? Theme.onAccent(dark).opacity(0.7) : Color.secondary)
@@ -521,6 +547,14 @@ struct MessageBubble: View {
                         Button("Cancel", role: .cancel) {}
                     }
                 reactionBadges
+                if isMe && message.sendState == .failed {
+                    Button { onResend(message) } label: {
+                        Label("Not delivered. Tap to retry", systemImage: "arrow.clockwise")
+                            .font(.system(size: 11, weight: .medium)).foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 1)
+                }
             }
             .frame(maxWidth: maxBubbleWidth, alignment: isMe ? .trailing : .leading)
             if !isMe { Spacer(minLength: 0) }

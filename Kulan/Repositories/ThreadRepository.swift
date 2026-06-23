@@ -13,7 +13,8 @@ final class ThreadRepository {
     private var userListener: ListenerRegistration?
     let cid: String
 
-    var messages: [Message] = []
+    var messages: [Message] = []           // confirmed server messages
+    var pending: [Message] = []            // optimistic, not yet echoed back
     var otherTyping = false
     var otherOnline = false
     var otherLastActive: Date?
@@ -22,6 +23,18 @@ final class ThreadRepository {
     var pinnedMessageId = ""
 
     init(cid: String) { self.cid = cid }
+
+    /// Display list = confirmed server messages + any optimistic ones not yet echoed.
+    var items: [Message] {
+        let echoed = Set(messages.compactMap { $0.clientId })
+        return messages + pending.filter { p in !(p.clientId.map(echoed.contains) ?? false) }
+    }
+
+    func addPending(_ m: Message) { pending.append(m) }
+    func markFailed(clientId: String) {
+        if let i = pending.firstIndex(where: { $0.clientId == clientId }) { pending[i].sendState = .failed }
+    }
+    func removePending(clientId: String) { pending.removeAll { $0.clientId == clientId } }
 
     func start() {
         guard let uid = Auth.auth().currentUser?.uid else { return }
@@ -57,6 +70,9 @@ final class ThreadRepository {
                     self.messages = snap.documents.map {
                         Message(id: $0.documentID, data: $0.data(), cid: self.cid, crypto: Crypto.shared)
                     }
+                    // Drop optimistic copies the server has now confirmed (matched by clientId).
+                    let echoed = Set(self.messages.compactMap { $0.clientId })
+                    self.pending.removeAll { p in p.clientId.map(echoed.contains) ?? false }
                 }
         }
     }
