@@ -22,7 +22,6 @@ struct ThreadView: View {
     @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dismiss) private var dismiss
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
