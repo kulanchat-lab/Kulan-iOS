@@ -80,7 +80,7 @@ struct ChatsView: View {
     private var avatarMenu: some View {
         Menu {
             Button { selecting = true } label: { Label("Select Chats", systemImage: "checkmark.circle") }
-            Button { showSettings = true } label: { Label("Settings", systemImage: "gear") }
+            Button { showSettings = true } label: { Label("Settings", systemImage: "gearshape") }
             Button { showArchived = true } label: { Label("Archive", systemImage: "archivebox") }
         } label: {
             AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 40)
@@ -194,7 +194,7 @@ struct ChatsView: View {
         NavigationStack(path: $path) {
             Group {
                 if visible.isEmpty {
-                    ContentUnavailableView("No chats yet", systemImage: "bubble.left",
+                    ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.bubble.right",
                                            description: Text("Tap the compose button to start one."))
                 } else {
                     List(selection: selecting ? $selection : .constant(Set<String>())) {
