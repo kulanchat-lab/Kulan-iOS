@@ -16,6 +16,7 @@ struct NewChatView: View {
     @State private var results: [UserProfile] = []
     @State private var searching = false
     @State private var error: String?
+    @State private var showScan = false
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var recents: [Conversation] {
@@ -70,13 +71,21 @@ struct NewChatView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { dismiss() } label: { Image(systemName: "xmark") }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showScan = true } label: { Image(systemName: "qrcode.viewfinder") }
+                }
+            }
+            .sheet(isPresented: $showScan) {
+                ScanQRView { user in showScan = false; start(user) }
             }
             .onChange(of: query) { _, q in
                 let trimmed = q.trimmingCharacters(in: .whitespaces)
                 guard !trimmed.isEmpty else { results = []; searching = false; return }
                 searching = true
                 Task {
-                    let r = await ChatService.searchUsers(prefix: trimmed)
+                    var r = await ChatService.searchUsers(prefix: trimmed)
+                    // Exact-handle fallback so "@ayaan" / full handles still resolve.
+                    if r.isEmpty, let exact = await ChatService.findByHandle(trimmed) { r = [exact] }
                     await MainActor.run {
                         // Ignore stale results if the query moved on while we waited.
                         guard query.trimmingCharacters(in: .whitespaces) == trimmed else { return }

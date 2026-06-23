@@ -38,6 +38,9 @@ targets:
         NSMicrophoneUsageDescription: "Kulan needs microphone access so you can send voice messages."
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        CFBundleURLTypes:
+          - CFBundleURLName: com.kulan.messenger
+            CFBundleURLSchemes: [kulan]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kulan.messenger.native

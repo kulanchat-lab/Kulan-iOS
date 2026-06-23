@@ -12,6 +12,7 @@ struct SettingsView: View {
     private var profile = ProfileStore.shared
     @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
     @State private var showEdit = false
+    @State private var showQR = false
 
     private var inviteText: String {
         let h = profile.me?.handle ?? ""
@@ -47,6 +48,7 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Button { showQR = true } label: { Label("My QR Code", systemImage: "qrcode") }
                     ShareLink(item: inviteText) { Label("Invite Friends", systemImage: "person.badge.plus") }
                     NavigationLink { AboutView() } label: {
                         Label("Help & About", systemImage: "questionmark.circle")
@@ -60,6 +62,7 @@ struct SettingsView: View {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
             .sheet(isPresented: $showEdit) { EditProfileView() }
+            .sheet(isPresented: $showQR) { MyQRView() }
         }
     }
 

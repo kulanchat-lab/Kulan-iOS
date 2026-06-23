@@ -306,14 +306,16 @@ enum ChatService {
     // MARK: - Discovery
 
     static func findByHandle(_ handle: String) async -> UserProfile? {
-        let h = handle.trimmingCharacters(in: .whitespaces).lowercased()
+        var h = handle.trimmingCharacters(in: .whitespaces).lowercased()
+        if h.hasPrefix("@") { h.removeFirst() }   // users type "@ayaan"
         guard !h.isEmpty else { return nil }
         do {
             let snap = try await db.collection("users")
                 .whereField("handleLower", isEqualTo: h)
                 .limit(to: 1).getDocuments()
             guard let d = snap.documents.first else { return nil }
-            return UserProfile(id: d.documentID, data: d.data())
+            let u = UserProfile(id: d.documentID, data: d.data())
+            return u.id == uid ? nil : u   // never "find" yourself
         } catch {
             print("findByHandle failed:", error)
             return nil
@@ -321,8 +323,9 @@ enum ChatService {
     }
 
     static func searchUsers(prefix: String) async -> [UserProfile] {
-        let q = prefix.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return [] }
+        var q = prefix.trimmingCharacters(in: .whitespaces).lowercased()
+        if q.hasPrefix("@") { q.removeFirst() }
+        guard q.count >= 2 else { return [] }   // min length: don't hammer Firestore on 1 char
         do {
             let snap = try await db.collection("users")
                 .order(by: "handleLower")
