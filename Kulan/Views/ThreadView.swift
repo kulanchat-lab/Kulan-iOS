@@ -19,6 +19,9 @@ struct ThreadView: View {
     @State private var showCamera = false
     @State private var showLibrary = false
     @State private var recorder = AudioRecorder()
+    @State private var highlightId: String?
+    @State private var isAtBottom = true
+    @State private var newWhileAway = 0
     @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
@@ -58,11 +61,17 @@ struct ThreadView: View {
                             onReact: { emoji in Task { await ChatService.setReaction(cid: cid, messageId: msg.id, emoji: emoji) } },
                             onPin: { m in Task { await ChatService.setPinnedMessage(cid, m.id) } },
                             onResend: { m in resend(m) },
+                            onJumpTo: { id in jump(to: id, proxy) },
+                            isHighlighted: msg.id == highlightId,
                             otherLastRead: repo.otherLastReadMillis
                         )
                         .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
                         .id(msg.id)
                     }
+                    // Bottom sentinel: drives "am I at the bottom?" for the scroll button.
+                    Color.clear.frame(height: 1).id("BOTTOM")
+                        .onAppear { isAtBottom = true; newWhileAway = 0 }
+                        .onDisappear { isAtBottom = false }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -72,11 +81,42 @@ struct ThreadView: View {
             // Tap anywhere in the message area to close the keyboard (taps on
             // image bubbles still open the viewer — simultaneous, not consumed).
             .simultaneousGesture(TapGesture().onEnded { inputFocused = false })
-            .onChange(of: repo.items.count) { _, _ in
-                if let last = repo.items.last {
-                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last.id, anchor: .bottom) }
+            .onChange(of: repo.items.count) { old, new in
+                guard new > old else { return }
+                let mine = repo.items.last?.authorId == me
+                // Only yank to the bottom if the user is already there, or it's my own
+                // message. If they scrolled up to read history, just bump the counter.
+                if isAtBottom || mine {
+                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("BOTTOM", anchor: .bottom) }
+                } else {
+                    newWhileAway += 1
                 }
                 Task { await ChatService.markRead(cid) }
+            }
+            // Floating jump-to-bottom button (our design) — appears when scrolled up,
+            // with a count of messages that arrived while away.
+            .overlay(alignment: .bottomTrailing) {
+                if !isAtBottom {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("BOTTOM", anchor: .bottom) }
+                    } label: {
+                        Image(systemName: "chevron.down").font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 40, height: 40)
+                            .liquidGlass(Circle())
+                            .overlay(alignment: .top) {
+                                if newWhileAway > 0 {
+                                    Text("\(newWhileAway)").font(.system(size: 11, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(Color.accentColor, in: Capsule())
+                                        .offset(y: -9)
+                                }
+                            }
+                    }
+                    .padding(.trailing, 16).padding(.bottom, 10)
+                    .transition(.scale.combined(with: .opacity))
+                }
             }
             // Float the composer OVER the messages (iOS 26 native via safeAreaBar):
             // the glass dims/blurs the messages scrolling under it like iMessage;
@@ -256,6 +296,15 @@ struct ThreadView: View {
                     sendError = "\(title) hasn't opened Kulan yet, so encryption isn't set up. Your message will send once they do."
                 }
             }
+        }
+    }
+
+    // Scroll to a message (e.g. the original of a tapped reply) and flash it briefly.
+    private func jump(to id: String, _ proxy: ScrollViewProxy) {
+        withAnimation(.easeInOut) { proxy.scrollTo(id, anchor: .center) }
+        highlightId = id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            if highlightId == id { withAnimation { highlightId = nil } }
         }
     }
 
@@ -441,6 +490,8 @@ struct MessageBubble: View {
     var onPin: (Message) -> Void = { _ in }
     var onTapReactions: () -> Void = {}
     var onResend: (Message) -> Void = { _ in }
+    var onJumpTo: (String) -> Void = { _ in }
+    var isHighlighted: Bool = false
     var otherLastRead: Double = 0
 
     @State private var dragX: CGFloat = 0
@@ -559,6 +610,13 @@ struct MessageBubble: View {
             .frame(maxWidth: maxBubbleWidth, alignment: isMe ? .trailing : .leading)
             if !isMe { Spacer(minLength: 0) }
         }
+        // Brief accent flash when jumped-to via a reply tap.
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.accentColor.opacity(isHighlighted ? 0.12 : 0))
+                .padding(.horizontal, -6)
+        )
+        .animation(.easeInOut(duration: 0.25), value: isHighlighted)
         // Telegram-style swipe-to-reply: drag the bubble left past a threshold.
         .overlay(alignment: .trailing) {
             Image(systemName: "arrowshape.turn.up.left.fill")
@@ -645,6 +703,8 @@ struct MessageBubble: View {
             .padding(.horizontal, 8).padding(.vertical, 5)
             .background(isMe ? Color.white.opacity(0.15) : Color.primary.opacity(0.06))
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(Rectangle())
+            .onTapGesture { onJumpTo(reply.id) }   // jump to the original message
         }
     }
 }
