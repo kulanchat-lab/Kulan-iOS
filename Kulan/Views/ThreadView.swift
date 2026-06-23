@@ -439,8 +439,11 @@ struct ThreadView: View {
         guard let item else { return }
         sendingPhoto = true
         defer { sendingPhoto = false; photoItem = nil }
-        if let data = try? await item.loadTransferable(type: Data.self) {
-            try? await ChatService.sendImage(cid: cid, data: data)
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else { return }
+            try await ChatService.sendImage(cid: cid, data: data)
+        } catch {
+            await MainActor.run { sendError = "Couldn't send the photo. Please try again." }
         }
     }
 
@@ -599,8 +602,9 @@ struct ThreadView: View {
 
     private func sendCaptured(_ data: Data) async {
         sendingPhoto = true
-        try? await ChatService.sendImage(cid: cid, data: data)
-        sendingPhoto = false
+        defer { sendingPhoto = false }
+        do { try await ChatService.sendImage(cid: cid, data: data) }
+        catch { await MainActor.run { sendError = "Couldn't send the photo. Please try again." } }
     }
 }
 

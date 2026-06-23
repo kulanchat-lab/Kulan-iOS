@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
@@ -79,7 +80,22 @@ enum ChatService {
 
     /// Encrypt + send a photo. The JPEG bytes are sealed with Crypto.encryptBytes
     /// and the ciphertext is uploaded to Storage; the server never sees the image.
-    static func sendImage(cid: String, data: Data) async throws {
+    /// Downscale + recompress a photo before encrypting/uploading. Cuts upload size
+    /// (and failure rate) massively; full-res camera/library photos are huge.
+    static func downscaledJPEG(_ data: Data, maxDimension: CGFloat = 1600, quality: CGFloat = 0.72) -> Data {
+        guard let img = UIImage(data: data) else { return data }
+        let longEdge = max(img.size.width, img.size.height)
+        let scale = min(1, maxDimension / longEdge)
+        if scale >= 1 { return img.jpegData(compressionQuality: quality) ?? data }
+        let newSize = CGSize(width: img.size.width * scale, height: img.size.height * scale)
+        let resized = UIGraphicsImageRenderer(size: newSize).image { _ in
+            img.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+        return resized.jpegData(compressionQuality: quality) ?? data
+    }
+
+    static func sendImage(cid: String, data rawData: Data) async throws {
+        let data = downscaledJPEG(rawData)
         let (cipher, meta) = try await Crypto.shared.encryptBytes(cid, data)
         let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
         let convRef = db.collection("conversations").document(cid)
