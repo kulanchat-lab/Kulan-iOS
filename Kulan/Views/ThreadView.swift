@@ -378,7 +378,8 @@ struct ThreadView: View {
         let clientId = m.clientId ?? UUID().uuidString
         repo.removePending(clientId: clientId)
         if let data = m.localImageData {
-            repo.addPending(Message(localImageData: data, authorId: me, clientId: clientId, sendState: .sending))
+            repo.addPending(Message(localImageData: data, width: m.width ?? 1, height: m.height ?? 1,
+                                    authorId: me, clientId: clientId, sendState: .sending))
             Task {
                 do { try await ChatService.sendImage(cid: cid, data: data, clientId: clientId) }
                 catch { await MainActor.run { repo.markFailed(clientId: clientId) } }
