@@ -51,6 +51,14 @@ struct ThreadView: View {
             pinnedBar(proxy)
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    // Scroll-to-top spinner: pages in older history, then restores the anchor.
+                    if repo.canLoadOlder {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .id("TOP")
+                            .onAppear { loadOlderWithAnchor(proxy) }
+                    }
                     ForEach(Array(repo.items.enumerated()), id: \.element.id) { index, msg in
                         if shouldShowDate(at: index) {
                             Text(dayLabel(msg.createdAt))
@@ -406,6 +414,17 @@ struct ThreadView: View {
     }
 
     private func dismissMenu() { withAnimation(.easeOut(duration: 0.15)) { menuTarget = nil } }
+
+    // Page in older history and keep the user's position (anchor the current top
+    // message to the top after the older page prepends, so the list doesn't jump).
+    private func loadOlderWithAnchor(_ proxy: ScrollViewProxy) {
+        guard repo.canLoadOlder, !repo.loadingOlder else { return }
+        let anchor = repo.items.first?.id
+        repo.loadOlder {
+            guard let anchor else { return }
+            DispatchQueue.main.async { proxy.scrollTo(anchor, anchor: .top) }
+        }
+    }
 
     // Scroll to a message (e.g. the original of a tapped reply) and flash it briefly.
     private func jump(to id: String, _ proxy: ScrollViewProxy) {
