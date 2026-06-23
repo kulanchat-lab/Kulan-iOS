@@ -61,9 +61,9 @@ struct ChatsView: View {
                 // Both pinned: manual order (higher rank = higher in list).
                 if a.isPinned(me) && b.isPinned(me) {
                     if a.pinRank(me) != b.pinRank(me) { return a.pinRank(me) > b.pinRank(me) }
-                    return a.updatedAtMillis > b.updatedAtMillis
+                    return a.displayUpdatedAt(me) > b.displayUpdatedAt(me)
                 }
-                return a.updatedAtMillis > b.updatedAtMillis   // both unpinned: recency
+                return a.displayUpdatedAt(me) > b.displayUpdatedAt(me)   // recency (frozen if blocked)
             }
     }
 
@@ -363,13 +363,14 @@ struct ChatRow: View {
     let dark: Bool
 
     private var preview: String {
+        if conv.leaksBlocked(me) { return "" }   // don't leak a blocked person's message into the list
         let decoded = Crypto.shared.decrypt(conv.lastMessageCipher, cid: conv.id)
         return decoded.isEmpty ? "Say hello 👋" : decoded
     }
     private var unread: Int { conv.isBlockedByMe(me) ? 0 : conv.unread(me) }   // silent block: no badge
 
     private var timeStr: String {
-        let ms = conv.updatedAtMillis
+        let ms = conv.displayUpdatedAt(me)   // frozen at block time for blocked chats
         guard ms > 0 else { return "" }
         let d = Date(timeIntervalSince1970: ms / 1000)
         let cal = Calendar.current

@@ -139,6 +139,15 @@ struct Conversation: Identifiable, Equatable, Hashable {
     func isMuted(_ me: String, now: Double) -> Bool { (mutedBy[me] ?? 0) > now }
     func isBlockedByMe(_ me: String) -> Bool { blockedBy[me] ?? false }
     func blockedAtMillis(_ me: String) -> Double { blockedAt[me] ?? 0 }
+    // Silent block in the chat LIST: a chat I blocked whose latest activity is the
+    // blocked person's post-block message — its preview/time/order must be frozen.
+    func leaksBlocked(_ me: String) -> Bool {
+        isBlockedByMe(me) && blockedAtMillis(me) > 0 && updatedAtMillis > blockedAtMillis(me)
+    }
+    /// Sort/time key that ignores the blocked person's later messages (freezes at block time).
+    func displayUpdatedAt(_ me: String) -> Double {
+        leaksBlocked(me) ? blockedAtMillis(me) : updatedAtMillis
+    }
     func isPinned(_ me: String) -> Bool { pinnedBy[me] ?? false }
     /// Manual order for pinned chats; defaults to recency so never-moved pins stay sensible.
     func pinRank(_ me: String) -> Double { pinOrder[me] ?? updatedAtMillis }
