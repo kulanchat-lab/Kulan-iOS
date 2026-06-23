@@ -22,6 +22,7 @@ struct ThreadView: View {
     @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismiss) private var dismiss
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
@@ -35,6 +36,7 @@ struct ThreadView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+        chatHeader
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
             pinnedBar(proxy)
@@ -80,9 +82,10 @@ struct ThreadView: View {
         }
         if repo.iBlocked { blockedBar } else { composerArea }
         }
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
-        .toolbar { headerToolbar }
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
+        .background(SwipeBackEnabler())   // header is in the body -> slides 1:1; keep swipe-back
         .alert("Message not sent", isPresented: Binding(get: { sendError != nil },
                                                         set: { if !$0 { sendError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -164,49 +167,49 @@ struct ThreadView: View {
         return nil
     }
 
-    // Signal-style header: a flat title view INSIDE the native nav bar (next to the
-    // Pure-native header: avatar + name packed into a single .topBarLeading item,
-    // pulled tight to the back arrow with negative leading padding. Native toolbar =
-    // native back arrow + native transition; no custom body header.
-    @ViewBuilder private var headerLabel: some View {
-        NavigationLink {
-            ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
-        } label: {
-            HStack(spacing: 10) {
-                AvatarView(name: title, photoUrl: photoUrl, size: 40)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
-                    if let sub = presenceSubtitle {
-                        Text(sub).font(.system(size: 12))
-                            .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
-                            .lineLimit(1)
-                    }
-                }
-            }
-            .padding(.leading, -8)   // tight to the back arrow (left layout)
-            .fixedSize()
-        }
-        .buttonStyle(.plain)
-    }
-
     private var otherUid: String {
         cid.split(separator: "_").map(String.init).first { $0 != me } ?? ""
     }
 
-    // Left layout (image-2): avatar + name packed in .topBarLeading next to the back
-    // arrow. Trade-off: leading items don't finger-track the swipe like .principal.
-    @ToolbarContentBuilder private var headerToolbar: some ToolbarContent {
-        if #available(iOS 26.0, *) {
-            ToolbarItem(placement: .topBarLeading) { headerLabel }
-                .sharedBackgroundVisibility(.hidden)
-        } else {
-            ToolbarItem(placement: .topBarLeading) { headerLabel }
-        }
-        ToolbarItem(placement: .topBarTrailing) {
+    // Header lives in the BODY (not the toolbar) so it slides 1:1 with the messages
+    // during the edge swipe-back — exactly like Signal. Back chevron + avatar + name
+    // on the left, voice-call button on the right.
+    private var chatHeader: some View {
+        HStack(spacing: 8) {
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 32, height: 40)
+                    .contentShape(Rectangle())
+            }
+            NavigationLink {
+                ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
+            } label: {
+                HStack(spacing: 10) {
+                    AvatarView(name: title, photoUrl: photoUrl, size: 38)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
+                        if let sub = presenceSubtitle {
+                            Text(sub).font(.system(size: 12))
+                                .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            Spacer(minLength: 8)
             Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
-                Image(systemName: "phone.fill")
+                Image(systemName: "phone.fill").font(.system(size: 17)).foregroundStyle(.primary)
+                    .frame(width: 38, height: 38)
             }
         }
+        .padding(.leading, 6)
+        .padding(.trailing, 12)
+        .padding(.vertical, 6)
+        .background(Theme.bg(dark))
+        .overlay(alignment: .bottom) { Divider() }
     }
 
     private func send() {
