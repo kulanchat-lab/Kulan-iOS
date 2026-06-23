@@ -173,7 +173,7 @@ struct ThreadView: View {
             ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
         } label: {
             HStack(spacing: 10) {
-                AvatarView(name: title, photoUrl: photoUrl, size: 36)
+                AvatarView(name: title, photoUrl: photoUrl, size: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
                     if let sub = presenceSubtitle {
@@ -183,7 +183,6 @@ struct ThreadView: View {
                     }
                 }
             }
-            .padding(.leading, -8)   // pull tight to the native back arrow
             .fixedSize()
         }
         .buttonStyle(.plain)
@@ -193,12 +192,22 @@ struct ThreadView: View {
         cid.split(separator: "_").map(String.init).first { $0 != me } ?? ""
     }
 
+    // .principal is the one native toolbar slot that animates WITH the push/pop
+    // transition; a full-width leading frame biases the avatar+name to the left.
+    private var headerPrincipal: some View {
+        HStack(spacing: 0) {
+            headerLabel
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     @ToolbarContentBuilder private var headerToolbar: some ToolbarContent {
         if #available(iOS 26.0, *) {
-            ToolbarItem(placement: .topBarLeading) { headerLabel }
+            ToolbarItem(placement: .principal) { headerPrincipal }
                 .sharedBackgroundVisibility(.hidden)
         } else {
-            ToolbarItem(placement: .topBarLeading) { headerLabel }
+            ToolbarItem(placement: .principal) { headerPrincipal }
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { CallService.shared.startCall(to: otherUid, name: title) } label: {
