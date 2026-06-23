@@ -65,15 +65,31 @@ struct ReactionMenuOverlay: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.25).ignoresSafeArea()
+            // Native-style blurred backdrop (not a flat dim) — like iMessage/Telegram.
+            Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture { onDismiss() }
-            VStack(spacing: 14) {
+            // Emoji bar · the lifted message · the menu — all on the message's side.
+            VStack(alignment: isMe ? .trailing : .leading, spacing: 12) {
                 emojiBar
+                liftedBubble
                 actions
             }
-            .padding(20)
+            .frame(maxWidth: .infinity, alignment: isMe ? .trailing : .leading)
+            .padding(.horizontal, 20)
         }
+    }
+
+    // A copy of the tapped message, floating above the menu (the native "lift").
+    private var liftedBubble: some View {
+        Text(message.isImage ? "📷 Photo" : (message.isAudio ? "🎤 Voice message" : message.text))
+            .font(.body)
+            .foregroundColor(isMe ? Theme.onAccent(dark) : (dark ? .white : .black))
+            .padding(.horizontal, 13).padding(.vertical, 9)
+            .background(isMe ? Theme.accent(dark) : Theme.received(dark))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .frame(maxWidth: 260, alignment: isMe ? .trailing : .leading)
+            .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
     }
 
     private var emojiBar: some View {
@@ -121,10 +137,10 @@ struct ReactionMenuOverlay: View {
     @ViewBuilder
     private func row(_ title: String, _ icon: String, _ action: @escaping () -> Void, destructive: Bool = false) -> some View {
         Button(action: action) {
-            HStack {
+            HStack(spacing: 14) {
+                Image(systemName: icon).frame(width: 20)
                 Text(title)
                 Spacer()
-                Image(systemName: icon)
             }
             .font(.system(size: 16))
             .foregroundStyle(destructive ? Color.red : Color.primary)
