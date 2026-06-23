@@ -166,6 +166,11 @@ struct ThreadView: View {
         .fullScreenCover(item: $viewerImage) { msg in
             ImageViewerView(message: msg, cid: cid)
         }
+        .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { data in Task { await sendCaptured(data) } }
+                .ignoresSafeArea()
+        }
         .overlay {
             if let m = menuTarget {
                 ReactionMenuOverlay(
@@ -336,6 +341,13 @@ struct ThreadView: View {
         .padding(.trailing, 12)
         .padding(.vertical, 6)
         .background(Theme.bg(dark))   // same as the page -> blends seamlessly, no separate bar
+        // Photo attach menu lives here (not on the floating composer) so it presents
+        // reliably — presenting from inside the safeAreaBar composer was flaky.
+        .confirmationDialog("Send a photo", isPresented: $showAttachMenu, titleVisibility: .visible) {
+            Button("Take Photo") { showCamera = true }
+            Button("Photo Library") { showLibrary = true }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     private func send() {
@@ -492,16 +504,6 @@ struct ThreadView: View {
         .padding(.horizontal, 16)   // spec: 16pt left/right margin
         .padding(.top, 6)
         .padding(.bottom, 8)
-        .confirmationDialog("Send a photo", isPresented: $showAttachMenu, titleVisibility: .visible) {
-            Button("Take Photo") { showCamera = true }
-            Button("Photo Library") { showLibrary = true }
-            Button("Cancel", role: .cancel) {}
-        }
-        .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
-        .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { data in Task { await sendCaptured(data) } }
-                .ignoresSafeArea()
-        }
     }
 
     private var inputRow: some View {

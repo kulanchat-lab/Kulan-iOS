@@ -82,8 +82,8 @@ struct ReactionMenuOverlay: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 0.5))
+        .liquidGlass(Capsule())   // real iOS 26 Liquid Glass
+        .shadow(color: .black.opacity(0.18), radius: 16, y: 6)   // float above the chat
     }
 
     private var actions: some View {
@@ -101,8 +101,8 @@ struct ReactionMenuOverlay: View {
             }
         }
         .frame(width: 250)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.12), lineWidth: 0.5))
+        .liquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))   // real Liquid Glass
+        .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
     }
 
     @ViewBuilder
