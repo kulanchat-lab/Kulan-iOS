@@ -24,6 +24,7 @@ struct ContactInfoView: View {
     @State private var showCallSoon = false
     @State private var showSearchSoon = false
     @State private var showAllMedia = false
+    @State private var showMuteOptions = false
     @Environment(\.colorScheme) private var scheme
 
     private var dark: Bool { scheme == .dark }
@@ -71,13 +72,23 @@ struct ContactInfoView: View {
         .alert("Search", isPresented: $showSearchSoon) {
             Button("OK", role: .cancel) {}
         } message: { Text("In-chat search is coming soon.") }
+        .confirmationDialog("Mute \(name)", isPresented: $showMuteOptions, titleVisibility: .visible) {
+            if muted {
+                Button("Unmute") { muted = false; Task { await ChatService.setMute(cid, until: 0) } }
+            }
+            Button("Mute for 1 hour") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(1)) } }
+            Button("Mute for 8 hours") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(8)) } }
+            Button("Mute for 1 week") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(168)) } }
+            Button("Mute Always") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(nil)) } }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     // MARK: - Sections
 
     private var hero: some View {
         VStack(spacing: 6) {
-            AvatarView(name: name, photoUrl: photoUrl, size: 104)
+            AvatarView(name: name, photoUrl: photoUrl, size: 88)
             Text(name).font(.title.weight(.bold))
             if !handle.isEmpty {
                 Text("@\(handle)").font(.subheadline).foregroundStyle(.secondary)
@@ -89,8 +100,8 @@ struct ContactInfoView: View {
 
     private var quickActions: some View {
         HStack(spacing: 12) {
-            actionTile("call", "phone.fill") { showCallSoon = true }
-            actionTile(muted ? "unmute" : "mute", muted ? "bell.fill" : "bell.slash.fill") { toggleMute() }
+            actionTile("call", "phone.fill") { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl) }
+            actionTile(muted ? "unmute" : "mute", muted ? "bell.fill" : "bell.slash.fill") { showMuteOptions = true }
             actionTile("search", "magnifyingglass") { showSearchSoon = true }
             Menu {
                 if blocked {
@@ -115,14 +126,15 @@ struct ContactInfoView: View {
     }
 
     private func tileLabel(_ title: String, _ icon: String) -> some View {
-        VStack(spacing: 6) {
-            Image(systemName: icon).font(.system(size: 19))
-            Text(title).font(.caption)
+        VStack(spacing: 7) {
+            Image(systemName: icon)
+                .font(.system(size: 22))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(cardColor, in: Capsule())   // pill tile, icon only
+            Text(title).font(.caption).foregroundStyle(.primary)   // label below the tile
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .foregroundStyle(.primary)
-        .background(cardColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var bioCard: some View {

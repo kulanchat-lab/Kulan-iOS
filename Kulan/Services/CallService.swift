@@ -17,6 +17,7 @@ final class CallService: NSObject {
 
     var state: State = .idle
     var otherName: String = ""
+    var otherPhotoUrl: String?
     private(set) var callId: String?
     private var otherUid: String = ""
     private var isCaller = false
@@ -67,12 +68,13 @@ final class CallService: NSObject {
 
     // MARK: - Outgoing
 
-    func startCall(to uid: String, name: String) {
+    func startCall(to uid: String, name: String, photo: String? = nil) {
         guard state == .idle, !uid.isEmpty else { return }
         configureAudio()
         isCaller = true
         otherUid = uid
         otherName = name
+        otherPhotoUrl = photo
         state = .outgoing
 
         let ref = db.collection("calls").document()
@@ -87,6 +89,7 @@ final class CallService: NSObject {
                     "caller": self.me,
                     "callee": uid,
                     "callerName": ProfileStore.shared.me?.name ?? "Caller",
+                    "callerPhoto": ProfileStore.shared.me?.photoUrl ?? "",
                     "type": "voice",
                     "status": "ringing",
                     "offer": ["sdp": sdp.sdp, "type": "offer"],
@@ -115,6 +118,8 @@ final class CallService: NSObject {
                 self.callId = doc.documentID
                 self.otherUid = d["caller"] as? String ?? ""
                 self.otherName = d["callerName"] as? String ?? "Caller"
+                let photo = d["callerPhoto"] as? String ?? ""
+                self.otherPhotoUrl = photo.isEmpty ? nil : photo
                 self.isCaller = false
                 self.state = .incoming
             }

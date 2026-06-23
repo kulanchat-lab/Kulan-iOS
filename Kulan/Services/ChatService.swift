@@ -235,6 +235,18 @@ enum ChatService {
             .setData(["mutedBy": [uid: until]], merge: true)
     }
 
+    /// Mute until a specific epoch-ms time (0 = unmute, far-future = always).
+    static func setMute(_ cid: String, until: Double) async {
+        try? await db.collection("conversations").document(cid)
+            .setData(["mutedBy": [uid: until]], merge: true)
+    }
+
+    /// Shared mute-duration options (Signal-style). Pass nil for "Always".
+    static func muteUntil(_ hours: Double?) -> Double {
+        guard let hours else { return 9_999_999_999_999 }
+        return Date().timeIntervalSince1970 * 1000 + hours * 3_600_000
+    }
+
     static func setBlocked(_ cid: String, _ value: Bool) async {
         try? await db.collection("conversations").document(cid)
             .setData(["blockedBy": [uid: value]], merge: true)

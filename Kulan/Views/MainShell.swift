@@ -8,7 +8,7 @@ struct MainShell: View {
     var body: some View {
         TabView {
             ChatsView(onSignOut: onSignOut)
-                .tabItem { Label("Chats", systemImage: "bubble.left.and.bubble.right.fill") }
+                .tabItem { Label("Chats", systemImage: "bubble.fill") }
             CallsView()
                 .tabItem { Label("Calls", systemImage: "phone.fill") }
         }
@@ -42,6 +42,7 @@ struct ChatsView: View {
     @State private var showSettings = false
     @State private var path = NavigationPath()
     @State private var pendingDelete: Conversation?
+    @State private var pendingMute: Conversation?
     @State private var search = ""
     // Multi-select edit mode (Telegram-style).
     @State private var selecting = false
@@ -210,14 +211,12 @@ struct ChatsView: View {
                             Button(role: .destructive) {
                                 pendingDelete = conv
                             } label: { Label("Delete", systemImage: "trash") }
+                            .tint(.red)
                             Button {
                                 Task { await ChatService.setArchived(conv.id, true) }
                             } label: { Label("Archive", systemImage: "archivebox") }
                             .tint(.gray)
-                            Button {
-                                let now = Date().timeIntervalSince1970 * 1000
-                                Task { await ChatService.setMuted(conv.id, !conv.isMuted(me, now: now)) }
-                            } label: { Label("Mute", systemImage: "bell.slash") }
+                            Button { pendingMute = conv } label: { Label("Mute", systemImage: "bell.slash") }
                             .tint(.indigo)
                         }
                         .swipeActions(edge: .leading) {
@@ -268,6 +267,21 @@ struct ChatsView: View {
                 Button("Cancel", role: .cancel) { pendingDelete = nil }
             } message: {
                 Text("This removes the chat from your list. It comes back if you get a new message.")
+            }
+            .confirmationDialog("Mute \(pendingMute?.name(for: me) ?? "")",
+                                isPresented: Binding(get: { pendingMute != nil },
+                                                     set: { if !$0 { pendingMute = nil } }),
+                                titleVisibility: .visible) {
+                if let c = pendingMute {
+                    if c.isMuted(me, now: Date().timeIntervalSince1970 * 1000) {
+                        Button("Unmute") { Task { await ChatService.setMute(c.id, until: 0) }; pendingMute = nil }
+                    }
+                    Button("Mute for 1 hour") { Task { await ChatService.setMute(c.id, until: ChatService.muteUntil(1)) }; pendingMute = nil }
+                    Button("Mute for 8 hours") { Task { await ChatService.setMute(c.id, until: ChatService.muteUntil(8)) }; pendingMute = nil }
+                    Button("Mute for 1 week") { Task { await ChatService.setMute(c.id, until: ChatService.muteUntil(168)) }; pendingMute = nil }
+                    Button("Mute Always") { Task { await ChatService.setMute(c.id, until: ChatService.muteUntil(nil)) }; pendingMute = nil }
+                }
+                Button("Cancel", role: .cancel) { pendingMute = nil }
             }
             .toolbar(selecting ? .hidden : .automatic, for: .tabBar)
             .safeAreaInset(edge: .bottom) { if selecting { selectionBar } }
@@ -343,9 +357,9 @@ struct ChatRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 16) {
-            AvatarView(name: conv.name(for: me), photoUrl: conv.photoUrl(for: me), size: 72)
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 12) {
+            AvatarView(name: conv.name(for: me), photoUrl: conv.photoUrl(for: me), size: 48)
+            VStack(alignment: .leading, spacing: 3) {
                 HStack {
                     Text(conv.name(for: me))
                         .font(.system(size: 17, weight: .semibold))
@@ -368,6 +382,6 @@ struct ChatRow: View {
                 }
             }
         }
-        .padding(.vertical, 10)   // ~92pt row height with the 72pt avatar
+        .padding(.vertical, 8)   // balanced row height with the 56pt avatar
     }
 }

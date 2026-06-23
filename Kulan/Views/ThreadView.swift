@@ -173,7 +173,7 @@ struct ThreadView: View {
             ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
         } label: {
             HStack(spacing: 10) {
-                AvatarView(name: title, photoUrl: photoUrl, size: 34)
+                AvatarView(name: title, photoUrl: photoUrl, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
                     if let sub = presenceSubtitle {
@@ -183,6 +183,7 @@ struct ThreadView: View {
                     }
                 }
             }
+            .padding(.leading, -8)   // tight to the back arrow (left layout)
             .fixedSize()
         }
         .buttonStyle(.plain)
@@ -192,25 +193,17 @@ struct ThreadView: View {
         cid.split(separator: "_").map(String.init).first { $0 != me } ?? ""
     }
 
-    // .principal is the one native toolbar slot that animates WITH the push/pop
-    // transition; a full-width leading frame biases the avatar+name to the left.
-    private var headerPrincipal: some View {
-        HStack(spacing: 0) {
-            headerLabel
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
+    // Left layout (image-2): avatar + name packed in .topBarLeading next to the back
+    // arrow. Trade-off: leading items don't finger-track the swipe like .principal.
     @ToolbarContentBuilder private var headerToolbar: some ToolbarContent {
         if #available(iOS 26.0, *) {
-            ToolbarItem(placement: .principal) { headerPrincipal }
+            ToolbarItem(placement: .topBarLeading) { headerLabel }
                 .sharedBackgroundVisibility(.hidden)
         } else {
-            ToolbarItem(placement: .principal) { headerPrincipal }
+            ToolbarItem(placement: .topBarLeading) { headerLabel }
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Button { CallService.shared.startCall(to: otherUid, name: title) } label: {
+            Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
                 Image(systemName: "phone.fill")
             }
         }

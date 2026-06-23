@@ -20,7 +20,7 @@ struct CallView: View {
             Color.black.ignoresSafeArea()
             VStack(spacing: 18) {
                 Spacer()
-                AvatarView(name: call.otherName, photoUrl: nil, size: 120)
+                AvatarView(name: call.otherName, photoUrl: call.otherPhotoUrl, size: 120)
                 Text(call.otherName).font(.title.weight(.bold)).foregroundStyle(.white)
                 Label("End-to-end encrypted", systemImage: "lock.fill")
                     .font(.footnote).foregroundStyle(.white.opacity(0.6))
