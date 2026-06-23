@@ -130,7 +130,15 @@ final class ThreadRepository {
     }
 
     private func rebuild() {
-        messages = byId.values.filter { !hiddenByBlock($0) }.sorted { $0.createdAt < $1.createdAt }
+        var msgs = byId.values.filter { !hiddenByBlock($0) }
+        if iBlocked {
+            // Also silence the blocked person's reactions on my messages (their activity is hidden).
+            msgs = msgs.map { m in
+                guard m.reactions[otherUid] != nil else { return m }
+                var c = m; c.reactions.removeValue(forKey: otherUid); return c
+            }
+        }
+        messages = msgs.sorted { $0.createdAt < $1.createdAt }
     }
 
     // Silent block: hide the other person's messages that landed during the block.

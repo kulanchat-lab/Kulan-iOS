@@ -114,7 +114,7 @@ struct ThreadView: View {
                 } else {
                     newWhileAway += 1
                 }
-                Task { await ChatService.markRead(cid) }
+                if !repo.iBlocked { Task { await ChatService.markRead(cid) } }   // don't leak reads to a blocked user
             }
             .onChange(of: repo.messages.count) { _, _ in anchorUnread(proxy) }
             .onChange(of: unreadOnOpen) { _, _ in anchorUnread(proxy) }
@@ -206,7 +206,7 @@ struct ThreadView: View {
                 let n = await ChatService.myUnread(cid)   // capture BEFORE reset, to anchor the divider
                 await MainActor.run { unreadOnOpen = n }
                 await ChatService.resetUnread(cid)
-                await ChatService.markRead(cid)
+                if !repo.iBlocked { await ChatService.markRead(cid) }
             }
         }
         .onDisappear {
