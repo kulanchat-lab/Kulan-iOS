@@ -67,11 +67,14 @@ struct ThreadView: View {
                             onResend: { m in resend(m) },
                             onJumpTo: { id in jump(to: id, proxy) },
                             isHighlighted: msg.id == highlightId,
+                            isFirstInCluster: isFirstInCluster(at: index),
+                            isLastInCluster: isLastInCluster(at: index),
                             otherLastRead: repo.otherLastReadMillis
                         )
                         .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
                         .id(msg.id)
                     }
+                    if repo.otherTyping { TypingBubble(dark: dark).padding(.top, 6).id("TYPING") }
                     // Bottom sentinel: drives "am I at the bottom?" for the scroll button.
                     Color.clear.frame(height: 1).id("BOTTOM")
                         .onAppear { isAtBottom = true; newWhileAway = 0 }
@@ -101,6 +104,9 @@ struct ThreadView: View {
             }
             .onChange(of: repo.messages.count) { _, _ in anchorUnread(proxy) }
             .onChange(of: unreadOnOpen) { _, _ in anchorUnread(proxy) }
+            .onChange(of: repo.otherTyping) { _, t in
+                if t && isAtBottom { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("BOTTOM", anchor: .bottom) } }
+            }
             // Floating jump-to-bottom button (our design) — appears when scrolled up,
             // with a count of messages that arrived while away.
             .overlay(alignment: .bottomTrailing) {
@@ -172,13 +178,32 @@ struct ThreadView: View {
         return !Calendar.current.isDate(items[index - 1].createdAt, inSameDayAs: items[index].createdAt)
     }
 
-    // Grouping: tight (3pt) when the previous message is from the same sender,
-    // standard (14pt) on a sender change. The date separator carries its own gap.
+    // Grouping: tight (2pt) inside a same-sender cluster, standard (14pt) on a new
+    // cluster. The date separator carries its own gap.
     private func topGap(at index: Int) -> CGFloat {
-        let items = repo.items
-        guard index > 0, index < items.count else { return 0 }
         if shouldShowDate(at: index) { return 0 }
-        return items[index - 1].authorId == items[index].authorId ? 3 : 14
+        return isFirstInCluster(at: index) ? 14 : 2
+    }
+
+    private static let clusterGap: TimeInterval = 300   // 5 min breaks a cluster
+
+    // A new cluster starts on a date change, a sender change, or a >5min time gap.
+    private func isFirstInCluster(at index: Int) -> Bool {
+        let items = repo.items
+        guard index > 0, index < items.count else { return true }
+        if shouldShowDate(at: index) { return true }
+        if items[index - 1].authorId != items[index].authorId { return true }
+        return items[index].createdAt.timeIntervalSince(items[index - 1].createdAt) > Self.clusterGap
+    }
+
+    // A cluster ends at the last message, a sender change, a date change, or a >5min gap.
+    private func isLastInCluster(at index: Int) -> Bool {
+        let items = repo.items
+        guard index >= 0, index < items.count - 1 else { return true }
+        let next = items[index + 1], cur = items[index]
+        if !Calendar.current.isDate(cur.createdAt, inSameDayAs: next.createdAt) { return true }
+        if next.authorId != cur.authorId { return true }
+        return next.createdAt.timeIntervalSince(cur.createdAt) > Self.clusterGap
     }
 
     private func dayLabel(_ d: Date) -> String {
@@ -531,6 +556,8 @@ struct MessageBubble: View {
     var onResend: (Message) -> Void = { _ in }
     var onJumpTo: (String) -> Void = { _ in }
     var isHighlighted: Bool = false
+    var isFirstInCluster: Bool = true
+    var isLastInCluster: Bool = true
     var otherLastRead: Double = 0
 
     @State private var dragX: CGFloat = 0
@@ -579,6 +606,23 @@ struct MessageBubble: View {
     // Bubbles cap at 72% of screen width and wrap; the right (sent) / left (received)
     // edge stays a clean, uniform line regardless of length.
     private var maxBubbleWidth: CGFloat { UIScreen.main.bounds.width * 0.72 }
+
+    // Fused-cluster corners (our look): full 18pt outer corners; the interior corners
+    // on the sending side shrink to 6pt so a same-sender run reads as one block.
+    private var bubbleCorners: RectangleCornerRadii {
+        let big: CGFloat = 18, small: CGFloat = 6
+        if isMe {
+            return RectangleCornerRadii(
+                topLeading: big, bottomLeading: big,
+                bottomTrailing: isLastInCluster ? big : small,
+                topTrailing: isFirstInCluster ? big : small)
+        } else {
+            return RectangleCornerRadii(
+                topLeading: isFirstInCluster ? big : small,
+                bottomLeading: isLastInCluster ? big : small,
+                bottomTrailing: big, topTrailing: big)
+        }
+    }
 
     // Reaction pills (our own design): up to 3 emoji+count capsules, my reaction tinted
     // with the brand accent, the rest neutral, and a "+N" capsule when there are more.
@@ -687,13 +731,13 @@ struct MessageBubble: View {
             .padding(.horizontal, 13)
             .padding(.vertical, 9)
             .background(isMe ? Theme.accent(dark) : Theme.received(dark))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
         } else if message.isImage, let url = message.imageUrl {
             VStack(alignment: .leading, spacing: 4) {
                 replyQuote
                 SecureImageView(imageUrl: url, enc: message.enc, cid: cid)
                     .frame(width: 220, height: 220)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
                     .overlay(alignment: .bottomTrailing) {
                         metaRow
                             .padding(.horizontal, 7).padding(.vertical, 3)
@@ -713,13 +757,13 @@ struct MessageBubble: View {
                     Text(message.text)
                         .font(.body)
                         .foregroundColor(isMe ? Theme.onAccent(dark) : (dark ? .white : .black))
-                    metaRow.padding(.bottom, 1)
+                    if isLastInCluster { metaRow.padding(.bottom, 1) }   // time once per cluster
                 }
             }
             .padding(.horizontal, 13)
             .padding(.vertical, 7)
             .background(isMe ? Theme.accent(dark) : Theme.received(dark))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
         }
     }
 
@@ -745,5 +789,30 @@ struct MessageBubble: View {
             .contentShape(Rectangle())
             .onTapGesture { onJumpTo(reply.id) }   // jump to the original message
         }
+    }
+}
+
+// In-list typing indicator: a received-style bubble with three waving dots.
+struct TypingBubble: View {
+    let dark: Bool
+    @State private var animating = false
+
+    var body: some View {
+        HStack {
+            HStack(spacing: 4) {
+                ForEach(0..<3, id: \.self) { i in
+                    Circle().fill(Color.secondary)
+                        .frame(width: 7, height: 7)
+                        .scaleEffect(animating ? 1 : 0.5)
+                        .opacity(animating ? 1 : 0.4)
+                        .animation(.easeInOut(duration: 0.6).repeatForever().delay(Double(i) * 0.2), value: animating)
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background(Theme.received(dark))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            Spacer(minLength: 0)
+        }
+        .onAppear { animating = true }
     }
 }
