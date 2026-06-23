@@ -205,7 +205,9 @@ struct ChatsView: View {
                             ChatRow(conv: conv, me: me, dark: dark)
                         }
                         .tag(conv.id)
-                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                        .listRowSeparatorTint(Color.primary.opacity(0.12))
+                        .alignmentGuide(.listRowSeparatorLeading) { _ in 64 }   // 16 inset + 64 = 80pt from edge
                         .moveDisabled(!conv.isPinned(me) || !search.isEmpty)   // only pinned drag
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
@@ -357,31 +359,33 @@ struct ChatRow: View {
     }
 
     var body: some View {
+        // Spec: 56pt avatar, 12pt avatar→text gap, 8pt text→time/badge gap, 74pt row.
         HStack(spacing: 12) {
-            AvatarView(name: conv.name(for: me), photoUrl: conv.photoUrl(for: me), size: 48)
+            AvatarView(name: conv.name(for: me), photoUrl: conv.photoUrl(for: me), size: 56)
             VStack(alignment: .leading, spacing: 3) {
-                HStack {
+                HStack(spacing: 8) {
                     Text(conv.name(for: me))
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .lineLimit(1)
-                    Spacer()
+                    Spacer(minLength: 8)
                     Text(timeStr)
-                        .font(.caption)
+                        .font(.system(size: 12))
                         .foregroundStyle(unread > 0 ? Theme.accent(dark) : .secondary)
                 }
-                HStack {
+                HStack(spacing: 8) {
                     Text(preview)
-                        .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                    Spacer()
+                        .font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 8)
                     if unread > 0 {
                         Text("\(min(unread, 99))")
                             .font(.caption2.bold()).foregroundColor(Theme.onAccent(dark))
-                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .padding(.horizontal, 5)
+                            .frame(minWidth: 19, minHeight: 19)   // 19×19 min badge
                             .background(Theme.accent(dark)).clipShape(Capsule())
                     }
                 }
             }
         }
-        .padding(.vertical, 8)   // balanced row height with the 56pt avatar
+        .frame(height: 74)   // fixed row height per spec
     }
 }
