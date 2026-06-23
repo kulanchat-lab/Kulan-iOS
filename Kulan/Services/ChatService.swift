@@ -122,6 +122,9 @@ enum ChatService {
             "createdAt": FieldValue.serverTimestamp(),
         ]
         if let clientId { imgMsg["clientId"] = clientId }   // reconcile the optimistic bubble
+        if let ui = UIImage(data: data) {                   // natural aspect ratio
+            imgMsg["width"] = Double(ui.size.width); imgMsg["height"] = Double(ui.size.height)
+        }
         batch.setData(imgMsg, forDocument: msgRef)
         batch.updateData([
             "lastMessage": "📷 Photo",   // plaintext preview (server never sees the image)

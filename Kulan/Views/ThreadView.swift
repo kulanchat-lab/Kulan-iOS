@@ -393,9 +393,11 @@ struct ThreadView: View {
     // Send a photo with an instant optimistic bubble, then reconcile on the echo.
     private func sendPhoto(_ data: Data) async {
         let preview = ChatService.downscaledJPEG(data)
+        let size = UIImage(data: preview)?.size ?? CGSize(width: 1, height: 1)
         let clientId = UUID().uuidString
         await MainActor.run {
-            repo.addPending(Message(localImageData: preview, authorId: me, clientId: clientId, sendState: .sending))
+            repo.addPending(Message(localImageData: preview, width: Double(size.width), height: Double(size.height),
+                                    authorId: me, clientId: clientId, sendState: .sending))
         }
         do { try await ChatService.sendImage(cid: cid, data: data, clientId: clientId) }
         catch { await MainActor.run { repo.markFailed(clientId: clientId) } }
@@ -692,6 +694,18 @@ struct MessageBubble: View {
     // edge stays a clean, uniform line regardless of length.
     private var maxBubbleWidth: CGFloat { UIScreen.main.bounds.width * 0.72 }
 
+    // Photo bubble sized to the image's natural aspect (capped), not a forced square.
+    private var imageDisplaySize: CGSize {
+        let maxW: CGFloat = 240, maxH: CGFloat = 340
+        guard let w = message.width, let h = message.height, w > 0, h > 0 else {
+            return CGSize(width: 220, height: 220)
+        }
+        let aspect = CGFloat(w / h)
+        var dw = maxW, dh = dw / aspect
+        if dh > maxH { dh = maxH; dw = dh * aspect }
+        return CGSize(width: dw, height: dh)
+    }
+
     // Fused-cluster corners (our look): full 18pt outer corners; the interior corners
     // on the sending side shrink to 6pt so a same-sender run reads as one block.
     private var bubbleCorners: RectangleCornerRadii {
@@ -813,7 +827,7 @@ struct MessageBubble: View {
                         Rectangle().fill(Color.gray.opacity(0.18))
                     }
                 }
-                .frame(width: 220, height: 220)
+                .frame(width: imageDisplaySize.width, height: imageDisplaySize.height)
                 .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
                 .overlay {   // dim + spinner while uploading
                     if message.sendState == .sending {

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // Full-screen photo viewer (Telegram-style): pinch to zoom, drag down to dismiss.
 struct ImageViewerView: View {
@@ -8,6 +9,7 @@ struct ImageViewerView: View {
 
     @State private var scale: CGFloat = 1
     @State private var dragOffset: CGSize = .zero
+    @State private var saved = false
 
     var body: some View {
         ZStack {
@@ -42,10 +44,26 @@ struct ImageViewerView: View {
                             .background(.ultraThinMaterial, in: Circle())
                     }
                     Spacer()
+                    Button { save() } label: {
+                        Image(systemName: saved ? "checkmark" : "square.and.arrow.down")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(12)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .disabled(saved)
                 }
                 .padding()
                 Spacer()
             }
         }
+    }
+
+    // Save the already-decrypted image (from cache) to the camera roll.
+    private func save() {
+        guard let url = message.imageUrl,
+              let ui = DecryptedImageCache.shared.object(forKey: url as NSString) else { return }
+        UIImageWriteToSavedPhotosAlbum(ui, nil, nil, nil)
+        withAnimation { saved = true }
     }
 }

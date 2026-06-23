@@ -47,6 +47,8 @@ struct Message: Identifiable, Equatable {
     var createdAt: Date
     var sendState: MessageSendState? = nil  // set only on local optimistic messages
     var localImageData: Data? = nil         // optimistic local photo shown before upload
+    var width: Double? = nil                // image pixel size -> natural aspect ratio bubble
+    var height: Double? = nil
 
     var isImage: Bool { (type == "image" && (imageUrl?.isEmpty == false)) || localImageData != nil }
     var isAudio: Bool { type == "audio" && (audioUrl?.isEmpty == false) }
@@ -56,7 +58,7 @@ struct Message: Identifiable, Equatable {
     var rowId: String { clientId ?? id }
 
     /// Local optimistic IMAGE message — shows the picked photo instantly before upload.
-    init(localImageData: Data, authorId: String, clientId: String, sendState: MessageSendState) {
+    init(localImageData: Data, width: Double, height: Double, authorId: String, clientId: String, sendState: MessageSendState) {
         self.id = clientId
         self.authorId = authorId
         self.text = ""
@@ -66,6 +68,8 @@ struct Message: Identifiable, Equatable {
         self.createdAt = Date()
         self.sendState = sendState
         self.localImageData = localImageData
+        self.width = width
+        self.height = height
     }
 
     /// Local optimistic message shown instantly before the server confirms it.
@@ -89,6 +93,8 @@ struct Message: Identifiable, Equatable {
         self.imageUrl = data["imageUrl"] as? String
         self.audioUrl = data["audioUrl"] as? String
         self.duration = (data["duration"] as? NSNumber)?.doubleValue
+        self.width = (data["width"] as? NSNumber)?.doubleValue
+        self.height = (data["height"] as? NSNumber)?.doubleValue
         self.clientId = data["clientId"] as? String
         self.enc = (data["enc"] as? [String: Any]).flatMap(EncMeta.init(map:))
         // Drop entries that fail to decrypt (empty) so a broken record can't render a garbage badge.
