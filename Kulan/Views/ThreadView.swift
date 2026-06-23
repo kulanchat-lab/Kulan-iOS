@@ -202,6 +202,8 @@ struct ThreadView: View {
         }
         .onAppear {
             repo.start()
+            AppRouter.shared.activeChatId = cid          // suppress this chat's own banners
+            NotificationCleaner.clear(cid: cid)          // clear its notifications + fix the badge
             Task {
                 let n = await ChatService.myUnread(cid)   // capture BEFORE reset, to anchor the divider
                 await MainActor.run { unreadOnOpen = n }
@@ -211,6 +213,7 @@ struct ThreadView: View {
         }
         .onDisappear {
             repo.stop()
+            AppRouter.shared.activeChatId = nil
             Task { await ChatService.setTyping(cid, false) }
         }
         .onChange(of: photoItem) { _, item in Task { await sendPicked(item) } }

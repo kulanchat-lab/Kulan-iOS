@@ -37,6 +37,7 @@ struct ChatsView: View {
     init(onSignOut: @escaping () -> Void = {}) { self.onSignOut = onSignOut }
     private var repo = ConversationsRepository.shared
     private var profile = ProfileStore.shared
+    private var router = AppRouter.shared
     @Environment(\.colorScheme) private var scheme
     @State private var showNew = false
     @State private var showSettings = false
@@ -317,7 +318,20 @@ struct ChatsView: View {
                 Button("Cancel", role: .cancel) {}
             }
         }
-        .onAppear { repo.start() }
+        .onAppear { repo.start(); openPendingChat() }
+        .onChange(of: router.pendingChatId) { _, _ in openPendingChat() }
+        .onChange(of: repo.conversations.count) { _, _ in openPendingChat() }   // retry once chats load
+    }
+
+    // Open a chat from a notification tap. Stays pending until the chat list loads
+    // so we can resolve name/photo, then routes straight to it.
+    private func openPendingChat() {
+        guard let cid = router.pendingChatId,
+              let conv = repo.conversations.first(where: { $0.id == cid }) else { return }
+        var p = NavigationPath()
+        p.append(ChatTarget(id: cid, name: conv.name(for: me), photo: conv.photoUrl(for: me)))
+        path = p
+        router.pendingChatId = nil
     }
 }
 

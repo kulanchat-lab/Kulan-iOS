@@ -42,10 +42,48 @@ final class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNU
             .setData(["fcmTokens": FieldValue.arrayUnion([token])], merge: true)
     }
 
-    // Show a banner even while the app is foregrounded.
+    // Foreground banner — but NOT for the chat you're already looking at.
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.banner, .sound, .badge]
+        let cid = notification.request.content.userInfo["cid"] as? String
+        if let cid, cid == AppRouter.shared.activeChatId { return [] }
+        return [.banner, .sound, .badge]
+    }
+
+    // Tapping a push opens the right chat (works from background AND cold launch —
+    // MainShell consumes the pending route once the conversation list is loaded).
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse) async {
+        if let cid = response.notification.request.content.userInfo["cid"] as? String {
+            await MainActor.run { AppRouter.shared.pendingChatId = cid }
+        }
+    }
+}
+
+// App-wide navigation intents (deep links) + which chat is on screen.
+@Observable final class AppRouter {
+    static let shared = AppRouter()
+    private init() {}
+    var pendingChatId: String?    // a chat to open from a notification tap
+    var activeChatId: String?     // the chat currently on screen (suppresses its own banners)
+}
+
+// Clear a chat's delivered notifications + fix the app badge when you read it.
+enum NotificationCleaner {
+    static func clear(cid: String) {
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { notes in
+            let ids = notes
+                .filter { ($0.request.content.userInfo["cid"] as? String) == cid }
+                .map { $0.request.identifier }
+            if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
+        }
+        // Badge = total unread across the OTHER chats (this one is now read).
+        let me = Auth.auth().currentUser?.uid ?? ""
+        let total = ConversationsRepository.shared.conversations
+            .filter { $0.id != cid }
+            .reduce(0) { $0 + $1.unread(me) }
+        center.setBadgeCount(max(0, total))
     }
 }
 
