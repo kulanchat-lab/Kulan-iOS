@@ -207,8 +207,7 @@ struct ThreadView: View {
         .padding(.leading, 6)
         .padding(.trailing, 12)
         .padding(.vertical, 6)
-        .background(Theme.bg(dark))
-        .overlay(alignment: .bottom) { Divider() }
+        .background(Theme.bg(dark))   // same as the page -> blends seamlessly, no separate bar
     }
 
     private func send() {
