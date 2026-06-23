@@ -22,6 +22,9 @@ struct ThreadView: View {
     @State private var highlightId: String?
     @State private var isAtBottom = true
     @State private var newWhileAway = 0
+    @State private var unreadOnOpen = 0
+    @State private var firstUnreadId: String?
+    @State private var didAnchorUnread = false
     @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
@@ -52,6 +55,7 @@ struct ThreadView: View {
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 8)
                         }
+                        if msg.id == firstUnreadId { unreadDivider }
                         MessageBubble(
                             message: msg, isMe: msg.authorId == me, dark: dark, cid: cid,
                             nameFor: { $0 == me ? "You" : title },
@@ -84,15 +88,19 @@ struct ThreadView: View {
             .onChange(of: repo.items.count) { old, new in
                 guard new > old else { return }
                 let mine = repo.items.last?.authorId == me
-                // Only yank to the bottom if the user is already there, or it's my own
-                // message. If they scrolled up to read history, just bump the counter.
-                if isAtBottom || mine {
+                // While we still need to land on the unread divider, let anchorUnread
+                // position the list (don't fight it by jumping to the bottom).
+                if !didAnchorUnread && unreadOnOpen > 0 {
+                    // no-op: anchorUnread handles initial positioning
+                } else if isAtBottom || mine {
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("BOTTOM", anchor: .bottom) }
                 } else {
                     newWhileAway += 1
                 }
                 Task { await ChatService.markRead(cid) }
             }
+            .onChange(of: repo.messages.count) { _, _ in anchorUnread(proxy) }
+            .onChange(of: unreadOnOpen) { _, _ in anchorUnread(proxy) }
             // Floating jump-to-bottom button (our design) — appears when scrolled up,
             // with a count of messages that arrived while away.
             .overlay(alignment: .bottomTrailing) {
@@ -140,7 +148,12 @@ struct ThreadView: View {
         }
         .onAppear {
             repo.start()
-            Task { await ChatService.resetUnread(cid); await ChatService.markRead(cid) }
+            Task {
+                let n = await ChatService.myUnread(cid)   // capture BEFORE reset, to anchor the divider
+                await MainActor.run { unreadOnOpen = n }
+                await ChatService.resetUnread(cid)
+                await ChatService.markRead(cid)
+            }
         }
         .onDisappear {
             repo.stop()
@@ -296,6 +309,32 @@ struct ThreadView: View {
                     sendError = "\(title) hasn't opened Kulan yet, so encryption isn't set up. Your message will send once they do."
                 }
             }
+        }
+    }
+
+    // "Unread Messages" divider (our design) — a thin accent line + label.
+    private var unreadDivider: some View {
+        HStack(spacing: 8) {
+            Rectangle().fill(Color.accentColor.opacity(0.3)).frame(height: 1)
+            Text("Unread Messages").font(.caption.weight(.semibold))
+                .foregroundStyle(Color.accentColor).fixedSize()
+            Rectangle().fill(Color.accentColor.opacity(0.3)).frame(height: 1)
+        }
+        .padding(.vertical, 8)
+    }
+
+    // Anchor the unread divider above the first unread message and land there on open.
+    // Runs once; the last `unreadOnOpen` messages are treated as the unread block.
+    private func anchorUnread(_ proxy: ScrollViewProxy) {
+        guard !didAnchorUnread, unreadOnOpen > 0 else { return }
+        let msgs = repo.messages
+        guard !msgs.isEmpty else { return }
+        let idx = max(0, msgs.count - unreadOnOpen)
+        guard idx < msgs.count else { return }
+        firstUnreadId = msgs[idx].id
+        didAnchorUnread = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            withAnimation(.easeOut) { proxy.scrollTo(firstUnreadId, anchor: .top) }
         }
     }
 

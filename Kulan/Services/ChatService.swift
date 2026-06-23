@@ -199,6 +199,14 @@ enum ChatService {
             .setData(["typing": [uid: typing]], merge: true)
     }
 
+    /// My unread count for this conversation — read once on open (before reset) to
+    /// anchor the "Unread Messages" divider.
+    static func myUnread(_ cid: String) async -> Int {
+        let snap = try? await db.collection("conversations").document(cid).getDocument()
+        let m = snap?.data()?["unreadCount"] as? [String: Any]
+        return (m?[uid] as? NSNumber)?.intValue ?? 0
+    }
+
     static func resetUnread(_ cid: String) async {
         try? await db.collection("conversations").document(cid)
             .updateData(["unreadCount.\(uid)": 0])
