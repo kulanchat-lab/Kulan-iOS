@@ -275,8 +275,11 @@ enum ChatService {
     }
 
     static func setBlocked(_ cid: String, _ value: Bool) async {
-        try? await db.collection("conversations").document(cid)
-            .setData(["blockedBy": [uid: value]], merge: true)
+        var data: [String: Any] = ["blockedBy": [uid: value]]
+        // Stamp the block time so the blocker's client hides only messages that
+        // arrive AFTER the block (older history stays visible). Silent for the other.
+        if value { data["blockedAt"] = [uid: Date().timeIntervalSince1970 * 1000] }
+        try? await db.collection("conversations").document(cid).setData(data, merge: true)
     }
 
     /// "Delete for me" — hides the thread until a newer message arrives (clearedAt).

@@ -115,13 +115,20 @@ final class CallService: NSObject {
                 guard let self, self.state == .idle,
                       let doc = snap?.documents.first else { return }
                 let d = doc.data()
-                self.callId = doc.documentID
-                self.otherUid = d["caller"] as? String ?? ""
-                self.otherName = d["callerName"] as? String ?? "Caller"
-                let photo = d["callerPhoto"] as? String ?? ""
-                self.otherPhotoUrl = photo.isEmpty ? nil : photo
-                self.isCaller = false
-                self.state = .incoming
+                let caller = d["caller"] as? String ?? ""
+                // Silent block: a call from someone I've blocked never rings me.
+                let cid = [self.me, caller].sorted().joined(separator: "_")
+                self.db.collection("conversations").document(cid).getDocument { cs, _ in
+                    let blocked = ((cs?.data()?["blockedBy"] as? [String: Any])?[self.me] as? Bool) ?? false
+                    guard !blocked, self.state == .idle else { return }
+                    self.callId = doc.documentID
+                    self.otherUid = caller
+                    self.otherName = d["callerName"] as? String ?? "Caller"
+                    let photo = d["callerPhoto"] as? String ?? ""
+                    self.otherPhotoUrl = photo.isEmpty ? nil : photo
+                    self.isCaller = false
+                    self.state = .incoming
+                }
             }
     }
 

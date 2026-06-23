@@ -33,6 +33,8 @@ final class ThreadRepository {
     var otherLastActive: Date?
     var otherLastReadMillis: Double = 0
     var iBlocked = false
+    private var otherUid = ""
+    private var myBlockedAtMillis: Double = 0   // hide the other's messages after this
     var pinnedMessageId = ""
 
     init(cid: String) { self.cid = cid }
@@ -52,17 +54,21 @@ final class ThreadRepository {
     func start() {
         guard let uid = Auth.auth().currentUser?.uid else { return }
         let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+        otherUid = other
         stop()
         // Conversation doc: the other person's typing flag + their read timestamp.
         convListener = db.collection("conversations").document(cid)
             .addSnapshotListener { [weak self] snap, _ in
+                guard let self else { return }
                 let d = snap?.data()
-                self?.otherTyping = (d?["typing"] as? [String: Any])?[other] as? Bool ?? false
-                self?.iBlocked = (d?["blockedBy"] as? [String: Any])?[uid] as? Bool ?? false
-                self?.pinnedMessageId = d?["pinnedMessageId"] as? String ?? ""
+                self.otherTyping = (d?["typing"] as? [String: Any])?[other] as? Bool ?? false
+                self.iBlocked = (d?["blockedBy"] as? [String: Any])?[uid] as? Bool ?? false
+                self.myBlockedAtMillis = ((d?["blockedAt"] as? [String: Any])?[uid] as? NSNumber)?.doubleValue ?? 0
+                self.pinnedMessageId = d?["pinnedMessageId"] as? String ?? ""
                 if let ts = (d?["lastRead"] as? [String: Any])?[other] as? Timestamp {
-                    self?.otherLastReadMillis = ts.dateValue().timeIntervalSince1970 * 1000
+                    self.otherLastReadMillis = ts.dateValue().timeIntervalSince1970 * 1000
                 }
+                self.rebuild()   // re-apply the block filter when block state changes
             }
         // The other user's presence (online / last active).
         userListener = db.collection("users").document(other)
@@ -122,7 +128,14 @@ final class ThreadRepository {
     }
 
     private func rebuild() {
-        messages = byId.values.sorted { $0.createdAt < $1.createdAt }
+        let cutoff = myBlockedAtMillis
+        messages = byId.values
+            // Silent block: hide the other person's messages sent AFTER I blocked them.
+            .filter { m in
+                !(iBlocked && m.authorId == otherUid && cutoff > 0
+                  && m.createdAt.timeIntervalSince1970 * 1000 > cutoff)
+            }
+            .sorted { $0.createdAt < $1.createdAt }
     }
 
     /// Page in the next older window (called on scroll-to-top). `completion` runs after

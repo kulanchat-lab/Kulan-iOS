@@ -104,6 +104,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
     var archivedBy: [String: Bool]
     var clearedAt: [String: Double]    // delete-for-me, ms
     var blockedBy: [String: Bool]
+    var blockedAt: [String: Double]    // when each user blocked (ms) — hides later messages
     var pinOrder: [String: Double]     // per-user manual order for pinned chats
     var pinnedMessageId: String        // a pinned message in this chat ("" = none)
     var updatedAtMillis: Double
@@ -121,6 +122,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
         self.archivedBy = boolMap(data["archivedBy"])
         self.clearedAt = doubleMap(data["clearedAt"])
         self.blockedBy = boolMap(data["blockedBy"])
+        self.blockedAt = doubleMap(data["blockedAt"])
         self.pinOrder = doubleMap(data["pinOrder"])
         self.pinnedMessageId = data["pinnedMessageId"] as? String ?? ""
         if let ts = data["updatedAt"] as? Timestamp {
@@ -135,6 +137,8 @@ struct Conversation: Identifiable, Equatable, Hashable {
     func photoUrl(for me: String) -> String? { photos[otherUid(me)] }
     func unread(_ me: String) -> Int { unreadCount[me] ?? 0 }
     func isMuted(_ me: String, now: Double) -> Bool { (mutedBy[me] ?? 0) > now }
+    func isBlockedByMe(_ me: String) -> Bool { blockedBy[me] ?? false }
+    func blockedAtMillis(_ me: String) -> Double { blockedAt[me] ?? 0 }
     func isPinned(_ me: String) -> Bool { pinnedBy[me] ?? false }
     /// Manual order for pinned chats; defaults to recency so never-moved pins stay sensible.
     func pinRank(_ me: String) -> Double { pinOrder[me] ?? updatedAtMillis }

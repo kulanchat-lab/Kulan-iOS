@@ -344,7 +344,7 @@ struct ChatRow: View {
         let decoded = Crypto.shared.decrypt(conv.lastMessageCipher, cid: conv.id)
         return decoded.isEmpty ? "Say hello 👋" : decoded
     }
-    private var unread: Int { conv.unread(me) }
+    private var unread: Int { conv.isBlockedByMe(me) ? 0 : conv.unread(me) }   // silent block: no badge
 
     private var timeStr: String {
         let ms = conv.updatedAtMillis
