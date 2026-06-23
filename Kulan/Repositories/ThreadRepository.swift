@@ -41,16 +41,20 @@ final class ThreadRepository {
     init(cid: String) { self.cid = cid }
 
     /// Display list = confirmed server messages + any optimistic ones not yet echoed.
-    var items: [Message] {
+    /// Stored (not computed) so every read in one render is the same snapshot and we
+    /// don't re-filter per row.
+    private(set) var items: [Message] = []
+    private func refreshItems() {
         let echoed = Set(messages.compactMap { $0.clientId })
-        return messages + pending.filter { p in !(p.clientId.map(echoed.contains) ?? false) }
+        items = messages + pending.filter { p in !(p.clientId.map(echoed.contains) ?? false) }
     }
 
-    func addPending(_ m: Message) { pending.append(m) }
+    func addPending(_ m: Message) { pending.append(m); refreshItems() }
     func markFailed(clientId: String) {
         if let i = pending.firstIndex(where: { $0.clientId == clientId }) { pending[i].sendState = .failed }
+        refreshItems()
     }
-    func removePending(clientId: String) { pending.removeAll { $0.clientId == clientId } }
+    func removePending(clientId: String) { pending.removeAll { $0.clientId == clientId }; refreshItems() }
 
     func start() {
         guard let uid = Auth.auth().currentUser?.uid else { return }
@@ -139,6 +143,7 @@ final class ThreadRepository {
             }
         }
         messages = msgs.sorted { $0.createdAt < $1.createdAt }
+        refreshItems()
     }
 
     // Silent block: hide the other person's messages that landed during the block.

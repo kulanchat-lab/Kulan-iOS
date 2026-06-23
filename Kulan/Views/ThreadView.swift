@@ -59,7 +59,7 @@ struct ThreadView: View {
                             .id("TOP")
                             .onAppear { loadOlderWithAnchor(proxy) }
                     }
-                    ForEach(Array(repo.items.enumerated()), id: \.element.id) { index, msg in
+                    ForEach(Array(repo.items.enumerated()), id: \.element.rowId) { index, msg in
                         if shouldShowDate(at: index) {
                             Text(dayLabel(msg.createdAt))
                                 .font(.caption.weight(.medium))
@@ -414,8 +414,9 @@ struct ThreadView: View {
         guard idx < msgs.count else { return }
         firstUnreadId = msgs[idx].id
         didAnchorUnread = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            withAnimation(.easeOut) { proxy.scrollTo(firstUnreadId, anchor: .top) }
+        // Position instantly (no animated swoosh from the bottom) so the open feels clean.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            proxy.scrollTo(firstUnreadId, anchor: .top)
         }
     }
 

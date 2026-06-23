@@ -50,6 +50,10 @@ struct Message: Identifiable, Equatable {
     var isImage: Bool { type == "image" && (imageUrl?.isEmpty == false) }
     var isAudio: Bool { type == "audio" && (audioUrl?.isEmpty == false) }
 
+    /// Stable list identity: an optimistic message and its server echo share the
+    /// same clientId, so the row updates in place (no delete+insert blink) on confirm.
+    var rowId: String { clientId ?? id }
+
     /// Local optimistic message shown instantly before the server confirms it.
     /// `id` = clientId until the server echo (matched by clientId) replaces it.
     init(localText: String, authorId: String, clientId: String, replyTo: ReplyRef?, sendState: MessageSendState) {
