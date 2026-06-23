@@ -25,6 +25,10 @@ struct ThreadView: View {
     @State private var unreadOnOpen = 0
     @State private var firstUnreadId: String?
     @State private var didAnchorUnread = false
+    @State private var menuTarget: Message?       // long-press reaction/actions menu
+    @State private var morePickerTarget: Message? // any-emoji picker
+    @State private var reactorsTarget: Message?   // "who reacted" sheet
+    @State private var pendingDelete: Message?
     @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
@@ -64,6 +68,8 @@ struct ThreadView: View {
                             onTapImage: { viewerImage = $0 },
                             onReact: { emoji in Task { await ChatService.setReaction(cid: cid, messageId: msg.id, emoji: emoji) } },
                             onPin: { m in Task { await ChatService.setPinnedMessage(cid, m.id) } },
+                            onTapReactions: { reactorsTarget = msg },
+                            onLongPress: { m in withAnimation(.easeOut(duration: 0.15)) { menuTarget = m } },
                             onResend: { m in resend(m) },
                             onJumpTo: { id in jump(to: id, proxy) },
                             isHighlighted: msg.id == highlightId,
@@ -151,6 +157,35 @@ struct ThreadView: View {
         } message: { Text(sendError ?? "") }
         .fullScreenCover(item: $viewerImage) { msg in
             ImageViewerView(message: msg, cid: cid)
+        }
+        .overlay {
+            if let m = menuTarget {
+                ReactionMenuOverlay(
+                    message: m, dark: dark, isMe: m.authorId == me, myReaction: m.reactions[me],
+                    onPick: { emoji in react(m, emoji); dismissMenu() },
+                    onMore: { dismissMenu(); morePickerTarget = m },
+                    onReply: { replyingTo = m; dismissMenu() },
+                    onPin: { Task { await ChatService.setPinnedMessage(cid, m.id) }; dismissMenu() },
+                    onCopy: { dismissMenu() },
+                    onDelete: { dismissMenu(); pendingDelete = m },
+                    onDismiss: { dismissMenu() }
+                )
+                .transition(.opacity)
+            }
+        }
+        .sheet(item: $morePickerTarget) { m in EmojiMorePicker { emoji in react(m, emoji) } }
+        .sheet(item: $reactorsTarget) { m in
+            ReactorsSheet(reactions: m.reactions, nameFor: { $0 == me ? "You" : title })
+        }
+        .confirmationDialog("Delete this message?",
+                            isPresented: Binding(get: { pendingDelete != nil },
+                                                 set: { if !$0 { pendingDelete = nil } }),
+                            titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let m = pendingDelete { Task { await ChatService.deleteMessage(cid: cid, messageId: m.id) } }
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
         }
         .onAppear {
             repo.start()
@@ -363,6 +398,15 @@ struct ThreadView: View {
         }
     }
 
+    // Toggle my reaction (re-tapping the same emoji removes it) and remember it as recent.
+    private func react(_ m: Message, _ emoji: String) {
+        let new = m.reactions[me] == emoji ? nil : emoji
+        if let e = new { ReactionRecents.add(e) }
+        Task { await ChatService.setReaction(cid: cid, messageId: m.id, emoji: new) }
+    }
+
+    private func dismissMenu() { withAnimation(.easeOut(duration: 0.15)) { menuTarget = nil } }
+
     // Scroll to a message (e.g. the original of a tapped reply) and flash it briefly.
     private func jump(to id: String, _ proxy: ScrollViewProxy) {
         withAnimation(.easeInOut) { proxy.scrollTo(id, anchor: .center) }
@@ -553,6 +597,7 @@ struct MessageBubble: View {
     var onReact: (String?) -> Void = { _ in }
     var onPin: (Message) -> Void = { _ in }
     var onTapReactions: () -> Void = {}
+    var onLongPress: (Message) -> Void = { _ in }
     var onResend: (Message) -> Void = { _ in }
     var onJumpTo: (String) -> Void = { _ in }
     var isHighlighted: Bool = false
@@ -561,9 +606,7 @@ struct MessageBubble: View {
     var otherLastRead: Double = 0
 
     @State private var dragX: CGFloat = 0
-    @State private var showDelete = false
 
-    private static let reactionChoices = ["❤️", "👍", "😂", "😮", "😢", "🙏"]
     private var myUid: String { AuthService.shared.uid ?? "" }
     private var myReaction: String? { message.reactions[myUid] }
 
@@ -660,25 +703,9 @@ struct MessageBubble: View {
             if isMe { Spacer(minLength: 0) }
             VStack(alignment: isMe ? .trailing : .leading, spacing: 3) {
                 content
-                    .contextMenu {
-                        ForEach(Self.reactionChoices, id: \.self) { emoji in
-                            Button { onReact(myReaction == emoji ? nil : emoji) } label: {
-                                Text(myReaction == emoji ? "\(emoji)  ✓ Remove" : emoji)
-                            }
-                        }
-                        Divider()
-                        Button { onReply(message) } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
-                        Button { onPin(message) } label: { Label("Pin", systemImage: "pin") }
-                        if !message.isImage && !message.text.isEmpty {
-                            Button { UIPasteboard.general.string = message.text } label: { Label("Copy", systemImage: "doc.on.doc") }
-                        }
-                        if isMe {
-                            Button(role: .destructive) { showDelete = true } label: { Label("Delete", systemImage: "trash") }
-                        }
-                    }
-                    .confirmationDialog("Delete this message?", isPresented: $showDelete, titleVisibility: .visible) {
-                        Button("Delete", role: .destructive) { onDelete(message) }
-                        Button("Cancel", role: .cancel) {}
+                    .onLongPressGesture(minimumDuration: 0.35) {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        onLongPress(message)
                     }
                 reactionBadges
                 if isMe && message.sendState == .failed {
