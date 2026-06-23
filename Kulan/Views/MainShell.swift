@@ -206,8 +206,7 @@ struct ChatsView: View {
                         }
                         .tag(conv.id)
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                        .listRowSeparatorTint(Color.primary.opacity(0.12))
-                        .alignmentGuide(.listRowSeparatorLeading) { _ in 64 }   // 16 inset + 64 = 80pt from edge
+                        .listRowSeparator(.hidden)   // clean, no row lines (like Signal)
                         .moveDisabled(!conv.isPinned(me) || !search.isEmpty)   // only pinned drag
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
