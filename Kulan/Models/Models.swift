@@ -55,7 +55,9 @@ struct Message: Identifiable, Equatable {
         self.duration = (data["duration"] as? NSNumber)?.doubleValue
         self.clientId = data["clientId"] as? String
         self.enc = (data["enc"] as? [String: Any]).flatMap(EncMeta.init(map:))
-        self.reactions = (data["reactions"] as? [String: String])?.mapValues { crypto.decrypt($0, cid: cid) } ?? [:]
+        // Drop entries that fail to decrypt (empty) so a broken record can't render a garbage badge.
+        self.reactions = (data["reactions"] as? [String: String])?
+            .compactMapValues { c in let e = crypto.decrypt(c, cid: cid); return e.isEmpty ? nil : e } ?? [:]
         if let r = data["replyTo"] as? [String: Any] {
             self.replyTo = ReplyRef(
                 id: r["id"] as? String ?? "",

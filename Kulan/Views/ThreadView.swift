@@ -422,6 +422,7 @@ struct MessageBubble: View {
     var onTapImage: (Message) -> Void = { _ in }
     var onReact: (String?) -> Void = { _ in }
     var onPin: (Message) -> Void = { _ in }
+    var onTapReactions: () -> Void = {}
     var otherLastRead: Double = 0
 
     @State private var dragX: CGFloat = 0
@@ -430,7 +431,14 @@ struct MessageBubble: View {
     private static let reactionChoices = ["❤️", "👍", "😂", "😮", "😢", "🙏"]
     private var myUid: String { AuthService.shared.uid ?? "" }
     private var myReaction: String? { message.reactions[myUid] }
-    private var reactionEmojis: [String] { Array(Set(message.reactions.values)).sorted() }
+
+    // Aggregate uid->emoji into (emoji, count, mine), most-popular first (Signal's logic,
+    // our own pill design). Ties broken by emoji for a stable order.
+    private var reactionCounts: [(emoji: String, count: Int, mine: Bool)] {
+        Dictionary(grouping: message.reactions.values, by: { $0 })
+            .map { (emoji: $0.key, count: $0.value.count, mine: message.reactions[myUid] == $0.key) }
+            .sorted { $0.count != $1.count ? $0.count > $1.count : $0.emoji > $1.emoji }
+    }
 
     private var isRead: Bool {
         message.createdAt.timeIntervalSince1970 * 1000 <= otherLastRead
@@ -455,6 +463,37 @@ struct MessageBubble: View {
     // Bubbles cap at 72% of screen width and wrap; the right (sent) / left (received)
     // edge stays a clean, uniform line regardless of length.
     private var maxBubbleWidth: CGFloat { UIScreen.main.bounds.width * 0.72 }
+
+    // Reaction pills (our own design): up to 3 emoji+count capsules, my reaction tinted
+    // with the brand accent, the rest neutral, and a "+N" capsule when there are more.
+    @ViewBuilder private var reactionBadges: some View {
+        let all = reactionCounts
+        if !all.isEmpty {
+            let shown = Array(all.prefix(3))
+            let extra = all.count - shown.count
+            HStack(spacing: 4) {
+                ForEach(shown, id: \.emoji) { r in
+                    HStack(spacing: 3) {
+                        Text(r.emoji).font(.system(size: 12))
+                        if r.count > 1 {
+                            Text("\(r.count)").font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(r.mine ? Color.accentColor : .secondary)
+                        }
+                    }
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(r.mine ? Color.accentColor.opacity(0.18) : Theme.received(dark), in: Capsule())
+                    .overlay(Capsule().stroke(Color.accentColor.opacity(r.mine ? 0.9 : 0), lineWidth: 1))
+                }
+                if extra > 0 {
+                    Text("+\(extra)").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(Theme.received(dark), in: Capsule())
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { onTapReactions() }
+        }
+    }
 
     var body: some View {
         HStack {
@@ -481,13 +520,7 @@ struct MessageBubble: View {
                         Button("Delete", role: .destructive) { onDelete(message) }
                         Button("Cancel", role: .cancel) {}
                     }
-                if !reactionEmojis.isEmpty {
-                    Text(reactionEmojis.joined())
-                        .font(.system(size: 13))
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(Theme.received(dark), in: Capsule())
-                        .overlay(Capsule().stroke(dark ? Color(hex: 0x121214) : .white, lineWidth: 2))
-                }
+                reactionBadges
             }
             .frame(maxWidth: maxBubbleWidth, alignment: isMe ? .trailing : .leading)
             if !isMe { Spacer(minLength: 0) }

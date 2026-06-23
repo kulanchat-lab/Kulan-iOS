@@ -180,7 +180,9 @@ enum ChatService {
         let ref = db.collection("conversations").document(cid)
             .collection("messages").document(messageId)
         if let emoji, let enc = try? await Crypto.shared.encryptForConversation(cid, emoji) {
-            try? await ref.setData(["reactions": [uid: enc]], merge: true)
+            // Dotted field update (matches the delete path) — only touches my own key,
+            // so concurrent reactions from both users never clobber each other.
+            try? await ref.updateData(["reactions.\(uid)": enc])
         } else {
             try? await ref.updateData(["reactions.\(uid)": FieldValue.delete()])
         }
