@@ -46,13 +46,27 @@ struct Message: Identifiable, Equatable {
     var reactions: [String: String]   // uid -> decrypted emoji
     var createdAt: Date
     var sendState: MessageSendState? = nil  // set only on local optimistic messages
+    var localImageData: Data? = nil         // optimistic local photo shown before upload
 
-    var isImage: Bool { type == "image" && (imageUrl?.isEmpty == false) }
+    var isImage: Bool { (type == "image" && (imageUrl?.isEmpty == false)) || localImageData != nil }
     var isAudio: Bool { type == "audio" && (audioUrl?.isEmpty == false) }
 
     /// Stable list identity: an optimistic message and its server echo share the
     /// same clientId, so the row updates in place (no delete+insert blink) on confirm.
     var rowId: String { clientId ?? id }
+
+    /// Local optimistic IMAGE message — shows the picked photo instantly before upload.
+    init(localImageData: Data, authorId: String, clientId: String, sendState: MessageSendState) {
+        self.id = clientId
+        self.authorId = authorId
+        self.text = ""
+        self.type = "image"
+        self.clientId = clientId
+        self.reactions = [:]
+        self.createdAt = Date()
+        self.sendState = sendState
+        self.localImageData = localImageData
+    }
 
     /// Local optimistic message shown instantly before the server confirms it.
     /// `id` = clientId until the server echo (matched by clientId) replaces it.

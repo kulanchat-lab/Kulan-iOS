@@ -377,9 +377,28 @@ struct ThreadView: View {
     private func resend(_ m: Message) {
         let clientId = m.clientId ?? UUID().uuidString
         repo.removePending(clientId: clientId)
-        repo.addPending(Message(localText: m.text, authorId: me, clientId: clientId,
-                                replyTo: m.replyTo, sendState: .sending))
-        Task { await deliver(text: m.text, reply: m.replyTo, clientId: clientId) }
+        if let data = m.localImageData {
+            repo.addPending(Message(localImageData: data, authorId: me, clientId: clientId, sendState: .sending))
+            Task {
+                do { try await ChatService.sendImage(cid: cid, data: data, clientId: clientId) }
+                catch { await MainActor.run { repo.markFailed(clientId: clientId) } }
+            }
+        } else {
+            repo.addPending(Message(localText: m.text, authorId: me, clientId: clientId,
+                                    replyTo: m.replyTo, sendState: .sending))
+            Task { await deliver(text: m.text, reply: m.replyTo, clientId: clientId) }
+        }
+    }
+
+    // Send a photo with an instant optimistic bubble, then reconcile on the echo.
+    private func sendPhoto(_ data: Data) async {
+        let preview = ChatService.downscaledJPEG(data)
+        let clientId = UUID().uuidString
+        await MainActor.run {
+            repo.addPending(Message(localImageData: preview, authorId: me, clientId: clientId, sendState: .sending))
+        }
+        do { try await ChatService.sendImage(cid: cid, data: data, clientId: clientId) }
+        catch { await MainActor.run { repo.markFailed(clientId: clientId) } }
     }
 
     private func deliver(text: String, reply: ReplyRef?, clientId: String) async {
@@ -454,13 +473,9 @@ struct ThreadView: View {
 
     private func sendPicked(_ item: PhotosPickerItem?) async {
         guard let item else { return }
-        sendingPhoto = true
-        defer { sendingPhoto = false; photoItem = nil }
-        do {
-            guard let data = try await item.loadTransferable(type: Data.self) else { return }
-            try await ChatService.sendImage(cid: cid, data: data)
-        } catch {
-            await MainActor.run { sendError = "Couldn't send the photo. Please try again." }
+        defer { photoItem = nil }
+        if let data = try? await item.loadTransferable(type: Data.self) {
+            await sendPhoto(data)
         }
     }
 
@@ -608,10 +623,7 @@ struct ThreadView: View {
     }
 
     private func sendCaptured(_ data: Data) async {
-        sendingPhoto = true
-        defer { sendingPhoto = false }
-        do { try await ChatService.sendImage(cid: cid, data: data) }
-        catch { await MainActor.run { sendError = "Couldn't send the photo. Please try again." } }
+        await sendPhoto(data)
     }
 }
 
@@ -789,20 +801,37 @@ struct MessageBubble: View {
             .padding(.vertical, 9)
             .background(isMe ? Theme.accent(dark) : Theme.received(dark))
             .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
-        } else if message.isImage, let url = message.imageUrl {
+        } else if message.isImage {
             VStack(alignment: .leading, spacing: 4) {
                 replyQuote
-                SecureImageView(imageUrl: url, enc: message.enc, cid: cid)
-                    .frame(width: 220, height: 220)
-                    .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
-                    .overlay(alignment: .bottomTrailing) {
-                        metaRow
-                            .padding(.horizontal, 7).padding(.vertical, 3)
-                            .background(.black.opacity(0.35), in: Capsule())
-                            .foregroundStyle(.white)
-                            .padding(7)
+                Group {
+                    if let data = message.localImageData, let ui = UIImage(data: data) {
+                        Image(uiImage: ui).resizable().scaledToFill()          // optimistic local photo
+                    } else if let url = message.imageUrl {
+                        SecureImageView(imageUrl: url, enc: message.enc, cid: cid)
+                    } else {
+                        Rectangle().fill(Color.gray.opacity(0.18))
                     }
-                    .onTapGesture { onTapImage(message) }
+                }
+                .frame(width: 220, height: 220)
+                .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
+                .overlay {   // dim + spinner while uploading
+                    if message.sendState == .sending {
+                        ZStack { Color.black.opacity(0.2); ProgressView().tint(.white) }
+                            .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    metaRow
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(.black.opacity(0.35), in: Capsule())
+                        .foregroundStyle(.white)
+                        .padding(7)
+                }
+                .onTapGesture {
+                    if message.sendState == .failed { onResend(message) }
+                    else if message.localImageData == nil { onTapImage(message) }   // only open uploaded photos
+                }
             }
         } else {
             VStack(alignment: .leading, spacing: 4) {

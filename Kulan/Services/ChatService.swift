@@ -94,7 +94,7 @@ enum ChatService {
         return resized.jpegData(compressionQuality: quality) ?? data
     }
 
-    static func sendImage(cid: String, data rawData: Data) async throws {
+    static func sendImage(cid: String, data rawData: Data, clientId: String? = nil) async throws {
         let data = downscaledJPEG(rawData)
         let (cipher, meta) = try await Crypto.shared.encryptBytes(cid, data)
         let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
@@ -113,14 +113,16 @@ enum ChatService {
         let url = try await ref.downloadURL().absoluteString
 
         let batch = db.batch()
-        batch.setData([
+        var imgMsg: [String: Any] = [
             "type": "image",
             "imageUrl": url,
             "enc": ["v": meta.v, "n": meta.n, "k": meta.k, "kn": meta.kn],
             "text": "",
             "authorId": uid,
             "createdAt": FieldValue.serverTimestamp(),
-        ], forDocument: msgRef)
+        ]
+        if let clientId { imgMsg["clientId"] = clientId }   // reconcile the optimistic bubble
+        batch.setData(imgMsg, forDocument: msgRef)
         batch.updateData([
             "lastMessage": "📷 Photo",   // plaintext preview (server never sees the image)
             "updatedAt": FieldValue.serverTimestamp(),
