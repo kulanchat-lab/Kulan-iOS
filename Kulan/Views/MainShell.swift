@@ -239,7 +239,9 @@ struct ChatsView: View {
             }
             .navigationTitle("Chats")
             .navigationBarTitleDisplayMode(.inline)   // one row: avatar · Chats · compose
-            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
+            // .automatic = hides smoothly on scroll like Signal (no .always "flex" fight);
+            // renders as the native grey search field, not glass.
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
             .toolbar { homeToolbar }
             // ONE destination type for every chat (list taps AND search results),
             // keyed by cid via .id(...) so each conversation gets a fresh ThreadView
