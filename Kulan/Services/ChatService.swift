@@ -282,9 +282,11 @@ enum ChatService {
 
     static func setBlocked(_ cid: String, _ value: Bool) async {
         var data: [String: Any] = ["blockedBy": [uid: value]]
-        // Stamp the block time so the blocker's client hides only messages that
-        // arrive AFTER the block (older history stays visible). Silent for the other.
-        if value { data["blockedAt"] = [uid: Date().timeIntervalSince1970 * 1000] }
+        let now = Date().timeIntervalSince1970 * 1000
+        // Stamp block start / unblock time so the blocker hides exactly the messages
+        // that arrived DURING the block — and keeps hiding them after unblock
+        // (never delivered, like WhatsApp). Older history stays visible.
+        if value { data["blockedAt"] = [uid: now] } else { data["blockClearedAt"] = [uid: now] }
         try? await db.collection("conversations").document(cid).setData(data, merge: true)
     }
 

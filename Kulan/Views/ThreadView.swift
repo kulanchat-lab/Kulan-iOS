@@ -88,7 +88,7 @@ struct ThreadView: View {
                         .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
                         .id(msg.id)
                     }
-                    if repo.otherTyping { TypingBubble(dark: dark).padding(.top, 6).id("TYPING") }
+                    if repo.otherTyping && !repo.iBlocked { TypingBubble(dark: dark).padding(.top, 6).id("TYPING") }
                     // Bottom sentinel: drives "am I at the bottom?" for the scroll button.
                     Color.clear.frame(height: 1).id("BOTTOM")
                         .onAppear { isAtBottom = true; newWhileAway = 0 }
@@ -290,6 +290,7 @@ struct ThreadView: View {
     }
 
     private var presenceSubtitle: String? {
+        if repo.iBlocked { return nil }   // blocked: don't reveal their typing/online/last-seen
         if repo.otherTyping { return "typing…" }
         if repo.otherOnline { return "online" }
         if let la = repo.otherLastActive {

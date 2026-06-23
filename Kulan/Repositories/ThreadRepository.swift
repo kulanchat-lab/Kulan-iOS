@@ -34,7 +34,8 @@ final class ThreadRepository {
     var otherLastReadMillis: Double = 0
     var iBlocked = false
     private var otherUid = ""
-    private var myBlockedAtMillis: Double = 0   // hide the other's messages after this
+    private var myBlockedAtMillis: Double = 0       // when I blocked
+    private var myBlockClearedAtMillis: Double = 0  // when I unblocked (end of the hide window)
     var pinnedMessageId = ""
 
     init(cid: String) { self.cid = cid }
@@ -64,6 +65,7 @@ final class ThreadRepository {
                 self.otherTyping = (d?["typing"] as? [String: Any])?[other] as? Bool ?? false
                 self.iBlocked = (d?["blockedBy"] as? [String: Any])?[uid] as? Bool ?? false
                 self.myBlockedAtMillis = ((d?["blockedAt"] as? [String: Any])?[uid] as? NSNumber)?.doubleValue ?? 0
+                self.myBlockClearedAtMillis = ((d?["blockClearedAt"] as? [String: Any])?[uid] as? NSNumber)?.doubleValue ?? 0
                 self.pinnedMessageId = d?["pinnedMessageId"] as? String ?? ""
                 if let ts = (d?["lastRead"] as? [String: Any])?[other] as? Timestamp {
                     self.otherLastReadMillis = ts.dateValue().timeIntervalSince1970 * 1000
@@ -128,14 +130,17 @@ final class ThreadRepository {
     }
 
     private func rebuild() {
-        let cutoff = myBlockedAtMillis
-        messages = byId.values
-            // Silent block: hide the other person's messages sent AFTER I blocked them.
-            .filter { m in
-                !(iBlocked && m.authorId == otherUid && cutoff > 0
-                  && m.createdAt.timeIntervalSince1970 * 1000 > cutoff)
-            }
-            .sorted { $0.createdAt < $1.createdAt }
+        messages = byId.values.filter { !hiddenByBlock($0) }.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    // Silent block: hide the other person's messages that landed during the block.
+    // While blocked → hide everything after I blocked. After unblock → keep hiding
+    // just the block window (blockedAt … blockClearedAt) so the backlog never arrives.
+    private func hiddenByBlock(_ m: Message) -> Bool {
+        guard m.authorId == otherUid, myBlockedAtMillis > 0 else { return false }
+        let t = m.createdAt.timeIntervalSince1970 * 1000
+        if iBlocked { return t > myBlockedAtMillis }
+        return t > myBlockedAtMillis && t <= myBlockClearedAtMillis
     }
 
     /// Page in the next older window (called on scroll-to-top). `completion` runs after
