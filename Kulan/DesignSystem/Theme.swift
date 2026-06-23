@@ -73,6 +73,18 @@ extension View {
             self.background(.ultraThinMaterial, in: shape)
         }
     }
+
+    /// Floats a bar at the bottom over the scroll content. iOS 26 uses `safeAreaBar`,
+    /// which adds the native glass dim behind it (content blurs/dims as it scrolls
+    /// under, like iMessage); older iOS falls back to `safeAreaInset` (floats, no dim).
+    @ViewBuilder
+    func floatingBottomBar<C: View>(@ViewBuilder content: () -> C) -> some View {
+        if #available(iOS 26.0, *) {
+            self.safeAreaBar(edge: .bottom, content: content)
+        } else {
+            self.safeAreaInset(edge: .bottom, spacing: 0, content: content)
+        }
+    }
 }
 
 struct AvatarView: View {
