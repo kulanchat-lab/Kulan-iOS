@@ -77,9 +77,14 @@ struct ThreadView: View {
                 }
                 Task { await ChatService.markRead(cid) }
             }
+            // Float the composer OVER the messages (iOS 26 native): the glass is
+            // see-through and the messages scroll behind it; the scroll content
+            // auto-insets so the last message never hides under the bar.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if repo.iBlocked { blockedBar } else { composerArea }
+            }
             }
         }
-        if repo.iBlocked { blockedBar } else { composerArea }
         }
         .toolbar(.hidden, for: .tabBar)
         .toolbar(.hidden, for: .navigationBar)
