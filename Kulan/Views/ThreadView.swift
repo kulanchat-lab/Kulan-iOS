@@ -293,7 +293,7 @@ struct ThreadView: View {
         Group {
             if recorder.isRecording { recordingBar } else { inputRow }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 16)   // spec: 16pt left/right margin
         .padding(.top, 6)
         .padding(.bottom, 8)
         .confirmationDialog("Send a photo", isPresented: $showAttachMenu, titleVisibility: .visible) {
@@ -309,13 +309,13 @@ struct ThreadView: View {
     }
 
     private var inputRow: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .bottom, spacing: 8) {   // spec: 8pt gap + button -> input
             // Far-left circular "+" — Take Photo (camera) or Photo Library.
             Button { showAttachMenu = true } label: {
                 Image(systemName: sendingPhoto ? "ellipsis" : "plus")
-                    .font(.system(size: 22, weight: .regular))
+                    .font(.system(size: 20, weight: .regular))   // spec: 20pt icon
                     .foregroundStyle(.primary)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 40, height: 40)                // spec: 40x40
                     .liquidGlass(Circle())   // real iOS 26 Liquid Glass
             }
             .tint(.primary)
@@ -329,10 +329,11 @@ struct ThreadView: View {
                 // Text row: send arrow when typing, mic to record a voice note when empty.
                 HStack(alignment: .bottom, spacing: 4) {
                     TextField("Message", text: $input, axis: .vertical)
+                        .font(.system(size: 17))     // spec: SF Pro 17pt Regular
                         .lineLimit(1...6)
                         .focused($inputFocused)
-                        .padding(.leading, 14)
-                        .padding(.vertical, 7)
+                        .padding(.leading, 14)       // spec: 14pt leading
+                        .padding(.vertical, 10)      // spec: 10pt vertical
                         .onChange(of: input) { _, v in
                             let now = !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             if now != typingSent {
@@ -343,26 +344,31 @@ struct ThreadView: View {
                     if hasText {
                         Button { send() } label: {
                             Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 28))
+                                .font(.system(size: 28))          // spec: 28pt icon
                                 .foregroundStyle(Theme.accent(dark))
+                                .frame(width: 34, height: 34)     // spec: 32-34pt tap target
                         }
                         .padding(.trailing, 3)
-                        .padding(.bottom, 2)
+                        .padding(.bottom, 3)
+                        .transition(.scale.combined(with: .opacity))
                     } else {
-                        HStack(spacing: 14) {
+                        HStack(spacing: 12) {   // spec: 12pt spacing
                             Button { showCamera = true } label: {
-                                Image(systemName: "camera").font(.system(size: 19)).foregroundStyle(.secondary)
+                                Image(systemName: "camera").font(.system(size: 22)).foregroundStyle(.secondary)
                             }
                             Button { recorder.requestAndStart() } label: {
-                                Image(systemName: "mic").font(.system(size: 19)).foregroundStyle(.secondary)
+                                Image(systemName: "mic").font(.system(size: 22)).foregroundStyle(.secondary)
                             }
                         }
-                        .padding(.trailing, 12)
-                        .padding(.bottom, 7)
+                        .padding(.trailing, 12)   // spec: 12pt right padding
+                        .padding(.bottom, 9)
+                        .transition(.scale.combined(with: .opacity))
                     }
                 }
+                // spec: fade + scale swap, ~0.22s easeInOut
+                .animation(.easeInOut(duration: 0.22), value: hasText)
             }
-            .frame(minHeight: 36)
+            .frame(minHeight: 40)   // spec: 40pt base height
             .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))   // real iOS 26 Liquid Glass
         }
     }
