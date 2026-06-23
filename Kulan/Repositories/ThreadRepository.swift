@@ -15,6 +15,10 @@ final class ThreadRepository {
 
     var messages: [Message] = []           // confirmed server messages
     var pending: [Message] = []            // optimistic, not yet echoed back
+    // Decrypt cache: reuse already-built messages so each snapshot only decrypts
+    // new/changed docs (reactions are the only mutable field) instead of all N.
+    private var cache: [String: Message] = [:]
+    private var rawReactions: [String: [String: String]] = [:]
     var otherTyping = false
     var otherOnline = false
     var otherLastActive: Date?
@@ -67,9 +71,20 @@ final class ThreadRepository {
                     guard let self, let snap else { return }
                     // Don't blank an open thread on an empty offline snapshot.
                     if snap.metadata.isFromCache && snap.documents.isEmpty && !self.messages.isEmpty { return }
-                    self.messages = snap.documents.map {
-                        Message(id: $0.documentID, data: $0.data(), cid: self.cid, crypto: Crypto.shared)
+                    self.messages = snap.documents.map { doc -> Message in
+                        let id = doc.documentID, data = doc.data()
+                        let raw = (data["reactions"] as? [String: String]) ?? [:]
+                        // Reuse the cached message unless its (only mutable) reactions changed.
+                        if let cached = self.cache[id], self.rawReactions[id] == raw { return cached }
+                        let m = Message(id: id, data: data, cid: self.cid, crypto: Crypto.shared)
+                        self.cache[id] = m
+                        self.rawReactions[id] = raw
+                        return m
                     }
+                    // Evict cache entries for messages that no longer exist.
+                    let live = Set(snap.documents.map { $0.documentID })
+                    self.cache = self.cache.filter { live.contains($0.key) }
+                    self.rawReactions = self.rawReactions.filter { live.contains($0.key) }
                     // Drop optimistic copies the server has now confirmed (matched by clientId).
                     let echoed = Set(self.messages.compactMap { $0.clientId })
                     self.pending.removeAll { p in p.clientId.map(echoed.contains) ?? false }
