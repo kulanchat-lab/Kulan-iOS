@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import AVFoundation
 import WebRTC
 import FirebaseAuth
 import FirebaseFirestore
@@ -15,9 +16,18 @@ final class CallService: NSObject {
 
     enum State: Equatable { case idle, outgoing, incoming, active, ended }
 
-    var state: State = .idle
+    var state: State = .idle {
+        didSet {
+            if state == .active && connectedDate == nil { connectedDate = Date() }
+            if state == .idle { connectedDate = nil; isMuted = false; isSpeaker = false }
+        }
+    }
     var otherName: String = ""
     var otherPhotoUrl: String?
+    var isMuted = false
+    var isSpeaker = false
+    var connectedDate: Date?
+    private var localAudioTrack: RTCAudioTrack?
     private(set) var callId: String?
     private var otherUid: String = ""
     private var isCaller = false
@@ -55,7 +65,21 @@ final class CallService: NSObject {
         let audioSource = Self.factory.audioSource(with: nil)
         let audioTrack = Self.factory.audioTrack(with: audioSource, trackId: "audio0")
         connection?.add(audioTrack, streamIds: ["stream0"])
+        localAudioTrack = audioTrack
         return connection
+    }
+
+    // MARK: - In-call controls
+    func toggleMute() {
+        isMuted.toggle()
+        localAudioTrack?.isEnabled = !isMuted
+    }
+    func toggleSpeaker() {
+        isSpeaker.toggle()
+        let rtc = RTCAudioSession.sharedInstance()
+        rtc.lockForConfiguration()
+        try? AVAudioSession.sharedInstance().overrideOutputAudioPort(isSpeaker ? .speaker : .none)
+        rtc.unlockForConfiguration()
     }
 
     // MARK: - Outgoing
