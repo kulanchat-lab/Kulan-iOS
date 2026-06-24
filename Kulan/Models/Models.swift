@@ -49,7 +49,7 @@ struct Message: Identifiable, Equatable {
     var localImageData: Data? = nil         // optimistic local photo shown before upload
     var width: Double? = nil                // image pixel size -> natural aspect ratio bubble
     var height: Double? = nil
-    var callDirection: String? = nil        // call record: outgoing | incoming
+    var callerUid: String? = nil            // call record: who placed the call (viewer derives direction)
     var callOutcome: String? = nil          // answered | missed
     var callDuration: Int? = nil            // seconds (0 if not answered)
 
@@ -99,7 +99,7 @@ struct Message: Identifiable, Equatable {
         self.duration = (data["duration"] as? NSNumber)?.doubleValue
         self.width = (data["width"] as? NSNumber)?.doubleValue
         self.height = (data["height"] as? NSNumber)?.doubleValue
-        self.callDirection = data["callDirection"] as? String
+        self.callerUid = data["callerUid"] as? String
         self.callOutcome = data["callOutcome"] as? String
         self.callDuration = (data["callDuration"] as? NSNumber)?.intValue
         self.clientId = data["clientId"] as? String

@@ -267,11 +267,11 @@ final class CallService: NSObject {
             recordWritten = true
             let connected = connectedDate != nil
             let dur = connected ? Int(Date().timeIntervalSince(connectedDate!)) : 0
-            let direction = isCaller ? "outgoing" : "incoming"
+            let callerUidVal = isCaller ? me : otherUid
             let outcome = connected ? "answered" : "missed"
             let cid = [me, otherUid].sorted().joined(separator: "_")
             let cidCallId = callId ?? UUID().uuidString
-            Task { await ChatService.recordCall(cid: cid, callId: cidCallId, direction: direction, outcome: outcome, durationSec: dur) }
+            Task { await ChatService.recordCall(cid: cid, callId: cidCallId, callerUid: callerUidVal, outcome: outcome, durationSec: dur) }
         }
         if updateRemote, let id = callId {
             db.collection("calls").document(id).updateData(["status": "ended"])

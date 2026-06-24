@@ -220,15 +220,16 @@ enum ChatService {
         }
     }
 
-    /// Write a call record into the chat. Doc id is keyed by callId+direction so a
-    /// retried end-handler can't double-write, and each side writes only its own row.
-    static func recordCall(cid: String, callId: String, direction: String, outcome: String, durationSec: Int) async {
+    /// Write ONE call record into the shared chat, keyed by callId so both ends can't
+    /// create duplicates (whoever writes first wins; the other's create is a no-op).
+    /// Stores who the caller was, so each client renders outgoing/incoming for itself.
+    static func recordCall(cid: String, callId: String, callerUid: String, outcome: String, durationSec: Int) async {
         let convRef = db.collection("conversations").document(cid)
-        let msgRef = convRef.collection("messages").document("\(callId)_\(direction)")
+        let msgRef = convRef.collection("messages").document("call_\(callId)")
         try? await msgRef.setData([
             "type": "call",
             "authorId": uid,
-            "callDirection": direction,        // outgoing | incoming
+            "callerUid": callerUid,            // viewer compares to itself for direction
             "callOutcome": outcome,            // answered | missed
             "callDuration": durationSec,
             "text": "",

@@ -420,7 +420,7 @@ struct ThreadView: View {
 
     // Call record row in the thread (outgoing/incoming/missed + duration). Tap to call back.
     private func callRow(_ m: Message) -> some View {
-        let mine = m.callDirection == "outgoing"
+        let mine = m.callerUid == me
         let missed = m.callOutcome == "missed"
         let icon = missed ? "phone.down.fill" : (mine ? "phone.arrow.up.right" : "phone.arrow.down.left")
         let label: String = {
