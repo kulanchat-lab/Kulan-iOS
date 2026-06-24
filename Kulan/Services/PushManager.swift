@@ -5,11 +5,14 @@ import FirebaseFirestore
 import FirebaseAuth
 import FirebaseMessaging
 import UserNotifications
+import PushKit
 
 // App delegate: configures Firebase, owns the APNs/FCM token handshake, and saves
 // the device's FCM token to users/{uid}.fcmTokens so the Cloud Function can push
 // to it. (Firebase config lives here so it runs before any messaging setup.)
-final class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNUserNotificationCenterDelegate, PKPushRegistryDelegate {
+
+    private var voipRegistry: PKPushRegistry?
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
@@ -22,7 +25,37 @@ final class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNU
 
         Messaging.messaging().delegate = self
         UNUserNotificationCenter.current().delegate = self
+
+        // Init CallKit early (sets WebRTC manual-audio) + register for VoIP push so
+        // calls ring natively even when the app is killed.
+        _ = CallKitManager.shared
+        let registry = PKPushRegistry(queue: .main)
+        registry.delegate = self
+        registry.desiredPushTypes = [.voIP]
+        voipRegistry = registry
         return true
+    }
+
+    // MARK: - VoIP (PushKit)
+
+    func pushRegistry(_ registry: PKPushRegistry, didUpdate pushCredentials: PKPushCredentials, for type: PKPushType) {
+        guard type == .voIP, let uid = Auth.auth().currentUser?.uid else { return }
+        let token = pushCredentials.token.map { String(format: "%02x", $0) }.joined()
+        Firestore.firestore().collection("users").document(uid)
+            .setData(["voipTokens": FieldValue.arrayUnion([token])], merge: true)
+    }
+
+    func pushRegistry(_ registry: PKPushRegistry, didReceiveIncomingPushWith payload: PKPushPayload,
+                      for type: PKPushType, completion: @escaping () -> Void) {
+        guard type == .voIP else { completion(); return }
+        let d = payload.dictionaryPayload
+        let callId = d["callId"] as? String ?? ""
+        let name = d["callerName"] as? String ?? "Call"
+        let uid = d["callerUid"] as? String ?? ""
+        let photo = d["photo"] as? String
+        // iOS 13+: MUST report to CallKit before completion or the app is terminated.
+        CallService.shared.prepareIncoming(callId: callId, name: name, uid: uid, photo: photo)
+        CallKitManager.shared.reportIncoming(name: name) { completion() }
     }
 
     func application(_ application: UIApplication,

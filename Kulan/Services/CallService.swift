@@ -46,15 +46,7 @@ final class CallService: NSObject {
         return c
     }()
 
-    // MARK: - Audio session
-
-    private func configureAudio() {
-        let session = RTCAudioSession.sharedInstance()
-        session.lockForConfiguration()
-        try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [])
-        try? session.setActive(true)
-        session.unlockForConfiguration()
-    }
+    // Audio session is owned by CallKit (manual mode) — see CallKitManager.
 
     private func makePeerConnection() -> RTCPeerConnection? {
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
@@ -70,12 +62,13 @@ final class CallService: NSObject {
 
     func startCall(to uid: String, name: String, photo: String? = nil) {
         guard state == .idle, !uid.isEmpty else { return }
-        configureAudio()
         isCaller = true
         otherUid = uid
         otherName = name
         otherPhotoUrl = photo
         state = .outgoing
+        CallKitManager.shared.startOutgoing(name: name)   // native call UI + audio session
+        CallKitManager.shared.reportConnecting()
 
         let ref = db.collection("calls").document()
         callId = ref.documentID
@@ -127,14 +120,23 @@ final class CallService: NSObject {
                     let photo = d["callerPhoto"] as? String ?? ""
                     self.otherPhotoUrl = photo.isEmpty ? nil : photo
                     self.isCaller = false
-                    self.state = .incoming
+                    CallKitManager.shared.reportIncoming(name: self.otherName)   // native ringing UI
                 }
             }
     }
 
+    /// Set up an incoming call from a VoIP push (app may be cold-launching) so that a
+    /// subsequent CallKit answer connects. No ringing here — CallKit shows the ring.
+    func prepareIncoming(callId: String, name: String, uid: String, photo: String?) {
+        self.callId = callId
+        self.otherName = name
+        self.otherUid = uid
+        self.otherPhotoUrl = (photo?.isEmpty == false) ? photo : nil
+        self.isCaller = false
+    }
+
     func answer() {
-        guard state == .incoming, let id = callId else { return }
-        configureAudio()
+        guard let id = callId else { return }
         let ref = db.collection("calls").document(id)
         pc = makePeerConnection()
         ref.getDocument { [weak self] snap, _ in
@@ -170,6 +172,7 @@ final class CallService: NSObject {
                self.pc?.remoteDescription == nil {
                 self.pc?.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { _ in }
                 self.state = .active
+                CallKitManager.shared.reportConnected()
             }
             if (d["status"] as? String) == "ended" { self.cleanup(updateRemote: false) }
         }
@@ -208,14 +211,11 @@ final class CallService: NSObject {
         if updateRemote, let id = callId {
             db.collection("calls").document(id).updateData(["status": "ended"])
         }
+        CallKitManager.shared.reportEnded()   // clear the system call UI (audio handled by CallKit)
         listeners.forEach { $0.remove() }
         listeners = []
         pc?.close()
         pc = nil
-        let session = RTCAudioSession.sharedInstance()
-        session.lockForConfiguration()
-        try? session.setActive(false)
-        session.unlockForConfiguration()
         callId = nil
         otherUid = ""
         isCaller = false

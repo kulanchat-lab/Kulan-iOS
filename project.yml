@@ -41,6 +41,7 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: com.kulan.messenger
             CFBundleURLSchemes: [kulan]
+        UIBackgroundModes: [voip, audio]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.kulan.messenger.native
