@@ -41,22 +41,30 @@ ts "xcodegen"
 command -v xcodegen >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 run "brew" brew install xcodegen
 run "generate" xcodegen generate
 
-ts "resolve packages"
-# Live size counter (safe: shows only byte totals, no package names) so we can SEE
-# whether it's downloading (growing) or truly frozen. Hard 30-min cap via perl alarm
-# so a stall can never burn a blind hour again.
-( while true; do echo "   spm=$(du -sh "$SPM" 2>/dev/null | cut -f1)  $(date -u +%H:%M:%S)Z"; sleep 20; done ) &
-MON=$!
-if perl -e 'alarm shift @ARGV; exec @ARGV' 1800 \
-     xcodebuild -resolvePackageDependencies \
-     -project Kulan.xcodeproj -scheme Kulan -clonedSourcePackagesDirPath "$SPM" \
-     >"$RUNNER_TEMP/resolve.log" 2>&1; then
+# Resolve packages. A binary artifact download (WebRTC's ~500MB blob) sometimes
+# stalls on GitHub's CDN and SPM has NO download timeout, so it hangs forever.
+# Work around it: cap each attempt and retry with a fresh connection. Partial
+# downloads in $SPM are kept, so each retry resumes closer to done. One success
+# populates the cache and every later run skips this entirely.
+resolved=0
+for attempt in 1 2 3 4 5; do
+  ts "resolve packages (attempt $attempt)"
+  ( while true; do echo "   spm=$(du -sh "$SPM" 2>/dev/null | cut -f1)  $(date -u +%H:%M:%S)Z"; sleep 20; done ) &
+  MON=$!
+  if perl -e 'alarm shift @ARGV; exec @ARGV' 480 \
+       xcodebuild -resolvePackageDependencies \
+       -project Kulan.xcodeproj -scheme Kulan -clonedSourcePackagesDirPath "$SPM" \
+       >"$RUNNER_TEMP/resolve.log" 2>&1; then
+    kill "$MON" 2>/dev/null || true
+    echo "   resolve OK  (spm=$(du -sh "$SPM" 2>/dev/null | cut -f1))"
+    resolved=1
+    break
+  fi
   kill "$MON" 2>/dev/null || true
-  echo "   resolve OK  (spm=$(du -sh "$SPM" 2>/dev/null | cut -f1))"
-else
-  rc=$?
-  kill "$MON" 2>/dev/null || true
-  echo "!! resolve failed/timed out rc=$rc  (spm=$(du -sh "$SPM" 2>/dev/null | cut -f1))"
+  echo "   attempt $attempt stalled/failed (spm=$(du -sh "$SPM" 2>/dev/null | cut -f1)) — retrying"
+done
+if [ "$resolved" -ne 1 ]; then
+  echo "!! resolve failed after retries"
   echo "--- tail of resolve output (temporary debug) ---"
   tail -25 "$RUNNER_TEMP/resolve.log"
   exit 1
