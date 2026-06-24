@@ -246,6 +246,17 @@ enum ChatService {
             .collection("messages").document(messageId).delete()
     }
 
+    /// Edit a text message in place: re-encrypt the new text and flag it edited.
+    /// Server still never sees plaintext (same E2EE path as sendText).
+    static func editMessage(cid: String, messageId: String, newText: String) async throws {
+        let t = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        let cipher = try await Crypto.shared.encryptForConversation(cid, t)
+        try await db.collection("conversations").document(cid)
+            .collection("messages").document(messageId)
+            .updateData(["text": cipher, "edited": true])
+    }
+
     /// A privacy pref (defaults ON when never set).
     static func pref(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 
