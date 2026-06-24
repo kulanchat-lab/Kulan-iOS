@@ -22,6 +22,15 @@ export ASC_KEY_ID="$CFG_A1"
 export ASC_ISSUER_ID="$CFG_A2"
 export ASC_TEAM_ID="$CFG_A3"
 
+# Authenticate github.com git traffic (same trick actions/checkout uses). Swift's
+# package resolver shells out to git; without this, fetches run unauthenticated and
+# GitHub throttles them until the job times out. Uses the runner's own ephemeral token.
+export GIT_TERMINAL_PROMPT=0   # never block waiting for credentials; fail fast instead
+if [ -n "${GH_TOKEN:-}" ]; then
+  git config --global "http.https://github.com/.extraheader" \
+    "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64)"
+fi
+
 SPM="$HOME/spm"   # stable package dir so the public workflow can cache it
 
 ts "select xcode"
