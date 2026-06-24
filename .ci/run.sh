@@ -22,27 +22,12 @@ export ASC_KEY_ID="$CFG_A1"
 export ASC_ISSUER_ID="$CFG_A2"
 export ASC_TEAM_ID="$CFG_A3"
 
-# Authenticate github.com (mirrors what actions/checkout sets up) for git fetches.
+# NO github auth on purpose: the packages are public, and curl proved an anonymous
+# download finishes in <1s. Adding a token (netrc / git extraheader) makes SPM forward
+# that auth header to the Fastly CDN, which then stalls the download forever. Anonymous
+# is both correct and what works. Just make sure git never blocks on a prompt.
 export GIT_TERMINAL_PROMPT=0
-if [ -n "${GH_TOKEN:-}" ]; then
-  git config --global "http.https://github.com/.extraheader" \
-    "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64)"
-  printf 'machine github.com\n  login x-access-token\n  password %s\n' "$GH_TOKEN" > "$HOME/.netrc"
-  chmod 600 "$HOME/.netrc"
-fi
-
-# --- TEMP 1-MIN PROBE: can this runner actually download a binary artifact? ---
-ts "PROBE downloads"
-URL="https://github.com/stasel/WebRTC/releases/download/120.0.0/WebRTC-M120.xcframework.zip"
-echo "-- default:"
-curl -fL --max-time 60 -o "$RUNNER_TEMP/w.zip" "$URL" \
-  -w "  http=%{http_code} size=%{size_download} time=%{time_total}s ip=%{remote_ip}\n" 2>&1 || echo "  rc=$?"
-echo "-- ipv4:"
-curl -fL --ipv4 --max-time 60 -o "$RUNNER_TEMP/w4.zip" "$URL" \
-  -w "  http=%{http_code} size=%{size_download} time=%{time_total}s ip=%{remote_ip}\n" 2>&1 || echo "  rc=$?"
-echo "PROBE DONE"
-exit 0
-# --- end probe ---
+rm -f "$HOME/.netrc" 2>/dev/null || true
 
 ts "select xcode"
 LATEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -n1)
