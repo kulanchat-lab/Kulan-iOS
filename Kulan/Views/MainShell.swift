@@ -75,22 +75,6 @@ struct ChatsView: View {
         return visible.filter { $0.name(for: me).lowercased().contains(q) }
     }
 
-    // In-list search field (first row) — grey capsule, slides with the rows.
-    private var searchRow: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Search", text: $search)
-                .textInputAutocapitalization(.never).autocorrectionDisabled()
-            if !search.isEmpty {
-                Button { search = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 12).padding(.vertical, 9)
-        .background(Color(.systemGray6), in: Capsule())
-    }
 
     // Native nav bar with a crisp circle avatar — glass stripped via the iOS 26
     // opt-out, same as the chat header. Keeps the large "Chats" title + smooth
@@ -217,15 +201,6 @@ struct ChatsView: View {
                                            description: Text("Tap the compose button to start one."))
                 } else {
                     List(selection: selecting ? $selection : .constant(Set<String>())) {
-                      // Search lives IN the list (first row) so it slides 1:1 with the
-                      // rows on swipe-back and tucks away when scrolled — like Signal.
-                      if !selecting {
-                          searchRow
-                              .listRowSeparator(.hidden)
-                              .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
-                              .moveDisabled(true)
-                              .selectionDisabled()
-                      }
                       ForEach(filtered) { conv in
                         NavigationLink(value: ChatTarget(id: conv.id, name: conv.name(for: me),
                                                          photo: conv.photoUrl(for: me))) {
@@ -288,6 +263,7 @@ struct ChatsView: View {
             }
             .navigationTitle("Chats")
             .navigationBarTitleDisplayMode(.inline)   // one row: avatar · Chats · compose
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
             .toolbar { homeToolbar }
             // ONE destination type for every chat (list taps AND search results),
             // keyed by cid via .id(...) so each conversation gets a fresh ThreadView
