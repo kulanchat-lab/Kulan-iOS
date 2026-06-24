@@ -1,6 +1,5 @@
 default_platform(:ios)
 
-PROFILE_NAME = "Kulan Native AppStore"
 BUNDLE_ID = "com.kulan.messenger.native"
 
 platform :ios do
@@ -12,14 +11,21 @@ platform :ios do
       key_filepath: ENV["ASC_KEY_PATH"]
     )
 
-    # Create/download an App Store provisioning profile for the native bundle,
-    # reusing the distribution certificate already imported into the keychain.
+    # No pre-shared .p12: create/fetch the distribution certificate straight from
+    # the App Store Connect API key, into the throwaway build keychain.
+    cert(
+      api_key: api_key,
+      keychain_path: ENV["SIGN_KEYCHAIN"],
+      keychain_password: ""
+    )
+
+    # App Store provisioning profile for the bundle (regenerated to include the cert above).
     get_provisioning_profile(
       api_key: api_key,
       app_identifier: BUNDLE_ID,
-      provisioning_name: PROFILE_NAME,
       force: true
     )
+    profile_name = lane_context[SharedValues::SIGH_NAME]
 
     update_code_signing_settings(
       path: "Kulan.xcodeproj",
@@ -28,7 +34,7 @@ platform :ios do
       targets: ["Kulan"],
       code_sign_identity: "Apple Distribution",
       bundle_identifier: BUNDLE_ID,
-      profile_name: PROFILE_NAME
+      profile_name: profile_name
     )
 
     build_app(
@@ -39,7 +45,7 @@ platform :ios do
       xcargs: "CURRENT_PROJECT_VERSION=#{ENV['BUILD_NUMBER']} -skipPackagePluginValidation -skipMacroValidation",
       export_options: {
         signingStyle: "manual",
-        provisioningProfiles: { BUNDLE_ID => PROFILE_NAME }
+        provisioningProfiles: { BUNDLE_ID => profile_name }
       }
     )
 

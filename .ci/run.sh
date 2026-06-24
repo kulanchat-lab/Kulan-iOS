@@ -23,19 +23,18 @@ if [ "${1:-a}" = "a" ]; then
   exit 0
 fi
 
-# --- ship path ---
+# --- ship path ---  (cert is created from the .p8 API key by fastlane; no .p12 needed)
 printf '%s' "$CFG_B1" > "$RUNNER_TEMP/AuthKey.p8"
-echo "$CFG_B2" | openssl base64 -d -A > "$RUNNER_TEMP/dist.p12"
 
 KC="$RUNNER_TEMP/b.keychain-db"
 security create-keychain -p "" "$KC"
 security set-keychain-settings -lut 21600 "$KC"
 security unlock-keychain -p "" "$KC"
-security import "$RUNNER_TEMP/dist.p12" -k "$KC" -P "$CFG_B3" -T /usr/bin/codesign -T /usr/bin/security
-security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KC"
 security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+security default-keychain -s "$KC"
 
 export ASC_KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
+export SIGN_KEYCHAIN="$KC"
 export BUILD_NUMBER="$(date +%s)"   # timestamp: always increases, even on a fresh repo
 export FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT=180
 export FASTLANE_XCODEBUILD_SETTINGS_RETRIES=6
