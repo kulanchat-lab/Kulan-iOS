@@ -157,6 +157,8 @@ struct PrivacySettingsView: View {
     private var repo = ConversationsRepository.shared
     private var me: String { AuthService.shared.uid ?? "" }
     private var blockedCount: Int { repo.conversations.filter { $0.blockedBy[me] == true }.count }
+    @AppStorage("appLockEnabled") private var appLock = false
+    @AppStorage("screenSecurity") private var screenSecurity = false
 
     var body: some View {
         List {
@@ -171,6 +173,13 @@ struct PrivacySettingsView: View {
                 NavigationLink { PhoneNumberPrivacyView() } label: {
                     Label("Phone Number", systemImage: "phone")
                 }
+            }
+
+            Section {
+                Toggle(isOn: $appLock) { Label("App Lock", systemImage: "faceid") }.tint(.green)
+                Toggle(isOn: $screenSecurity) { Label("Screen Security", systemImage: "eye.slash") }.tint(.green)
+            } footer: {
+                Text("App Lock requires Face ID / passcode to open Kulan. Screen Security hides the app preview in the multitasking switcher.")
             }
 
             Section {
