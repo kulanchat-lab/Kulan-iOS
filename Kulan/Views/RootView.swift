@@ -23,7 +23,11 @@ struct RootView: View {
             case .onboarding:
                 OnboardingView { phase = .main }
             case .main:
-                MainShell(onSignOut: { Task { await route() } })
+                // Root-level call container so an active call (full screen or top mini
+                // bar) lives above every screen and survives all navigation.
+                CallContainer {
+                    MainShell(onSignOut: { Task { await route() } })
+                }
             }
 
             // Screen security: blank the app preview in the app switcher.

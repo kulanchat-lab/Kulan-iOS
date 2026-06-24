@@ -12,23 +12,9 @@ struct MainShell: View {
             CallsView()
                 .tabItem { Label("Calls", systemImage: "phone.fill") }
         }
+        // Call UI is mounted at the root (CallContainer in RootView) so it survives all
+        // navigation. Here we only start listening for incoming calls.
         .onAppear { call.observeIncoming() }
-        // Full call screen for outgoing + active, unless minimized. (Incoming ring is
-        // owned by the native CallKit UI.)
-        .fullScreenCover(isPresented: Binding(
-            get: { (call.state == .outgoing || call.state == .active) && !call.minimized },
-            set: { _ in }
-        )) {
-            CallView()
-        }
-        // Floating call pill while minimized — tap to return to the full screen.
-        .overlay(alignment: .top) {
-            if (call.state == .outgoing || call.state == .active) && call.minimized {
-                CallPill().onTapGesture { call.minimized = false }
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: call.minimized)
     }
 }
 
