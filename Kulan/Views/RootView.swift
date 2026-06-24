@@ -103,10 +103,14 @@ struct OnboardingView: View {
                         .textInputAutocapitalization(.words)
                     TextField("Username", text: $handle)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .onChange(of: handle) { _, v in
+                            let clean = ChatService.sanitizeHandle(v)
+                            if clean != v { handle = clean }
+                        }
                 } header: {
                     Text("Create your profile")
                 } footer: {
-                    Text("Pick a name and a username so friends can find you.")
+                    Text("Username: letters, numbers and _ only, 3–24 characters.")
                 }
                 if let error {
                     Section { Text(error).foregroundStyle(.red) }
@@ -134,9 +138,11 @@ struct OnboardingView: View {
 
     private func save() async {
         let n = name.trimmingCharacters(in: .whitespaces)
-        let h = handle.trimmingCharacters(in: .whitespaces).lowercased()
+        let h = ChatService.sanitizeHandle(handle)
         guard !n.isEmpty else { error = "Enter your name"; return }
-        guard h.count >= 3 else { error = "Username must be at least 3 characters"; return }
+        guard ChatService.isValidHandle(h) else {
+            error = "Username: letters, numbers and _ only, 3–24 characters"; return
+        }
         saving = true; error = nil
         do {
             if let existing = await ChatService.findByHandle(h), existing.id != AuthService.shared.uid {

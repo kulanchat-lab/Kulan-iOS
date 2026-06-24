@@ -13,6 +13,16 @@ enum ChatService {
         [a, b].sorted().joined(separator: "_")
     }
 
+    // MARK: - Username (handle) policy: lowercase a-z, 0-9, underscore; 3-24 chars.
+    static let handleAllowed = Set("abcdefghijklmnopqrstuvwxyz0123456789_")
+    /// Strip anything not allowed as the user types (no spaces, dashes, emojis…).
+    static func sanitizeHandle(_ raw: String) -> String {
+        String(raw.lowercased().filter { handleAllowed.contains($0) }.prefix(24))
+    }
+    static func isValidHandle(_ h: String) -> Bool {
+        h.count >= 3 && h.count <= 24 && h.allSatisfy { handleAllowed.contains($0) }
+    }
+
     /// Create (or touch) a 1:1 conversation. Only writes photo keys we actually have,
     /// so re-opening never wipes an existing photo (parity with the RN fix).
     @discardableResult

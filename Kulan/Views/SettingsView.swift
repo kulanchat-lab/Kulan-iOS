@@ -265,7 +265,12 @@ struct EditProfileView: View {
                 Section("Username") {
                     TextField("username", text: $handle)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .onChange(of: handle) { _, v in if v.count > 24 { handle = String(v.prefix(24)) } }
+                        .onChange(of: handle) { _, v in
+                            let clean = ChatService.sanitizeHandle(v)
+                            if clean != v { handle = clean }   // block spaces/symbols as you type
+                        }
+                } footer: {
+                    Text("Letters, numbers and _ only. 3–24 characters.")
                 }
                 Section("Bio") {
                     TextField("A few words about you", text: $about, axis: .vertical)
@@ -305,9 +310,11 @@ struct EditProfileView: View {
 
     private func save() async {
         let n = name.trimmingCharacters(in: .whitespaces)
-        let h = handle.trimmingCharacters(in: .whitespaces).lowercased()
+        let h = ChatService.sanitizeHandle(handle)
         guard !n.isEmpty else { error = "Enter your name"; return }
-        guard h.count >= 3 else { error = "Username must be at least 3 characters"; return }
+        guard ChatService.isValidHandle(h) else {
+            error = "Username: letters, numbers and _ only, 3–24 characters"; return
+        }
         saving = true; error = nil
         do {
             if let existing = await ChatService.findByHandle(h), existing.id != AuthService.shared.uid {
