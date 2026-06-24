@@ -262,13 +262,15 @@ struct EditProfileView: View {
                     TextField("Your name", text: $name).textInputAutocapitalization(.words)
                         .onChange(of: name) { _, v in if v.count > 40 { name = String(v.prefix(40)) } }
                 }
-                Section("Username") {
+                Section {
                     TextField("username", text: $handle)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .onChange(of: handle) { _, v in
                             let clean = ChatService.sanitizeHandle(v)
                             if clean != v { handle = clean }   // block spaces/symbols as you type
                         }
+                } header: {
+                    Text("Username")
                 } footer: {
                     Text("Letters, numbers and _ only. 3–24 characters.")
                 }
