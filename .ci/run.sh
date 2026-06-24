@@ -31,6 +31,19 @@ if [ -n "${GH_TOKEN:-}" ]; then
   chmod 600 "$HOME/.netrc"
 fi
 
+# --- TEMP 1-MIN PROBE: can this runner actually download a binary artifact? ---
+ts "PROBE downloads"
+URL="https://github.com/stasel/WebRTC/releases/download/120.0.0/WebRTC-M120.xcframework.zip"
+echo "-- default:"
+curl -fL --max-time 60 -o "$RUNNER_TEMP/w.zip" "$URL" \
+  -w "  http=%{http_code} size=%{size_download} time=%{time_total}s ip=%{remote_ip}\n" 2>&1 || echo "  rc=$?"
+echo "-- ipv4:"
+curl -fL --ipv4 --max-time 60 -o "$RUNNER_TEMP/w4.zip" "$URL" \
+  -w "  http=%{http_code} size=%{size_download} time=%{time_total}s ip=%{remote_ip}\n" 2>&1 || echo "  rc=$?"
+echo "PROBE DONE"
+exit 0
+# --- end probe ---
+
 ts "select xcode"
 LATEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -n1)
 sudo xcode-select -s "$LATEST/Contents/Developer"
