@@ -13,14 +13,22 @@ struct MainShell: View {
                 .tabItem { Label("Calls", systemImage: "phone.fill") }
         }
         .onAppear { call.observeIncoming() }
-        // Our call screen shows for outgoing + active. While a call is merely INCOMING
-        // (ringing), the native CallKit UI owns the screen — don't double it up.
+        // Full call screen for outgoing + active, unless minimized. (Incoming ring is
+        // owned by the native CallKit UI.)
         .fullScreenCover(isPresented: Binding(
-            get: { call.state == .outgoing || call.state == .active },
+            get: { (call.state == .outgoing || call.state == .active) && !call.minimized },
             set: { _ in }
         )) {
             CallView()
         }
+        // Floating call pill while minimized — tap to return to the full screen.
+        .overlay(alignment: .top) {
+            if (call.state == .outgoing || call.state == .active) && call.minimized {
+                CallPill().onTapGesture { call.minimized = false }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: call.minimized)
     }
 }
 

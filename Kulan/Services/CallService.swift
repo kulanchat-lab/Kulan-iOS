@@ -21,7 +21,7 @@ final class CallService: NSObject {
             if state == .active && connectedDate == nil { connectedDate = Date() }
             if state == .idle {
                 connectedDate = nil; isMuted = false; isSpeaker = false
-                calleeRinging = false; recordWritten = false; stopRingback()
+                calleeRinging = false; recordWritten = false; minimized = false; stopRingback()
             }
         }
     }
@@ -29,6 +29,7 @@ final class CallService: NSObject {
     var otherPhotoUrl: String?
     var isMuted = false
     var isSpeaker = false
+    var minimized = false            // call screen minimized -> show the floating pill instead
     var calleeRinging = false        // caller: the other phone is actually ringing now
     var connectedDate: Date?
     private var recordWritten = false

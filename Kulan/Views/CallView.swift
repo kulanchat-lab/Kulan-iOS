@@ -50,6 +50,16 @@ struct CallView: View {
             }
             .padding()
         }
+        // Minimize: keep the call running, return to the app (a pill appears up top).
+        .overlay(alignment: .topLeading) {
+            Button { call.minimized = true } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .padding(.leading, 16).padding(.top, 12)
+        }
         .onReceive(ticker) { now = $0 }
     }
 
@@ -87,5 +97,42 @@ struct CallView: View {
                 .frame(width: 66, height: 66)
                 .background(on ? AnyShapeStyle(.white) : AnyShapeStyle(.ultraThinMaterial), in: Circle())
         }
+    }
+}
+
+// Floating green call pill shown while the call screen is minimized. Tap to reopen.
+struct CallPill: View {
+    private var call = CallService.shared
+    @State private var now = Date()
+    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private var label: String {
+        switch call.state {
+        case .active:
+            if let start = call.connectedDate {
+                let s = max(0, Int(now.timeIntervalSince(start)))
+                return String(format: "%@ · %d:%02d", call.otherName, s / 60, s % 60)
+            }
+            return call.otherName
+        case .outgoing:
+            return "\(call.otherName) · " + (call.calleeRinging ? "Ringing…" : "Calling…")
+        default:
+            return call.otherName
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "phone.fill").font(.system(size: 13, weight: .bold))
+            Text(label).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+            Spacer(minLength: 6)
+            Text("Tap to return").font(.system(size: 12)).opacity(0.85)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16).padding(.vertical, 9)
+        .background(Color.green, in: Capsule())
+        .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+        .padding(.horizontal, 12).padding(.top, 6)
+        .onReceive(ticker) { now = $0 }
     }
 }
