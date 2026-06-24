@@ -27,8 +27,14 @@ export ASC_TEAM_ID="$CFG_A3"
 # GitHub throttles them until the job times out. Uses the runner's own ephemeral token.
 export GIT_TERMINAL_PROMPT=0   # never block waiting for credentials; fail fast instead
 if [ -n "${GH_TOKEN:-}" ]; then
+  # Auth for git traffic...
   git config --global "http.https://github.com/.extraheader" \
     "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64)"
+  # ...and for SPM's binary-artifact downloads (URLSession reads ~/.netrc). Without
+  # this they go out anonymous and GitHub throttles the shared runner IP to ~0 B/s,
+  # so every .xcframework download stalls at zero. Authenticated = real quota.
+  printf 'machine github.com\n  login x-access-token\n  password %s\n' "$GH_TOKEN" > "$HOME/.netrc"
+  chmod 600 "$HOME/.netrc"
 fi
 
 # Force IPv4: on GitHub's macOS runners an IPv6 connection to GitHub's CDN often
@@ -54,28 +60,33 @@ run "generate" xcodegen generate
 # Work around it: cap each attempt and retry with a fresh connection. Partial
 # downloads in $SPM are kept, so each retry resumes closer to done. One success
 # populates the cache and every later run skips this entirely.
-ts "resolve packages (verbose diagnostic)"
-# Print SIZE + the CURRENT resolve action each tick, so we see live exactly which
-# package/URL it freezes on. (Temporary: this surfaces package URLs in the log.)
 RLOG="$RUNNER_TEMP/resolve.log"
-: > "$RLOG"
-( while true; do
-    echo "   spm=$(du -sh "$SPM" 2>/dev/null | cut -f1) | $(tail -n1 "$RLOG" 2>/dev/null)"
-    sleep 15
-  done ) &
-MON=$!
-if perl -e 'alarm shift @ARGV; exec @ARGV' 420 \
-     xcodebuild -resolvePackageDependencies -verbose \
-     -project Kulan.xcodeproj -scheme Kulan -clonedSourcePackagesDirPath "$SPM" \
-     >"$RLOG" 2>&1; then
+resolved=0
+for attempt in 1 2 3; do
+  : > "$RLOG"
+  ts "resolve packages (attempt $attempt)"
+  # art= is the binary-artifact total; it stayed 0 when downloads were throttled.
+  # With ~/.netrc auth it should climb past 0 — that's the proof the fix worked.
+  ( while true; do
+      echo "   spm=$(du -sh "$SPM" 2>/dev/null|cut -f1)  art=$(du -sh "$SPM/artifacts" 2>/dev/null|cut -f1)  $(date -u +%H:%M:%S)Z"
+      sleep 15
+    done ) &
+  MON=$!
+  if perl -e 'alarm shift @ARGV; exec @ARGV' 600 \
+       xcodebuild -resolvePackageDependencies \
+       -project Kulan.xcodeproj -scheme Kulan -clonedSourcePackagesDirPath "$SPM" \
+       >"$RLOG" 2>&1; then
+    kill "$MON" 2>/dev/null || true
+    echo "   resolve OK  (spm=$(du -sh "$SPM" 2>/dev/null|cut -f1))"
+    resolved=1
+    break
+  fi
   kill "$MON" 2>/dev/null || true
-  echo "   resolve OK  (spm=$(du -sh "$SPM" 2>/dev/null | cut -f1))"
-else
-  kill "$MON" 2>/dev/null || true
-  echo "!! resolve stalled  (spm=$(du -sh "$SPM" 2>/dev/null | cut -f1)) — last 50 verbose lines:"
-  tail -50 "$RLOG"
-  echo "--- artifacts present in cache ---"
-  ls -laR "$SPM/artifacts" 2>/dev/null | tail -50
+  echo "   attempt $attempt failed (art=$(du -sh "$SPM/artifacts" 2>/dev/null|cut -f1)) — retry"
+done
+if [ "$resolved" -ne 1 ]; then
+  echo "!! resolve still failing after retries"
+  tail -30 "$RLOG"
   exit 1
 fi
 
