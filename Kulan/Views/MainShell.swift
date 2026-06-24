@@ -213,6 +213,8 @@ struct ChatsView: View {
     @State private var selection = Set<String>()
     @State private var showArchived = false
     @State private var showDeleteSelected = false
+    @State private var showCompose = false
+    @State private var viewerGroup: StoryGroup?
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
@@ -364,6 +366,14 @@ struct ChatsView: View {
                                            description: Text("Tap the compose button to start one."))
                 } else {
                     List(selection: selecting ? $selection : .constant(Set<String>())) {
+                      // Stories row on top of Chats (My Status + friends' rings).
+                      StoriesRow(meName: profile.me?.name ?? "You", mePhoto: profile.me?.photoUrl,
+                                 onCompose: { showCompose = true },
+                                 onOpen: { g in viewerGroup = g })
+                          .listRowInsets(EdgeInsets())
+                          .listRowSeparator(.hidden)
+                          .moveDisabled(true)
+                          .deleteDisabled(true)
                       ForEach(filtered) { conv in
                         NavigationLink(value: ChatTarget(id: conv.id, name: conv.name(for: me),
                                                          photo: conv.photoUrl(for: me))) {
@@ -428,6 +438,12 @@ struct ChatsView: View {
             .navigationBarTitleDisplayMode(.inline)   // one row: avatar · Chats · compose
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
             .toolbar { homeToolbar }
+            .sheet(isPresented: $showCompose) {
+                StoryComposeSheet { Task { await StoriesRepository.shared.load() } }
+            }
+            .fullScreenCover(item: $viewerGroup) { g in
+                StoryViewer(group: g) { viewerGroup = nil }
+            }
             // ONE destination type for every chat (list taps AND search results),
             // keyed by cid via .id(...) so each conversation gets a fresh ThreadView
             // identity — a new chat can never inherit the previous chat's @State
