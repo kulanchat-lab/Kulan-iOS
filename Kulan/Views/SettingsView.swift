@@ -23,15 +23,21 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 Section {
-                    Button { showEdit = true } label: { profileCell }
+                    Button { showEdit = true } label: { profileHeader }
+                        .buttonStyle(.plain)
                 }
+                .listRowBackground(Color.clear)
 
                 Section {
                     NavigationLink { AccountSettingsView(onSignOut: onSignOut) } label: {
                         Label("Account", systemImage: "person.crop.circle")
                     }
+                    Button { showEdit = true } label: {
+                        Label("My Profile", systemImage: "person.text.rectangle")
+                    }
+                    .tint(.primary)
                     NavigationLink { DevicesView() } label: {
-                        Label("Devices", systemImage: "laptopcomputer.and.iphone")
+                        Label("Linked Devices", systemImage: "laptopcomputer.and.iphone")
                     }
                 }
 
@@ -66,20 +72,19 @@ struct SettingsView: View {
         }
     }
 
-    private var profileCell: some View {
-        HStack(spacing: 14) {
-            AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 60)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(profile.me?.name ?? "You").font(.title3.weight(.semibold)).foregroundStyle(.primary)
-                if let h = profile.me?.handle, !h.isEmpty {
-                    Text("@\(h)").font(.subheadline).foregroundStyle(.secondary)
-                }
-                Text("Edit profile").font(.footnote).foregroundStyle(.tint)
+    // Centered profile header (mockup style): big avatar, name, @handle. Tap to edit.
+    private var profileHeader: some View {
+        VStack(spacing: 8) {
+            AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 96)
+            Text(profile.me?.name ?? "You")
+                .font(.title2.weight(.bold)).foregroundStyle(.primary)
+            if let h = profile.me?.handle, !h.isEmpty {
+                Text("@\(h)").font(.subheadline).foregroundStyle(.secondary)
             }
-            Spacer()
-            Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+            Text("Edit profile").font(.footnote).foregroundStyle(.tint)
         }
-        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
     }
 }
 
