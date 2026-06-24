@@ -26,6 +26,7 @@ struct CallsView: View {
     @State private var filter = 0            // 0 = All, 1 = Missed
     @State private var query = ""
     @State private var infoTarget: CallEntry?
+    @State private var showNew = false
 
     private var shown: [CallEntry] {
         var list = repo.calls
@@ -66,12 +67,16 @@ struct CallsView: View {
                     .pickerStyle(.segmented)
                     .frame(width: 190)
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showNew = true } label: { Image(systemName: "phone.badge.plus") }
+                }
             }
             .task { await repo.load() }
             .refreshable { await repo.load() }
             .sheet(item: $infoTarget) { c in
                 NavigationStack { ContactInfoView(cid: c.cid, name: c.name, photoUrl: c.photoUrl) }
             }
+            .sheet(isPresented: $showNew) { NewCallView() }
         }
     }
 }
@@ -115,6 +120,60 @@ struct CallHistoryRow: View {
             return d.formatted(.dateTime.weekday(.wide))
         }
         return d.formatted(.dateTime.month(.abbreviated).day())
+    }
+}
+
+// "New call" picker (mockup IMG_4490): search + your people, each with a call button.
+// Voice-only for now (no fake video buttons); reuses existing conversations.
+struct NewCallView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var repo = ConversationsRepository.shared
+    @State private var query = ""
+    private var me: String { AuthService.shared.uid ?? "" }
+
+    private var people: [Conversation] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let list = repo.conversations.filter { !$0.otherUid(me).isEmpty }
+        return (q.isEmpty ? list : list.filter { $0.name(for: me).lowercased().contains(q) })
+            .sorted { $0.name(for: me).lowercased() < $1.name(for: me).lowercased() }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if people.isEmpty {
+                    ContentUnavailableView("No contacts", systemImage: "person.crop.circle",
+                                           description: Text("Start a chat first, then you can call them."))
+                } else {
+                    List {
+                        ForEach(people) { c in
+                            HStack(spacing: 12) {
+                                AvatarView(name: c.name(for: me), photoUrl: c.photoUrl(for: me), size: 42)
+                                Text(c.name(for: me)).font(.system(size: 17, weight: .medium)).lineLimit(1)
+                                Spacer()
+                                Button {
+                                    CallService.shared.startCall(to: c.otherUid(me),
+                                                                 name: c.name(for: me),
+                                                                 photo: c.photoUrl(for: me))
+                                    dismiss()
+                                } label: {
+                                    Image(systemName: "phone").font(.system(size: 20)).foregroundStyle(.tint)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("New Call")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, prompt: "Search name")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+            }
+        }
     }
 }
 
