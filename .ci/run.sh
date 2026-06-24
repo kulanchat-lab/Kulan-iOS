@@ -42,8 +42,25 @@ command -v xcodegen >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 run "brew" brew
 run "generate" xcodegen generate
 
 ts "resolve packages"
-run "resolve" xcodebuild -resolvePackageDependencies \
-  -project Kulan.xcodeproj -scheme Kulan -clonedSourcePackagesDirPath "$SPM"
+# Live size counter (safe: shows only byte totals, no package names) so we can SEE
+# whether it's downloading (growing) or truly frozen. Hard 30-min cap via perl alarm
+# so a stall can never burn a blind hour again.
+( while true; do echo "   spm=$(du -sh "$SPM" 2>/dev/null | cut -f1)  $(date -u +%H:%M:%S)Z"; sleep 20; done ) &
+MON=$!
+if perl -e 'alarm shift @ARGV; exec @ARGV' 1800 \
+     xcodebuild -resolvePackageDependencies \
+     -project Kulan.xcodeproj -scheme Kulan -clonedSourcePackagesDirPath "$SPM" \
+     >"$RUNNER_TEMP/resolve.log" 2>&1; then
+  kill "$MON" 2>/dev/null || true
+  echo "   resolve OK  (spm=$(du -sh "$SPM" 2>/dev/null | cut -f1))"
+else
+  rc=$?
+  kill "$MON" 2>/dev/null || true
+  echo "!! resolve failed/timed out rc=$rc  (spm=$(du -sh "$SPM" 2>/dev/null | cut -f1))"
+  echo "--- tail of resolve output (temporary debug) ---"
+  tail -25 "$RUNNER_TEMP/resolve.log"
+  exit 1
+fi
 
 # Mode "a" (default) = compile check only, no signing. Anything else = build + ship.
 if [ "${1:-a}" = "a" ]; then
