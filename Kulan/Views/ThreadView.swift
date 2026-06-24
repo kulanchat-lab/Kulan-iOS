@@ -15,7 +15,6 @@ struct ThreadView: View {
     @State private var typingSent = false
     @State private var viewerImage: Message?
     @State private var sendError: String?
-    @State private var showAttachMenu = false
     @State private var showCamera = false
     @State private var showLibrary = false
     @State private var recorder = AudioRecorder()
@@ -349,13 +348,6 @@ struct ThreadView: View {
         .padding(.trailing, 12)
         .padding(.vertical, 6)
         .background(Theme.bg(dark))   // same as the page -> blends seamlessly, no separate bar
-        // Photo attach menu lives here (not on the floating composer) so it presents
-        // reliably — presenting from inside the safeAreaBar composer was flaky.
-        .confirmationDialog("Send a photo", isPresented: $showAttachMenu, titleVisibility: .visible) {
-            Button("Take Photo") { showCamera = true }
-            Button("Photo Library") { showLibrary = true }
-            Button("Cancel", role: .cancel) {}
-        }
     }
 
     private func send() {
@@ -535,8 +527,11 @@ struct ThreadView: View {
 
     private var inputRow: some View {
         HStack(alignment: .bottom, spacing: 8) {   // spec: 8pt gap + button -> input
-            // Far-left circular "+" — Take Photo (camera) or Photo Library.
-            Button { showAttachMenu = true } label: {
+            // Far-left circular "+" — native Menu so the popup anchors to the button.
+            Menu {
+                Button { showCamera = true } label: { Label("Camera", systemImage: "camera") }
+                Button { showLibrary = true } label: { Label("Photo Library", systemImage: "photo") }
+            } label: {
                 Image(systemName: sendingPhoto ? "ellipsis" : "plus")
                     .font(.system(size: 20, weight: .regular))   // spec: 20pt icon
                     .foregroundStyle(.primary)
