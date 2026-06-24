@@ -159,9 +159,20 @@ struct PrivacySettingsView: View {
     private var blockedCount: Int { repo.conversations.filter { $0.blockedBy[me] == true }.count }
     @AppStorage("appLockEnabled") private var appLock = false
     @AppStorage("screenSecurity") private var screenSecurity = false
+    @AppStorage("readReceipts") private var readReceipts = true
+    @AppStorage("typingIndicators") private var typingIndicators = true
+    @AppStorage("shareLastSeen") private var shareLastSeen = true
 
     var body: some View {
         List {
+            Section {
+                Toggle(isOn: $readReceipts) { Label("Read Receipts", systemImage: "checkmark.circle") }.tint(.green)
+                Toggle(isOn: $typingIndicators) { Label("Typing Indicators", systemImage: "ellipsis.bubble") }.tint(.green)
+                Toggle(isOn: $shareLastSeen) { Label("Last Seen & Online", systemImage: "clock") }.tint(.green)
+            } footer: {
+                Text("These are reciprocal — if you turn one off, you won't see it from others either.")
+            }
+
             Section {
                 NavigationLink { BlockedUsersView() } label: {
                     HStack {

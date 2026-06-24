@@ -32,6 +32,8 @@ struct ThreadView: View {
     @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("typingIndicators") private var typingPref = true
+    @AppStorage("shareLastSeen") private var lastSeenPref = true
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
@@ -88,7 +90,7 @@ struct ThreadView: View {
                         .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
                         .id(msg.id)
                     }
-                    if repo.otherTyping && !repo.iBlocked { TypingBubble(dark: dark).padding(.top, 6).id("TYPING") }
+                    if repo.otherTyping && !repo.iBlocked && typingPref { TypingBubble(dark: dark).padding(.top, 6).id("TYPING") }
                     // Bottom sentinel: drives "am I at the bottom?" for the scroll button.
                     Color.clear.frame(height: 1).id("BOTTOM")
                         .onAppear { isAtBottom = true; newWhileAway = 0 }
@@ -294,11 +296,13 @@ struct ThreadView: View {
 
     private var presenceSubtitle: String? {
         if repo.iBlocked { return nil }   // blocked: don't reveal their typing/online/last-seen
-        if repo.otherTyping { return "typing…" }
-        if repo.otherOnline { return "online" }
-        if let la = repo.otherLastActive {
-            let f = RelativeDateTimeFormatter(); f.unitsStyle = .short
-            return "last seen " + f.localizedString(for: la, relativeTo: Date())
+        if typingPref && repo.otherTyping { return "typing…" }   // reciprocal: only if I share typing
+        if lastSeenPref {                                        // reciprocal: only if I share last-seen
+            if repo.otherOnline { return "online" }
+            if let la = repo.otherLastActive {
+                let f = RelativeDateTimeFormatter(); f.unitsStyle = .short
+                return "last seen " + f.localizedString(for: la, relativeTo: Date())
+            }
         }
         return nil
     }
@@ -651,6 +655,7 @@ struct MessageBubble: View {
     var otherLastRead: Double = 0
 
     @State private var dragX: CGFloat = 0
+    @AppStorage("readReceipts") private var readReceiptsPref = true
 
     private var myUid: String { AuthService.shared.uid ?? "" }
     private var myReaction: String? { message.reactions[myUid] }
@@ -683,7 +688,7 @@ struct MessageBubble: View {
                 case .failed:
                     Image(systemName: "exclamationmark.circle.fill").font(.system(size: 10)).foregroundStyle(.red)
                 case nil:
-                    Image(systemName: isRead ? "checkmark.circle.fill" : "checkmark")
+                    Image(systemName: (isRead && readReceiptsPref) ? "checkmark.circle.fill" : "checkmark")
                         .font(.system(size: 9, weight: .semibold))
                 }
             }

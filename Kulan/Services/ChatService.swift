@@ -215,7 +215,11 @@ enum ChatService {
             .collection("messages").document(messageId).delete()
     }
 
+    /// A privacy pref (defaults ON when never set).
+    static func pref(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+
     static func setTyping(_ cid: String, _ typing: Bool) async {
+        guard pref("typingIndicators") else { return }   // privacy: don't broadcast typing
         try? await db.collection("conversations").document(cid)
             .setData(["typing": [uid: typing]], merge: true)
     }
@@ -241,6 +245,7 @@ enum ChatService {
 
     /// Mark this conversation read up to now (drives the other person's read receipts).
     static func markRead(_ cid: String) async {
+        guard pref("readReceipts") else { return }   // privacy: don't send read receipts
         try? await db.collection("conversations").document(cid)
             .setData(["lastRead": [uid: FieldValue.serverTimestamp()]], merge: true)
     }
