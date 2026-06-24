@@ -54,27 +54,28 @@ run "generate" xcodegen generate
 # Work around it: cap each attempt and retry with a fresh connection. Partial
 # downloads in $SPM are kept, so each retry resumes closer to done. One success
 # populates the cache and every later run skips this entirely.
-resolved=0
-for attempt in 1 2 3 4 5; do
-  ts "resolve packages (attempt $attempt)"
-  ( while true; do echo "   spm=$(du -sh "$SPM" 2>/dev/null | cut -f1)  $(date -u +%H:%M:%S)Z"; sleep 20; done ) &
-  MON=$!
-  if perl -e 'alarm shift @ARGV; exec @ARGV' 480 \
-       xcodebuild -resolvePackageDependencies \
-       -project Kulan.xcodeproj -scheme Kulan -clonedSourcePackagesDirPath "$SPM" \
-       >"$RUNNER_TEMP/resolve.log" 2>&1; then
-    kill "$MON" 2>/dev/null || true
-    echo "   resolve OK  (spm=$(du -sh "$SPM" 2>/dev/null | cut -f1))"
-    resolved=1
-    break
-  fi
+ts "resolve packages (verbose diagnostic)"
+# Print SIZE + the CURRENT resolve action each tick, so we see live exactly which
+# package/URL it freezes on. (Temporary: this surfaces package URLs in the log.)
+RLOG="$RUNNER_TEMP/resolve.log"
+: > "$RLOG"
+( while true; do
+    echo "   spm=$(du -sh "$SPM" 2>/dev/null | cut -f1) | $(tail -n1 "$RLOG" 2>/dev/null)"
+    sleep 15
+  done ) &
+MON=$!
+if perl -e 'alarm shift @ARGV; exec @ARGV' 420 \
+     xcodebuild -resolvePackageDependencies -verbose \
+     -project Kulan.xcodeproj -scheme Kulan -clonedSourcePackagesDirPath "$SPM" \
+     >"$RLOG" 2>&1; then
   kill "$MON" 2>/dev/null || true
-  echo "   attempt $attempt stalled/failed (spm=$(du -sh "$SPM" 2>/dev/null | cut -f1)) — retrying"
-done
-if [ "$resolved" -ne 1 ]; then
-  echo "!! resolve failed after retries"
-  echo "--- tail of resolve output (temporary debug) ---"
-  tail -25 "$RUNNER_TEMP/resolve.log"
+  echo "   resolve OK  (spm=$(du -sh "$SPM" 2>/dev/null | cut -f1))"
+else
+  kill "$MON" 2>/dev/null || true
+  echo "!! resolve stalled  (spm=$(du -sh "$SPM" 2>/dev/null | cut -f1)) — last 50 verbose lines:"
+  tail -50 "$RLOG"
+  echo "--- artifacts present in cache ---"
+  ls -laR "$SPM/artifacts" 2>/dev/null | tail -50
   exit 1
 fi
 
