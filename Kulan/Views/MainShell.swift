@@ -11,6 +11,8 @@ struct MainShell: View {
                 .tabItem { Label("Chats", systemImage: "bubble.fill") }
             CallsView()
                 .tabItem { Label("Calls", systemImage: "phone.fill") }
+            SettingsView(onSignOut: onSignOut)
+                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
         }
         // Call UI is mounted at the root (CallContainer in RootView) so it survives all
         // navigation. Here we only start listening for incoming calls.
