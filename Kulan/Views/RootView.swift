@@ -63,7 +63,7 @@ struct RootView: View {
         // never message them: "hasn't set up encryption yet").
         await Crypto.shared.publishPublicKey()
         let ready = ProfileStore.shared.me?.handle.isEmpty == false
-        if ready { Push.register() }   // ask for notifications once we have a real account
+        if ready { Push.register(); Push.saveVoipToken() }   // notifications + VoIP token now that we're signed in
         phase = ready ? .main : .onboarding
     }
 }

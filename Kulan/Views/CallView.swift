@@ -13,6 +13,7 @@ struct CallView: View {
     private var statusText: String {
         switch call.state {
         case .outgoing: return call.calleeRinging ? "Ringing…" : "Calling…"
+        case .incoming: return "Incoming call…"
         case .active:   return durationText
         case .ended:    return "Call ended"
         default:        return ""
@@ -69,7 +70,7 @@ struct CallView: View {
         HStack(spacing: 26) {
             controlButton(call.isMuted ? "mic.slash.fill" : "mic.fill", on: call.isMuted) { call.toggleMute() }
             controlButton(call.isSpeaker ? "speaker.wave.2.fill" : "speaker.fill", on: call.isSpeaker) { call.toggleSpeaker() }
-            Button { call.hangUp() } label: {
+            Button { CallKitManager.shared.end() } label: {   // route end through CallKit
                 Image(systemName: "phone.down.fill")
                     .font(.system(size: 26)).foregroundStyle(.white)
                     .frame(width: 66, height: 66)

@@ -84,15 +84,22 @@ final class CallService: NSObject {
         isSpeaker.toggle()
         let rtc = RTCAudioSession.sharedInstance()
         rtc.lockForConfiguration()
-        try? AVAudioSession.sharedInstance().overrideOutputAudioPort(isSpeaker ? .speaker : .none)
+        try? rtc.overrideOutputAudioPort(isSpeaker ? .speaker : .none)
         rtc.unlockForConfiguration()
     }
 
-    // Ringback the CALLER hears while waiting (generated tone, looped).
+    // Ringback the CALLER hears while waiting (generated tone, looped). Ensure the
+    // audio unit is on + allow mixing so the player outputs while CallKit owns the session.
     private func startRingback() {
         guard ringbackPlayer == nil else { return }
+        let s = RTCAudioSession.sharedInstance()
+        s.lockForConfiguration()
+        try? s.setCategory(.playAndRecord, mode: .voiceChat, options: [.mixWithOthers])
+        s.isAudioEnabled = true
+        s.unlockForConfiguration()
         ringbackPlayer = try? AVAudioPlayer(data: RingbackTone.wavData())
         ringbackPlayer?.numberOfLoops = -1
+        ringbackPlayer?.prepareToPlay()
         ringbackPlayer?.play()
     }
     private func stopRingback() { ringbackPlayer?.stop(); ringbackPlayer = nil }
@@ -115,29 +122,41 @@ final class CallService: NSObject {
         CallKitManager.shared.startOutgoing(name: name)   // native call UI + audio session
         CallKitManager.shared.reportConnecting()
 
-        let ref = db.collection("calls").document()
-        callId = ref.documentID
-        pc = makePeerConnection()
-
-        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        pc?.offer(for: constraints) { [weak self] sdp, _ in
-            guard let self, let sdp, let pc = self.pc else { return }
-            pc.setLocalDescription(sdp) { _ in
-                ref.setData([
-                    "caller": self.me,
-                    "callee": uid,
-                    "callerName": ProfileStore.shared.me?.name ?? "Caller",
-                    "callerPhoto": ProfileStore.shared.me?.photoUrl ?? "",
-                    "type": "voice",
-                    "status": "ringing",
-                    "offer": ["sdp": sdp.sdp, "type": "offer"],
-                    "createdAt": FieldValue.serverTimestamp(),
-                ])
+        ensureMicPermission { [weak self] granted in
+            guard let self else { return }
+            guard granted else { self.hangUp(); return }   // no mic -> don't start a dead call
+            let ref = self.db.collection("calls").document()
+            self.callId = ref.documentID
+            self.pc = self.makePeerConnection()
+            let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+            self.pc?.offer(for: constraints) { [weak self] sdp, _ in
+                guard let self, let sdp, let pc = self.pc else { return }
+                pc.setLocalDescription(sdp) { _ in
+                    ref.setData([
+                        "caller": self.me,
+                        "callee": uid,
+                        "callerName": ProfileStore.shared.me?.name ?? "Caller",
+                        "callerPhoto": ProfileStore.shared.me?.photoUrl ?? "",
+                        "type": "voice",
+                        "status": "ringing",
+                        "offer": ["sdp": sdp.sdp, "type": "offer"],
+                        "createdAt": FieldValue.serverTimestamp(),
+                    ])
+                }
             }
+            self.observeCallDoc(ref)
+            self.observeRemoteCandidates(ref.collection("calleeCandidates"))
         }
-        // Listen for the answer and the callee's ICE candidates.
-        observeCallDoc(ref)
-        observeRemoteCandidates(ref.collection("calleeCandidates"))
+    }
+
+    private func ensureMicPermission(_ done: @escaping (Bool) -> Void) {
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted: done(true)
+        case .denied:  done(false)
+        case .undetermined:
+            AVAudioApplication.requestRecordPermission { ok in DispatchQueue.main.async { done(ok) } }
+        @unknown default: done(false)
+        }
     }
 
     // MARK: - Incoming
@@ -165,7 +184,8 @@ final class CallService: NSObject {
                     let photo = d["callerPhoto"] as? String ?? ""
                     self.otherPhotoUrl = photo.isEmpty ? nil : photo
                     self.isCaller = false
-                    CallKitManager.shared.reportIncoming(name: self.otherName)   // native ringing UI
+                    self.state = .incoming
+                    CallKitManager.shared.reportIncoming(callId: doc.documentID, name: self.otherName)
                     self.markRinging()
                 }
             }
@@ -179,33 +199,39 @@ final class CallService: NSObject {
         self.otherUid = uid
         self.otherPhotoUrl = (photo?.isEmpty == false) ? photo : nil
         self.isCaller = false
+        self.state = .incoming   // so the UI can present once answered
         markRinging()
     }
 
     func answer() {
         guard let id = callId else { return }
-        let ref = db.collection("calls").document(id)
-        pc = makePeerConnection()
-        ref.getDocument { [weak self] snap, _ in
-            guard let self, let d = snap?.data(),
-                  let offer = d["offer"] as? [String: String], let sdp = offer["sdp"],
-                  let pc = self.pc else { return }
-            let remote = RTCSessionDescription(type: .offer, sdp: sdp)
-            pc.setRemoteDescription(remote) { _ in
-                let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-                pc.answer(for: constraints) { answerSdp, _ in
-                    guard let answerSdp else { return }
-                    pc.setLocalDescription(answerSdp) { _ in
-                        ref.updateData([
-                            "answer": ["sdp": answerSdp.sdp, "type": "answer"],
-                            "status": "active",
-                        ])
+        state = .active   // present the call screen immediately; SDP fills in below
+        ensureMicPermission { [weak self] granted in
+            guard let self else { return }
+            guard granted else { self.hangUp(); return }
+            let ref = self.db.collection("calls").document(id)
+            self.pc = self.makePeerConnection()
+            ref.getDocument(source: .server) { [weak self] snap, _ in
+                guard let self else { return }
+                guard let d = snap?.data(),
+                      let offer = d["offer"] as? [String: String], let sdp = offer["sdp"],
+                      let pc = self.pc else { self.hangUp(); return }   // bail cleanly, don't get stuck
+                let remote = RTCSessionDescription(type: .offer, sdp: sdp)
+                pc.setRemoteDescription(remote) { _ in
+                    let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+                    pc.answer(for: constraints) { answerSdp, _ in
+                        guard let answerSdp else { return }
+                        pc.setLocalDescription(answerSdp) { _ in
+                            ref.updateData([
+                                "answer": ["sdp": answerSdp.sdp, "type": "answer"],
+                                "status": "active",
+                            ])
+                        }
                     }
                 }
+                self.observeCallDoc(ref)
+                self.observeRemoteCandidates(ref.collection("callerCandidates"))
             }
-            self.observeCallDoc(ref)
-            self.observeRemoteCandidates(ref.collection("callerCandidates"))
-            self.state = .active
         }
     }
 
@@ -227,7 +253,7 @@ final class CallService: NSObject {
                 self.state = .active
                 CallKitManager.shared.reportConnected()
             }
-            if (d["status"] as? String) == "ended" { self.cleanup(updateRemote: false) }
+            if (d["status"] as? String) == "ended" { self.hangUp() }   // remote ended -> clear system UI
         }
         listeners.append(l)
     }
@@ -258,9 +284,12 @@ final class CallService: NSObject {
 
     // MARK: - Hang up / cleanup
 
-    func hangUp() { cleanup(updateRemote: true) }
+    // Remote hung up / ICE failed / our own UI when CallKit isn't driving — clears the system UI.
+    func hangUp() { cleanup(updateRemote: true, clearCallKit: true) }
+    // User pressed End and it already came through CallKit's CXEndCallAction — don't re-report.
+    func endFromCallKit() { cleanup(updateRemote: true, clearCallKit: false) }
 
-    private func cleanup(updateRemote: Bool) {
+    private func cleanup(updateRemote: Bool, clearCallKit: Bool) {
         stopRingback()
         // Write a call record into the chat (once). Each side writes its own row.
         if !recordWritten, !otherUid.isEmpty {
@@ -276,7 +305,7 @@ final class CallService: NSObject {
         if updateRemote, let id = callId {
             db.collection("calls").document(id).updateData(["status": "ended"])
         }
-        CallKitManager.shared.reportEnded()   // clear the system call UI (audio handled by CallKit)
+        if clearCallKit { CallKitManager.shared.reportEnded() }   // only when CallKit didn't initiate the end
         listeners.forEach { $0.remove() }
         listeners = []
         pc?.close()

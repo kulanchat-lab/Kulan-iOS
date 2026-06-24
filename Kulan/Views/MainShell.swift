@@ -13,9 +13,11 @@ struct MainShell: View {
                 .tabItem { Label("Calls", systemImage: "phone.fill") }
         }
         .onAppear { call.observeIncoming() }
+        // Our call screen shows for outgoing + active. While a call is merely INCOMING
+        // (ringing), the native CallKit UI owns the screen — don't double it up.
         .fullScreenCover(isPresented: Binding(
-            get: { call.state != .idle },
-            set: { if !$0 && call.state != .idle { call.hangUp() } }
+            get: { call.state == .outgoing || call.state == .active },
+            set: { _ in }
         )) {
             CallView()
         }

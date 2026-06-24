@@ -14,6 +14,7 @@ final class CallKitManager: NSObject {
     private let provider: CXProvider
     private let controller = CXCallController()
     private(set) var activeUUID: UUID?
+    private(set) var activeCallId: String?   // maps the system call UUID to our callId
 
     private override init() {
         let config = CXProviderConfiguration()
@@ -29,9 +30,11 @@ final class CallKitManager: NSObject {
     }
 
     // MARK: - Outgoing
+    @discardableResult
     func startOutgoing(name: String) -> UUID {
         let uuid = UUID()
         activeUUID = uuid
+        activeCallId = nil
         let action = CXStartCallAction(call: uuid, handle: CXHandle(type: .generic, value: name))
         controller.request(CXTransaction(action: action)) { _ in }
         return uuid
@@ -39,10 +42,12 @@ final class CallKitManager: NSObject {
     func reportConnecting() { if let u = activeUUID { provider.reportOutgoingCall(with: u, startedConnectingAt: nil) } }
     func reportConnected() { if let u = activeUUID { provider.reportOutgoingCall(with: u, connectedAt: nil) } }
 
-    // MARK: - Incoming
-    func reportIncoming(name: String, completion: (() -> Void)? = nil) {
+    // MARK: - Incoming (idempotent per callId so two paths can't make two UUIDs)
+    func reportIncoming(callId: String, name: String, completion: (() -> Void)? = nil) {
+        if activeCallId == callId, activeUUID != nil { completion?(); return }
         let uuid = UUID()
         activeUUID = uuid
+        activeCallId = callId
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: name)
         update.hasVideo = false
@@ -50,15 +55,14 @@ final class CallKitManager: NSObject {
     }
 
     // MARK: - End
-    func end() {
+    func end() {   // user pressed End in our UI -> route through CallKit (handler does teardown)
         guard let uuid = activeUUID else { return }
         controller.request(CXTransaction(action: CXEndCallAction(call: uuid))) { _ in }
-        activeUUID = nil
     }
     /// Remote hung up / call failed — clear the system UI without a user action.
     func reportEnded() {
         if let uuid = activeUUID { provider.reportCall(with: uuid, endedAt: nil, reason: .remoteEnded) }
-        activeUUID = nil
+        activeUUID = nil; activeCallId = nil
     }
 }
 
@@ -76,14 +80,18 @@ extension CallKitManager: CXProviderDelegate {
         action.fulfill()
     }
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        CallService.shared.hangUp()
-        activeUUID = nil
+        CallService.shared.endFromCallKit()   // CallKit already ending -> don't double-report
+        activeUUID = nil; activeCallId = nil
         action.fulfill()
     }
 
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
-        RTCAudioSession.sharedInstance().audioSessionDidActivate(audioSession)
-        RTCAudioSession.sharedInstance().isAudioEnabled = true
+        let s = RTCAudioSession.sharedInstance()
+        s.lockForConfiguration()
+        try? s.setCategory(.playAndRecord, mode: .voiceChat, options: [])
+        s.audioSessionDidActivate(audioSession)
+        s.isAudioEnabled = true   // turn the WebRTC audio unit ON
+        s.unlockForConfiguration()
     }
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
         RTCAudioSession.sharedInstance().audioSessionDidDeactivate(audioSession)

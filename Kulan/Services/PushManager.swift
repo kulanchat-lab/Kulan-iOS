@@ -39,10 +39,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNU
     // MARK: - VoIP (PushKit)
 
     func pushRegistry(_ registry: PKPushRegistry, didUpdate pushCredentials: PKPushCredentials, for type: PKPushType) {
-        guard type == .voIP, let uid = Auth.auth().currentUser?.uid else { return }
+        guard type == .voIP else { return }
         let token = pushCredentials.token.map { String(format: "%02x", $0) }.joined()
-        Firestore.firestore().collection("users").document(uid)
-            .setData(["voipTokens": FieldValue.arrayUnion([token])], merge: true)
+        Push.latestVoipToken = token
+        Push.saveVoipToken()   // saves if signed in; re-saved on login otherwise
     }
 
     func pushRegistry(_ registry: PKPushRegistry, didReceiveIncomingPushWith payload: PKPushPayload,
@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNU
         let photo = d["photo"] as? String
         // iOS 13+: MUST report to CallKit before completion or the app is terminated.
         CallService.shared.prepareIncoming(callId: callId, name: name, uid: uid, photo: photo)
-        CallKitManager.shared.reportIncoming(name: name) { completion() }
+        CallKitManager.shared.reportIncoming(callId: callId, name: name) { completion() }
     }
 
     func application(_ application: UIApplication,
@@ -121,6 +121,15 @@ enum NotificationCleaner {
 }
 
 enum Push {
+    static var latestVoipToken: String?
+
+    /// Persist the VoIP token once we're signed in (PushKit can fire before login).
+    static func saveVoipToken() {
+        guard let token = latestVoipToken, let uid = Auth.auth().currentUser?.uid else { return }
+        Firestore.firestore().collection("users").document(uid)
+            .setData(["voipTokens": FieldValue.arrayUnion([token])], merge: true)
+    }
+
     /// Ask for permission, then register with APNs (FCM token follows via the delegate).
     /// Safe to call on every launch once signed in — iOS only prompts once.
     static func register() {
