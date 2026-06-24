@@ -47,6 +47,17 @@ done
 
 SPM="$HOME/spm"   # stable package dir so the public workflow can cache it
 
+# --- TEMP PROBE: can the runner download a binary artifact with plain curl? ---
+ts "PROBE curl webrtc asset (37MB)"
+curl -fL --ipv4 --max-time 90 -o "$RUNNER_TEMP/w.zip" \
+  "https://github.com/stasel/WebRTC/releases/download/120.0.0/WebRTC-M120.xcframework.zip" \
+  -w "  http=%{http_code} size=%{size_download} time=%{time_total}s speed=%{speed_download}B/s\n" 2>&1 \
+  || echo "  curl rc=$?"
+ls -la "$RUNNER_TEMP/w.zip" 2>/dev/null || echo "  (no file)"
+echo "PROBE DONE"
+exit 0
+# --- end probe ---
+
 ts "select xcode"
 LATEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -n1)
 sudo xcode-select -s "$LATEST/Contents/Developer"
