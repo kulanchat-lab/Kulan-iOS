@@ -25,7 +25,7 @@ struct CallsView: View {
     @State private var repo = CallsRepository.shared
     @State private var filter = 0            // 0 = All, 1 = Missed
     @State private var query = ""
-    @State private var infoTarget: CallEntry?
+    @State private var profileTarget: CallEntry?
     @State private var showNew = false
 
     private var shown: [CallEntry] {
@@ -45,12 +45,14 @@ struct CallsView: View {
                 } else {
                     List {
                         ForEach(shown) { call in
-                            CallHistoryRow(call: call, onInfo: { infoTarget = call })
-                                .listRowSeparator(.visible)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
+                            CallHistoryRow(
+                                call: call,
+                                onProfile: { profileTarget = call },
+                                onCall: {
                                     CallService.shared.startCall(to: call.otherUid, name: call.name, photo: call.photoUrl)
                                 }
+                            )
+                            .listRowSeparator(.hidden)
                         }
                     }
                     .listStyle(.plain)
@@ -73,8 +75,10 @@ struct CallsView: View {
             }
             .task { await repo.load() }
             .refreshable { await repo.load() }
-            .sheet(item: $infoTarget) { c in
-                NavigationStack { ContactInfoView(cid: c.cid, name: c.name, photoUrl: c.photoUrl) }
+            // Tapping a row pushes the contact's profile (back chevron, native). Calling
+            // back happens only via the round phone button on the row.
+            .navigationDestination(item: $profileTarget) { c in
+                ContactInfoView(cid: c.cid, name: c.name, photoUrl: c.photoUrl)
             }
             .sheet(isPresented: $showNew) { NewCallView() }
         }
@@ -83,29 +87,43 @@ struct CallsView: View {
 
 struct CallHistoryRow: View {
     let call: CallEntry
-    var onInfo: () -> Void
+    var onProfile: () -> Void
+    var onCall: () -> Void
 
     private var directionIcon: String { call.mine ? "arrow.up.right" : "arrow.down.left" }
     private var directionText: String { call.missed ? "Missed" : (call.mine ? "Outgoing" : "Incoming") }
 
     var body: some View {
         HStack(spacing: 12) {
-            AvatarView(name: call.name, photoUrl: call.photoUrl, size: 46)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(call.name)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(call.missed ? Color.red : Color.primary)
-                    .lineLimit(1)
-                HStack(spacing: 4) {
-                    Image(systemName: directionIcon).font(.system(size: 11, weight: .semibold))
-                    Text(directionText).font(.system(size: 14))
+            // Whole left area (avatar, name, direction, time) → opens the contact profile.
+            Button(action: onProfile) {
+                HStack(spacing: 12) {
+                    AvatarView(name: call.name, photoUrl: call.photoUrl, size: 46)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(call.name)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(call.missed ? Color.red : Color.primary)
+                            .lineLimit(1)
+                        HStack(spacing: 4) {
+                            Image(systemName: directionIcon).font(.system(size: 11, weight: .semibold))
+                            Text(directionText).font(.system(size: 14))
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Text(timeLabel(call.date)).font(.system(size: 14)).foregroundStyle(.secondary)
                 }
-                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
             }
-            Spacer(minLength: 8)
-            Text(timeLabel(call.date)).font(.system(size: 14)).foregroundStyle(.secondary)
-            Button(action: onInfo) {
-                Image(systemName: "info.circle").font(.system(size: 20)).foregroundStyle(.tint)
+            .buttonStyle(.plain)
+
+            // Round phone button → the ONLY thing that calls back.
+            Button(action: onCall) {
+                Image(systemName: "phone.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.tint)
+                    .frame(width: 38, height: 38)
+                    .background(Color.primary.opacity(0.07), in: Circle())
             }
             .buttonStyle(.plain)
         }
