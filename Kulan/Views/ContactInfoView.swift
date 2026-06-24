@@ -25,6 +25,8 @@ struct ContactInfoView: View {
     @State private var showSearchSoon = false
     @State private var showAllMedia = false
     @State private var showMuteOptions = false
+    @State private var showDisappear = false
+    @State private var disappearSeconds = 0
     @Environment(\.colorScheme) private var scheme
 
     private var dark: Bool { scheme == .dark }
@@ -39,6 +41,7 @@ struct ContactInfoView: View {
             VStack(spacing: 16) {
                 hero
                 quickActions
+                disappearRow
                 if !about.isEmpty { bioCard }
                 if !media.isEmpty { mediaCard }
             }
@@ -47,7 +50,18 @@ struct ContactInfoView: View {
         }
         .navigationTitle(handle.isEmpty ? name : "@\(handle)")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        .task {
+            await load()
+            disappearSeconds = ConversationsRepository.shared.conversations.first(where: { $0.id == cid })?.disappearSeconds ?? 0
+        }
+        .confirmationDialog("Disappearing Messages", isPresented: $showDisappear, titleVisibility: .visible) {
+            Button("Off") { setDisappear(0) }
+            Button("1 Day") { setDisappear(86_400) }
+            Button("1 Week") { setDisappear(604_800) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("New and existing messages auto-delete after the timer. Applies for both of you.")
+        }
         .fullScreenCover(item: $viewerImage) { msg in ImageViewerView(message: msg, cid: cid) }
         .sheet(isPresented: $showAllMedia) { SharedMediaGridView(cid: cid, media: media) }
         .alert("Clear your messages?", isPresented: $showClear) {
@@ -82,6 +96,28 @@ struct ContactInfoView: View {
             Button("Mute Always") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(nil)) } }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    private var disappearLabel: String {
+        switch disappearSeconds { case 86_400: return "1 day"; case 604_800: return "1 week"; default: return "Off" }
+    }
+    private func setDisappear(_ s: Int) {
+        disappearSeconds = s
+        Task { await ChatService.setDisappear(cid, seconds: s) }
+    }
+    private var disappearRow: some View {
+        Button { showDisappear = true } label: {
+            HStack {
+                Label("Disappearing Messages", systemImage: "timer")
+                Spacer()
+                Text(disappearLabel).foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(cardColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
     }
 
     // MARK: - Sections

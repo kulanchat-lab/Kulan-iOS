@@ -33,6 +33,8 @@ final class ThreadRepository {
     var otherLastActive: Date?
     var otherLastReadMillis: Double = 0
     var iBlocked = false
+    var disappearSeconds = 0
+    private var expiryTimer: Timer?
     private var otherUid = ""
     private var myBlockedAtMillis: Double = 0       // when I blocked
     private var myBlockClearedAtMillis: Double = 0  // when I unblocked (end of the hide window)
@@ -71,6 +73,7 @@ final class ThreadRepository {
                 self.myBlockedAtMillis = ((d?["blockedAt"] as? [String: Any])?[uid] as? NSNumber)?.doubleValue ?? 0
                 self.myBlockClearedAtMillis = ((d?["blockClearedAt"] as? [String: Any])?[uid] as? NSNumber)?.doubleValue ?? 0
                 self.pinnedMessageId = d?["pinnedMessageId"] as? String ?? ""
+                self.disappearSeconds = (d?["disappearSeconds"] as? NSNumber)?.intValue ?? 0
                 if let ts = (d?["lastRead"] as? [String: Any])?[other] as? Timestamp {
                     self.otherLastReadMillis = ts.dateValue().timeIntervalSince1970 * 1000
                 }
@@ -83,6 +86,10 @@ final class ThreadRepository {
                 self?.otherOnline = d?["online"] as? Bool ?? false
                 if let ts = d?["lastActive"] as? Timestamp { self?.otherLastActive = ts.dateValue() }
             }
+        expiryTimer?.invalidate()
+        expiryTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+            self?.sweepExpired()
+        }
         Task {
             try? await Crypto.shared.ensureReady()
             _ = await Crypto.shared.preloadKey(other)
@@ -133,8 +140,24 @@ final class ThreadRepository {
         pending.removeAll { p in p.clientId.map(echoed.contains) ?? false }
     }
 
+    // Periodic sweep so messages disappear over time even while the chat is open;
+    // also deletes my own expired messages from Firestore.
+    private func sweepExpired() {
+        guard disappearSeconds > 0 else { return }
+        let cutoff = Date().addingTimeInterval(-Double(disappearSeconds))
+        let me = Auth.auth().currentUser?.uid
+        for m in byId.values where m.authorId == me && m.createdAt < cutoff {
+            Task { await ChatService.deleteMessage(cid: cid, messageId: m.id) }
+        }
+        rebuild()
+    }
+
     private func rebuild() {
         var msgs = byId.values.filter { !hiddenByBlock($0) }
+        if disappearSeconds > 0 {   // hide messages past the disappearing timer
+            let cutoff = Date().addingTimeInterval(-Double(disappearSeconds))
+            msgs = msgs.filter { $0.createdAt >= cutoff }
+        }
         if iBlocked {
             // Also silence the blocked person's reactions on my messages (their activity is hidden).
             msgs = msgs.map { m in
@@ -181,6 +204,7 @@ final class ThreadRepository {
         listener?.remove(); listener = nil
         convListener?.remove(); convListener = nil
         userListener?.remove(); userListener = nil
+        expiryTimer?.invalidate(); expiryTimer = nil
     }
 
     deinit { listener?.remove(); convListener?.remove(); userListener?.remove() }

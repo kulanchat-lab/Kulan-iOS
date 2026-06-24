@@ -131,6 +131,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
     var blockedAt: [String: Double]    // when each user blocked (ms) — hides later messages
     var pinOrder: [String: Double]     // per-user manual order for pinned chats
     var pinnedMessageId: String        // a pinned message in this chat ("" = none)
+    var disappearSeconds: Int          // auto-delete timer (0 = off), shared by both members
     var updatedAtMillis: Double
 
     init(id: String, data: [String: Any]) {
@@ -149,6 +150,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
         self.blockedAt = doubleMap(data["blockedAt"])
         self.pinOrder = doubleMap(data["pinOrder"])
         self.pinnedMessageId = data["pinnedMessageId"] as? String ?? ""
+        self.disappearSeconds = (data["disappearSeconds"] as? NSNumber)?.intValue ?? 0
         if let ts = data["updatedAt"] as? Timestamp {
             self.updatedAtMillis = ts.dateValue().timeIntervalSince1970 * 1000
         } else {

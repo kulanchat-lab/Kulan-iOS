@@ -290,6 +290,12 @@ enum ChatService {
         return Date().timeIntervalSince1970 * 1000 + hours * 3_600_000
     }
 
+    /// Set the per-chat disappearing-message timer (seconds; 0 = off). Shared by both.
+    static func setDisappear(_ cid: String, seconds: Int) async {
+        try? await db.collection("conversations").document(cid)
+            .setData(["disappearSeconds": seconds], merge: true)
+    }
+
     static func setBlocked(_ cid: String, _ value: Bool) async {
         var data: [String: Any] = ["blockedBy": [uid: value]]
         let now = Date().timeIntervalSince1970 * 1000
