@@ -28,6 +28,7 @@ struct ThreadView: View {
     @State private var morePickerTarget: Message? // any-emoji picker
     @State private var reactorsTarget: Message?   // "who reacted" sheet
     @State private var pendingDelete: Message?
+    @State private var editTarget: Message?       // edit-message sheet
     @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
@@ -185,6 +186,7 @@ struct ThreadView: View {
                     onReply: { replyingTo = m; dismissMenu() },
                     onPin: { Task { await ChatService.setPinnedMessage(cid, m.id) }; dismissMenu() },
                     onCopy: { dismissMenu() },
+                    onEdit: { dismissMenu(); editTarget = m },
                     onDelete: { dismissMenu(); pendingDelete = m },
                     onDismiss: { dismissMenu() }
                 )
@@ -194,6 +196,11 @@ struct ThreadView: View {
         .sheet(item: $morePickerTarget) { m in EmojiMorePicker { emoji in react(m, emoji) } }
         .sheet(item: $reactorsTarget) { m in
             ReactorsSheet(reactions: m.reactions, nameFor: { $0 == me ? "You" : title })
+        }
+        .sheet(item: $editTarget) { m in
+            EditMessageSheet(original: m.text) { newText in
+                Task { try? await ChatService.editMessage(cid: cid, messageId: m.id, newText: newText) }
+            }
         }
         .confirmationDialog("Delete this message?",
                             isPresented: Binding(get: { pendingDelete != nil },
@@ -418,31 +425,62 @@ struct ThreadView: View {
         }
     }
 
-    // Call record row in the thread (outgoing/incoming/missed + duration). Tap to call back.
+    // Call record as a WhatsApp-style message bubble. Outgoing = right-aligned accent
+    // bubble; incoming & missed = left-aligned received bubble. Inside: a circular call
+    // icon, bold status, a muted subtitle (duration or "Tap to call back"), and the
+    // timestamp bottom-right. Tap anywhere to call back.
     private func callRow(_ m: Message) -> some View {
         let mine = m.callerUid == me
         let missed = m.callOutcome == "missed"
-        let icon = missed ? "phone.down.fill" : (mine ? "phone.arrow.up.right" : "phone.arrow.down.left")
-        let label: String = {
-            if missed { return mine ? "No answer" : "Missed call" }
-            let base = mine ? "Outgoing call" : "Incoming call"
-            if let d = m.callDuration, d > 0 { return "\(base) · \(callDurationStr(d))" }
-            return base
+        let statusText = missed ? "Missed voice call" : "Voice call"
+        let subtitle: String = {
+            if missed { return "Tap to call back" }
+            if let d = m.callDuration, d > 0 { return callLogDuration(d) }
+            return mine ? "Outgoing" : "Incoming"
         }()
-        return HStack(spacing: 6) {
-            Image(systemName: icon).font(.caption)
-            Text(label).font(.caption.weight(.medium))
+        let time = m.createdAt.formatted(date: .omitted, time: .shortened)
+        let iconName = missed ? "phone.arrow.down.left" : "phone.fill"
+        let iconColor: Color = missed ? .red : (mine ? Theme.onAccent(dark) : Theme.accent(dark))
+        let circleBg: Color = mine ? Color.white.opacity(0.22)
+            : (missed ? Color.red.opacity(0.14) : Theme.accent(dark).opacity(0.14))
+
+        return HStack(spacing: 0) {
+            if mine { Spacer(minLength: 48) }
+            HStack(alignment: .center, spacing: 11) {
+                ZStack {
+                    Circle().fill(circleBg).frame(width: 38, height: 38)
+                    Image(systemName: iconName)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(iconColor)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(statusText)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(mine ? Theme.onAccent(dark) : .primary)
+                    Text(subtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(mine ? Theme.onAccent(dark).opacity(0.75) : .secondary)
+                }
+                Spacer(minLength: 10)
+                Text(time)
+                    .font(.system(size: 10))
+                    .foregroundStyle(mine ? Theme.onAccent(dark).opacity(0.7) : .secondary)
+            }
+            .padding(.leading, 9).padding(.trailing, 12).padding(.vertical, 9)
+            .background(mine ? Theme.accent(dark) : Theme.received(dark))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .frame(maxWidth: UIScreen.main.bounds.width * 0.72, alignment: .leading)
+            if !mine { Spacer(minLength: 48) }
         }
-        .foregroundStyle(missed ? Color.red : Color.secondary)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .onTapGesture { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) }
     }
 
-    private func callDurationStr(_ s: Int) -> String {
-        s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
-                  : String(format: "%d:%02d", s / 60, s % 60)
+    // Call-log duration phrasing: "43 sec", "1:31", or "1:31:00".
+    private func callLogDuration(_ s: Int) -> String {
+        if s < 60 { return "\(s) sec" }
+        if s < 3600 { return String(format: "%d:%02d", s / 60, s % 60) }
+        return String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
     }
 
     // "Unread Messages" divider (our design) — a thin accent line + label.
@@ -706,6 +744,7 @@ struct MessageBubble: View {
     // red "!" if it failed, single check when sent, filled check once the other read it.
     @ViewBuilder private var metaRow: some View {
         HStack(spacing: 3) {
+            if message.edited { Text("edited").font(.system(size: 10)).italic() }
             Text(timeString).font(.system(size: 10))
             if isMe {
                 switch message.sendState {
@@ -946,5 +985,53 @@ struct TypingBubble: View {
             Spacer(minLength: 0)
         }
         .onAppear { animating = true }
+    }
+}
+
+// Edit-message sheet: native iOS editor with Cancel / Save. Save is disabled when the
+// text is empty or unchanged, so an edit is always a real, non-empty change.
+struct EditMessageSheet: View {
+    let original: String
+    var onSave: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String
+    @FocusState private var focused: Bool
+
+    init(original: String, onSave: @escaping (String) -> Void) {
+        self.original = original
+        self.onSave = onSave
+        _text = State(initialValue: original)
+    }
+
+    private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var canSave: Bool {
+        !trimmed.isEmpty && trimmed != original.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                TextField("Message", text: $text, axis: .vertical)
+                    .font(.body)
+                    .lineLimit(1...10)
+                    .padding(12)
+                    .background(Color.primary.opacity(0.06),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .focused($focused)
+                    .padding()
+                Spacer()
+            }
+            .navigationTitle("Edit Message")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") { onSave(trimmed); dismiss() }
+                        .fontWeight(.semibold).disabled(!canSave)
+                }
+            }
+            .onAppear { focused = true }
+        }
+        .presentationDetents([.medium])
     }
 }

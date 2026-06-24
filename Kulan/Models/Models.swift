@@ -52,6 +52,7 @@ struct Message: Identifiable, Equatable {
     var callerUid: String? = nil            // call record: who placed the call (viewer derives direction)
     var callOutcome: String? = nil          // answered | missed
     var callDuration: Int? = nil            // seconds (0 if not answered)
+    var edited: Bool = false                // text was edited after sending
 
     var isImage: Bool { (type == "image" && (imageUrl?.isEmpty == false)) || localImageData != nil }
     var isAudio: Bool { type == "audio" && (audioUrl?.isEmpty == false) }
@@ -102,6 +103,7 @@ struct Message: Identifiable, Equatable {
         self.callerUid = data["callerUid"] as? String
         self.callOutcome = data["callOutcome"] as? String
         self.callDuration = (data["callDuration"] as? NSNumber)?.intValue
+        self.edited = data["edited"] as? Bool ?? false
         self.clientId = data["clientId"] as? String
         self.enc = (data["enc"] as? [String: Any]).flatMap(EncMeta.init(map:))
         // Drop entries that fail to decrypt (empty) so a broken record can't render a garbage badge.

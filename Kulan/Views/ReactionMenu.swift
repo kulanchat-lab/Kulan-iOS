@@ -53,6 +53,7 @@ struct ReactionMenuOverlay: View {
     var onReply: () -> Void
     var onPin: () -> Void
     var onCopy: () -> Void
+    var onEdit: () -> Void
     var onDelete: () -> Void
     var onDismiss: () -> Void
 
@@ -124,6 +125,10 @@ struct ReactionMenuOverlay: View {
             }
             Divider().padding(.leading, 16)
             row("Pin", "pin", onPin)
+            if isMe && !message.isImage && !message.isAudio && !message.isCall {
+                Divider().padding(.leading, 16)
+                row("Edit", "pencil", onEdit)
+            }
             if isMe {
                 Divider().padding(.leading, 16)
                 row("Delete", "trash", onDelete, destructive: true)
