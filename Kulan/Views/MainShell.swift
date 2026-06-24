@@ -18,13 +18,103 @@ struct MainShell: View {
     }
 }
 
+// Native Phone-app-style call history (mockup IMG_4467): All / Missed segmented filter,
+// search, rows with avatar, name (red if missed), direction, time, and an info button.
+// Tap a row to call back; (i) opens the contact. Indigo brand kept.
 struct CallsView: View {
+    @State private var repo = CallsRepository.shared
+    @State private var filter = 0            // 0 = All, 1 = Missed
+    @State private var query = ""
+    @State private var infoTarget: CallEntry?
+
+    private var shown: [CallEntry] {
+        var list = repo.calls
+        if filter == 1 { list = list.filter { $0.missed } }
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        if !q.isEmpty { list = list.filter { $0.name.lowercased().contains(q) } }
+        return list
+    }
+
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "phone.fill").font(.system(size: 34)).foregroundStyle(.secondary)
-            Text("Calls coming soon").font(.headline)
-            Text("Voice and video will live here.").font(.subheadline).foregroundStyle(.secondary)
+        NavigationStack {
+            Group {
+                if repo.calls.isEmpty {
+                    ContentUnavailableView("No Calls Yet", systemImage: "phone",
+                                           description: Text("Your call history will appear here."))
+                } else {
+                    List {
+                        ForEach(shown) { call in
+                            CallHistoryRow(call: call, onInfo: { infoTarget = call })
+                                .listRowSeparator(.visible)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    CallService.shared.startCall(to: call.otherUid, name: call.name, photo: call.photoUrl)
+                                }
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("Calls")
+            .searchable(text: $query, prompt: "Search")
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Picker("", selection: $filter) {
+                        Text("All").tag(0)
+                        Text("Missed").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 190)
+                }
+            }
+            .task { await repo.load() }
+            .refreshable { await repo.load() }
+            .sheet(item: $infoTarget) { c in
+                NavigationStack { ContactInfoView(cid: c.cid, name: c.name, photoUrl: c.photoUrl) }
+            }
         }
+    }
+}
+
+struct CallHistoryRow: View {
+    let call: CallEntry
+    var onInfo: () -> Void
+
+    private var directionIcon: String { call.mine ? "arrow.up.right" : "arrow.down.left" }
+    private var directionText: String { call.missed ? "Missed" : (call.mine ? "Outgoing" : "Incoming") }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AvatarView(name: call.name, photoUrl: call.photoUrl, size: 46)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(call.name)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(call.missed ? Color.red : Color.primary)
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Image(systemName: directionIcon).font(.system(size: 11, weight: .semibold))
+                    Text(directionText).font(.system(size: 14))
+                }
+                .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Text(timeLabel(call.date)).font(.system(size: 14)).foregroundStyle(.secondary)
+            Button(action: onInfo) {
+                Image(systemName: "info.circle").font(.system(size: 20)).foregroundStyle(.tint)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func timeLabel(_ d: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(d) { return d.formatted(date: .omitted, time: .shortened) }
+        if cal.isDateInYesterday(d) { return "Yesterday" }
+        if let days = cal.dateComponents([.day], from: d, to: Date()).day, days < 7 {
+            return d.formatted(.dateTime.weekday(.wide))
+        }
+        return d.formatted(.dateTime.month(.abbreviated).day())
     }
 }
 
