@@ -50,6 +50,8 @@ struct ContactInfoView: View {
         }
         .navigationTitle(handle.isEmpty ? name : "@\(handle)")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)   // show nav bar (back + title) below the notch
+        .navigationBarBackButtonHidden(false)
         .task {
             await load()
             disappearSeconds = ConversationsRepository.shared.conversations.first(where: { $0.id == cid })?.disappearSeconds ?? 0

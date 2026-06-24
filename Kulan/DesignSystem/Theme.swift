@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // Design tokens ported from the RN colors.ts (one deep-contrast theme for both modes).
 extension Color {
@@ -92,6 +93,8 @@ struct AvatarView: View {
     var photoUrl: String?
     var size: CGFloat = 48
 
+    @State private var image: UIImage?
+
     private var hasPhoto: Bool { (photoUrl?.isEmpty == false) }
     private var initial: String {
         let c = name.trimmingCharacters(in: .whitespaces).first
@@ -100,17 +103,25 @@ struct AvatarView: View {
 
     var body: some View {
         Group {
-            if hasPhoto, let url = URL(string: photoUrl!) {
-                AsyncImage(url: url) { phase in
-                    if let img = phase.image { img.resizable().scaledToFill() }
-                    else { fallback }
-                }
+            if let image {
+                // Cached image -> instant, no AsyncImage reload flash; scaledToFill before clip.
+                Image(uiImage: image).resizable().scaledToFill()
             } else {
                 fallback
             }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
+        .task(id: photoUrl) { await load() }
+    }
+
+    private func load() async {
+        guard hasPhoto, let s = photoUrl, let url = URL(string: s) else { image = nil; return }
+        if let cached = DecryptedImageCache.shared.object(forKey: s as NSString) { image = cached; return }
+        if let (data, _) = try? await URLSession.shared.data(from: url), let ui = UIImage(data: data) {
+            DecryptedImageCache.shared.setObject(ui, forKey: s as NSString)
+            image = ui
+        }
     }
 
     private var fallback: some View {
