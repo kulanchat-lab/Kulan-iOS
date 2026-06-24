@@ -8,9 +8,12 @@ options:
   createIntermediateGroups: true
 
 packages:
+  # Prebuilt xcframeworks mirror (same version, same products) — downloads from GitHub
+  # releases instead of Google's servers, which beats the SPM binary-download hang on CI
+  # and skips the long Firebase source compile.
   Firebase:
-    url: https://github.com/firebase/firebase-ios-sdk
-    from: "11.4.0"
+    url: https://github.com/akaffenberger/firebase-ios-sdk-xcframeworks
+    exactVersion: "11.15.0"
   Sodium:
     url: https://github.com/jedisct1/swift-sodium
     from: "0.9.1"
@@ -53,6 +56,7 @@ targets:
         SWIFT_VERSION: "5.10"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: Kulan/Kulan.entitlements
+        OTHER_LDFLAGS: "$(inherited) -ObjC"
     dependencies:
       - package: Firebase
         product: FirebaseFirestore
