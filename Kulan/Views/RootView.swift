@@ -15,7 +15,11 @@ struct RootView: View {
             Theme.bg(scheme == .dark).ignoresSafeArea()
             switch phase {
             case .loading:
-                ProgressView()
+                VStack(spacing: 18) {
+                    Text("Kulan").font(.system(size: 40, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                    ProgressView().tint(.secondary)
+                }
             case .onboarding:
                 OnboardingView { phase = .main }
             case .main:

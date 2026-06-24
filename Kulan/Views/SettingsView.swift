@@ -260,13 +260,16 @@ struct EditProfileView: View {
 
                 Section("Name") {
                     TextField("Your name", text: $name).textInputAutocapitalization(.words)
+                        .onChange(of: name) { _, v in if v.count > 40 { name = String(v.prefix(40)) } }
                 }
                 Section("Username") {
                     TextField("username", text: $handle)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .onChange(of: handle) { _, v in if v.count > 24 { handle = String(v.prefix(24)) } }
                 }
                 Section("Bio") {
                     TextField("A few words about you", text: $about, axis: .vertical)
+                        .onChange(of: about) { _, v in if v.count > 140 { about = String(v.prefix(140)) } }
                         .lineLimit(1...4)
                 }
                 if let error { Text(error).foregroundStyle(.red) }

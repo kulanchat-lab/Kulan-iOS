@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import Observation
 import FirebaseAuth
 import FirebaseFirestore
@@ -54,8 +55,22 @@ final class ProfileStore {
 
     /// Upload a profile photo. Native Data -> Firebase Storage (no Hermes blob
     /// crash). Propagates the URL to the user doc + each conversation's photo map.
-    func uploadPhoto(_ data: Data) async throws {
+    // Centre-crop to a square + downscale so avatars are small and uniform.
+    static func squareJPEG(_ data: Data, side: CGFloat = 512, quality: CGFloat = 0.8) -> Data {
+        guard let img = UIImage(data: data), let cg = img.cgImage else { return data }
+        let w = CGFloat(cg.width), h = CGFloat(cg.height), s = min(w, h)
+        let rect = CGRect(x: (w - s) / 2, y: (h - s) / 2, width: s, height: s)
+        guard let cropped = cg.cropping(to: rect) else { return data }
+        let square = UIImage(cgImage: cropped, scale: 1, orientation: img.imageOrientation)
+        let out = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            square.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
+        }
+        return out.jpegData(compressionQuality: quality) ?? data
+    }
+
+    func uploadPhoto(_ rawData: Data) async throws {
         guard let uid = Auth.auth().currentUser?.uid else { return }
+        let data = Self.squareJPEG(rawData)
         let ref = Storage.storage().reference().child("profiles/\(uid).jpg")
         let meta = StorageMetadata(); meta.contentType = "image/jpeg"
         _ = try await ref.putDataAsync(data, metadata: meta)
