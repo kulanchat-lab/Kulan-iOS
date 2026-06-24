@@ -148,6 +148,7 @@ struct StoryComposeSheet: View {
     @State private var item: PhotosPickerItem?
     @State private var data: Data?
     @State private var posting = false
+    @State private var showCamera = false
     var onPosted: () -> Void
 
     var body: some View {
@@ -164,11 +165,16 @@ struct StoryComposeSheet: View {
                     .buttonStyle(.borderedProminent).controlSize(.large).disabled(posting)
                 } else {
                     Spacer()
-                    PhotosPicker(selection: $item, matching: .images) {
-                        Label("Choose a photo", systemImage: "photo.on.rectangle")
-                            .font(.headline)
+                    Button { showCamera = true } label: {
+                        Label("Take Photo", systemImage: "camera.fill")
+                            .font(.headline).frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent).controlSize(.large)
+                    PhotosPicker(selection: $item, matching: .images) {
+                        Label("Choose from Library", systemImage: "photo.on.rectangle")
+                            .font(.headline).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered).controlSize(.large)
                     Text("Photo disappears after 24 hours.")
                         .font(.footnote).foregroundStyle(.secondary)
                     Spacer()
@@ -180,6 +186,9 @@ struct StoryComposeSheet: View {
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } } }
             .onChange(of: item) { _, it in
                 Task { if let it { data = try? await it.loadTransferable(type: Data.self) } }
+            }
+            .fullScreenCover(isPresented: $showCamera) {
+                CameraPicker { captured in data = captured }.ignoresSafeArea()
             }
         }
     }
