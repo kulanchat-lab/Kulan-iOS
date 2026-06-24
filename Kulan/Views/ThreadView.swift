@@ -69,6 +69,9 @@ struct ThreadView: View {
                                 .padding(.vertical, 8)
                         }
                         if msg.id == firstUnreadId { unreadDivider }
+                        if msg.isCall {
+                            callRow(msg).padding(.top, 8).id(msg.id)
+                        } else {
                         MessageBubble(
                             message: msg, isMe: msg.authorId == me, dark: dark, cid: cid,
                             nameFor: { $0 == me ? "You" : title },
@@ -88,6 +91,7 @@ struct ThreadView: View {
                         )
                         .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
                         .id(msg.id)
+                        }
                     }
                     if repo.otherTyping && !repo.iBlocked && typingPref { TypingBubble(dark: dark).padding(.top, 6).id("TYPING") }
                     // Bottom sentinel: drives "am I at the bottom?" for the scroll button.
@@ -412,6 +416,33 @@ struct ThreadView: View {
                 }
             }
         }
+    }
+
+    // Call record row in the thread (outgoing/incoming/missed + duration). Tap to call back.
+    private func callRow(_ m: Message) -> some View {
+        let mine = m.callDirection == "outgoing"
+        let missed = m.callOutcome == "missed"
+        let icon = missed ? "phone.down.fill" : (mine ? "phone.arrow.up.right" : "phone.arrow.down.left")
+        let label: String = {
+            if missed { return mine ? "No answer" : "Missed call" }
+            let base = mine ? "Outgoing call" : "Incoming call"
+            if let d = m.callDuration, d > 0 { return "\(base) · \(callDurationStr(d))" }
+            return base
+        }()
+        return HStack(spacing: 6) {
+            Image(systemName: icon).font(.caption)
+            Text(label).font(.caption.weight(.medium))
+        }
+        .foregroundStyle(missed ? Color.red : Color.secondary)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onTapGesture { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) }
+    }
+
+    private func callDurationStr(_ s: Int) -> String {
+        s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+                  : String(format: "%d:%02d", s / 60, s % 60)
     }
 
     // "Unread Messages" divider (our design) — a thin accent line + label.

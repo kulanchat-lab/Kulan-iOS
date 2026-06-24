@@ -220,6 +220,26 @@ enum ChatService {
         }
     }
 
+    /// Write a call record into the chat. Doc id is keyed by callId+direction so a
+    /// retried end-handler can't double-write, and each side writes only its own row.
+    static func recordCall(cid: String, callId: String, direction: String, outcome: String, durationSec: Int) async {
+        let convRef = db.collection("conversations").document(cid)
+        let msgRef = convRef.collection("messages").document("\(callId)_\(direction)")
+        try? await msgRef.setData([
+            "type": "call",
+            "authorId": uid,
+            "callDirection": direction,        // outgoing | incoming
+            "callOutcome": outcome,            // answered | missed
+            "callDuration": durationSec,
+            "text": "",
+            "createdAt": FieldValue.serverTimestamp(),
+        ])
+        try? await convRef.setData([
+            "lastMessage": outcome == "missed" ? "📞 Missed call" : "📞 Call",
+            "updatedAt": FieldValue.serverTimestamp(),
+        ], merge: true)
+    }
+
     static func deleteMessage(cid: String, messageId: String) async {
         try? await db.collection("conversations").document(cid)
             .collection("messages").document(messageId).delete()

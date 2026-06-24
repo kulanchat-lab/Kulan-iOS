@@ -12,7 +12,7 @@ struct CallView: View {
 
     private var statusText: String {
         switch call.state {
-        case .outgoing: return "Calling…"
+        case .outgoing: return call.calleeRinging ? "Ringing…" : "Calling…"
         case .active:   return durationText
         case .ended:    return "Call ended"
         default:        return ""

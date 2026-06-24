@@ -19,14 +19,20 @@ final class CallService: NSObject {
     var state: State = .idle {
         didSet {
             if state == .active && connectedDate == nil { connectedDate = Date() }
-            if state == .idle { connectedDate = nil; isMuted = false; isSpeaker = false }
+            if state == .idle {
+                connectedDate = nil; isMuted = false; isSpeaker = false
+                calleeRinging = false; recordWritten = false; stopRingback()
+            }
         }
     }
     var otherName: String = ""
     var otherPhotoUrl: String?
     var isMuted = false
     var isSpeaker = false
+    var calleeRinging = false        // caller: the other phone is actually ringing now
     var connectedDate: Date?
+    private var recordWritten = false
+    private var ringbackPlayer: AVAudioPlayer?
     private var localAudioTrack: RTCAudioTrack?
     private(set) var callId: String?
     private var otherUid: String = ""
@@ -80,6 +86,21 @@ final class CallService: NSObject {
         rtc.lockForConfiguration()
         try? AVAudioSession.sharedInstance().overrideOutputAudioPort(isSpeaker ? .speaker : .none)
         rtc.unlockForConfiguration()
+    }
+
+    // Ringback the CALLER hears while waiting (generated tone, looped).
+    private func startRingback() {
+        guard ringbackPlayer == nil else { return }
+        ringbackPlayer = try? AVAudioPlayer(data: RingbackTone.wavData())
+        ringbackPlayer?.numberOfLoops = -1
+        ringbackPlayer?.play()
+    }
+    private func stopRingback() { ringbackPlayer?.stop(); ringbackPlayer = nil }
+
+    // Callee marks the call as "ringing" so the caller can switch Calling… → Ringing….
+    private func markRinging() {
+        guard let id = callId else { return }
+        db.collection("calls").document(id).updateData(["ringingAt": FieldValue.serverTimestamp()])
     }
 
     // MARK: - Outgoing
@@ -145,6 +166,7 @@ final class CallService: NSObject {
                     self.otherPhotoUrl = photo.isEmpty ? nil : photo
                     self.isCaller = false
                     CallKitManager.shared.reportIncoming(name: self.otherName)   // native ringing UI
+                    self.markRinging()
                 }
             }
     }
@@ -157,6 +179,7 @@ final class CallService: NSObject {
         self.otherUid = uid
         self.otherPhotoUrl = (photo?.isEmpty == false) ? photo : nil
         self.isCaller = false
+        markRinging()
     }
 
     func answer() {
@@ -191,9 +214,15 @@ final class CallService: NSObject {
     private func observeCallDoc(_ ref: DocumentReference) {
         let l = ref.addSnapshotListener { [weak self] snap, _ in
             guard let self, let d = snap?.data() else { return }
+            // Caller: the callee's device is now ringing → "Calling…" becomes "Ringing…" + ringback.
+            if self.isCaller, d["ringingAt"] != nil, !self.calleeRinging, self.state == .outgoing {
+                self.calleeRinging = true
+                self.startRingback()
+            }
             // Caller applies the answer once it arrives.
             if self.isCaller, let answer = d["answer"] as? [String: String], let sdp = answer["sdp"],
                self.pc?.remoteDescription == nil {
+                self.stopRingback()
                 self.pc?.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { _ in }
                 self.state = .active
                 CallKitManager.shared.reportConnected()
@@ -232,6 +261,18 @@ final class CallService: NSObject {
     func hangUp() { cleanup(updateRemote: true) }
 
     private func cleanup(updateRemote: Bool) {
+        stopRingback()
+        // Write a call record into the chat (once). Each side writes its own row.
+        if !recordWritten, !otherUid.isEmpty {
+            recordWritten = true
+            let connected = connectedDate != nil
+            let dur = connected ? Int(Date().timeIntervalSince(connectedDate!)) : 0
+            let direction = isCaller ? "outgoing" : "incoming"
+            let outcome = connected ? "answered" : "missed"
+            let cid = [me, otherUid].sorted().joined(separator: "_")
+            let cidCallId = callId ?? UUID().uuidString
+            Task { await ChatService.recordCall(cid: cid, callId: cidCallId, direction: direction, outcome: outcome, durationSec: dur) }
+        }
         if updateRemote, let id = callId {
             db.collection("calls").document(id).updateData(["status": "ended"])
         }
