@@ -42,7 +42,6 @@ platform :ios do
       scheme: "Kulan",
       configuration: "Release",
       export_method: "app-store",
-      cloned_source_packages_path: ENV["CLONED_SOURCE_PACKAGES_PATH"],
       xcargs: "CURRENT_PROJECT_VERSION=#{ENV['BUILD_NUMBER']} -skipPackagePluginValidation -skipMacroValidation",
       export_options: {
         signingStyle: "manual",

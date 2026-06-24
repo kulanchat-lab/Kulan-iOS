@@ -5,8 +5,8 @@ set -euo pipefail
 # Decoy env (CFG_*) is mapped to the real names here, at runtime, off the public surface.
 cd "$(cd "$(dirname "$0")/.." && pwd)"
 
-# Coarse phase markers only (no code, no file names) so we can see WHERE time goes
-# in the public log without leaking what the project is. Verbose tool output is suppressed.
+# Coarse phase markers only (no code/file names) so we can see WHERE time goes in the
+# public log without leaking what the project is. Verbose tool output is suppressed.
 ts() { echo ">> $1  ($(date -u +%H:%M:%S)Z)"; }
 run() {                       # run quietly; on failure, surface only error lines
   local label="$1"; shift
@@ -22,41 +22,14 @@ export ASC_KEY_ID="$CFG_A1"
 export ASC_ISSUER_ID="$CFG_A2"
 export ASC_TEAM_ID="$CFG_A3"
 
-# Authenticate github.com git traffic (same trick actions/checkout uses). Swift's
-# package resolver shells out to git; without this, fetches run unauthenticated and
-# GitHub throttles them until the job times out. Uses the runner's own ephemeral token.
-export GIT_TERMINAL_PROMPT=0   # never block waiting for credentials; fail fast instead
+# Authenticate github.com (mirrors what actions/checkout sets up) for git fetches.
+export GIT_TERMINAL_PROMPT=0
 if [ -n "${GH_TOKEN:-}" ]; then
-  # Auth for git traffic...
   git config --global "http.https://github.com/.extraheader" \
     "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64)"
-  # ...and for SPM's binary-artifact downloads (URLSession reads ~/.netrc). Without
-  # this they go out anonymous and GitHub throttles the shared runner IP to ~0 B/s,
-  # so every .xcframework download stalls at zero. Authenticated = real quota.
   printf 'machine github.com\n  login x-access-token\n  password %s\n' "$GH_TOKEN" > "$HOME/.netrc"
   chmod 600 "$HOME/.netrc"
 fi
-
-# Force IPv4: on GitHub's macOS runners an IPv6 connection to GitHub's CDN often
-# half-opens then dead-stalls mid large-file download (the package blob freezing at a
-# fixed byte count). Turning IPv6 off on every interface makes the downloader use IPv4.
-ts "force ipv4"
-networksetup -listallnetworkservices 2>/dev/null | tail -n +2 | while IFS= read -r svc; do
-  sudo networksetup -setv6off "$svc" 2>/dev/null || true
-done
-
-SPM="$HOME/spm"   # stable package dir so the public workflow can cache it
-
-# --- TEMP PROBE: can the runner download a binary artifact with plain curl? ---
-ts "PROBE curl webrtc asset (37MB)"
-curl -fL --ipv4 --max-time 90 -o "$RUNNER_TEMP/w.zip" \
-  "https://github.com/stasel/WebRTC/releases/download/120.0.0/WebRTC-M120.xcframework.zip" \
-  -w "  http=%{http_code} size=%{size_download} time=%{time_total}s speed=%{speed_download}B/s\n" 2>&1 \
-  || echo "  curl rc=$?"
-ls -la "$RUNNER_TEMP/w.zip" 2>/dev/null || echo "  (no file)"
-echo "PROBE DONE"
-exit 0
-# --- end probe ---
 
 ts "select xcode"
 LATEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -n1)
@@ -66,34 +39,27 @@ ts "xcodegen"
 command -v xcodegen >/dev/null 2>&1 || HOMEBREW_NO_AUTO_UPDATE=1 run "brew" brew install xcodegen
 run "generate" xcodegen generate
 
-# Resolve packages. A binary artifact download (WebRTC's ~500MB blob) sometimes
-# stalls on GitHub's CDN and SPM has NO download timeout, so it hangs forever.
-# Work around it: cap each attempt and retry with a fresh connection. Partial
-# downloads in $SPM are kept, so each retry resumes closer to done. One success
-# populates the cache and every later run skips this entirely.
+# Resolve packages the STANDARD way: default location, no custom -clonedSourcePackagesDirPath
+# (that custom path is what broke the binary-artifact downloads). Packages land in the
+# project's DerivedData, which the workflow caches. Per-attempt cap + retry is just a safety
+# net so a transient network stall can't run blind for an hour.
 RLOG="$RUNNER_TEMP/resolve.log"
 resolved=0
 for attempt in 1 2 3; do
   : > "$RLOG"
   ts "resolve packages (attempt $attempt)"
-  # art= is the binary-artifact total; it stayed 0 when downloads were throttled.
-  # With ~/.netrc auth it should climb past 0 — that's the proof the fix worked.
-  ( while true; do
-      echo "   spm=$(du -sh "$SPM" 2>/dev/null|cut -f1)  art=$(du -sh "$SPM/artifacts" 2>/dev/null|cut -f1)  $(date -u +%H:%M:%S)Z"
-      sleep 15
-    done ) &
+  ( while true; do echo "   working... $(date -u +%H:%M:%S)Z"; sleep 20; done ) &
   MON=$!
   if perl -e 'alarm shift @ARGV; exec @ARGV' 600 \
-       xcodebuild -resolvePackageDependencies \
-       -project Kulan.xcodeproj -scheme Kulan -clonedSourcePackagesDirPath "$SPM" \
+       xcodebuild -resolvePackageDependencies -project Kulan.xcodeproj -scheme Kulan \
        >"$RLOG" 2>&1; then
     kill "$MON" 2>/dev/null || true
-    echo "   resolve OK  (spm=$(du -sh "$SPM" 2>/dev/null|cut -f1))"
+    echo "   resolve OK"
     resolved=1
     break
   fi
   kill "$MON" 2>/dev/null || true
-  echo "   attempt $attempt failed (art=$(du -sh "$SPM/artifacts" 2>/dev/null|cut -f1)) — retry"
+  echo "   attempt $attempt failed — retry"
 done
 if [ "$resolved" -ne 1 ]; then
   echo "!! resolve still failing after retries"
@@ -106,7 +72,6 @@ if [ "${1:-a}" = "a" ]; then
   ts "compile (simulator)"
   run "compile" xcodebuild build -project Kulan.xcodeproj -scheme Kulan \
     -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-    -clonedSourcePackagesDirPath "$SPM" \
     -skipPackagePluginValidation -skipMacroValidation CODE_SIGNING_ALLOWED=NO
   ts "done"
   exit 0
@@ -128,7 +93,6 @@ export SIGN_KEYCHAIN="$KC"
 export BUILD_NUMBER="$(date +%s)"   # timestamp: always increases, even on a fresh repo
 export FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT=180
 export FASTLANE_XCODEBUILD_SETTINGS_RETRIES=6
-export CLONED_SOURCE_PACKAGES_PATH="$SPM"
 
 ts "fastlane (cert + build + upload)"
 run "fastlane" fastlane beta
