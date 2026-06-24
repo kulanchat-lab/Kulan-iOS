@@ -31,6 +31,14 @@ if [ -n "${GH_TOKEN:-}" ]; then
     "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64)"
 fi
 
+# Force IPv4: on GitHub's macOS runners an IPv6 connection to GitHub's CDN often
+# half-opens then dead-stalls mid large-file download (the package blob freezing at a
+# fixed byte count). Turning IPv6 off on every interface makes the downloader use IPv4.
+ts "force ipv4"
+networksetup -listallnetworkservices 2>/dev/null | tail -n +2 | while IFS= read -r svc; do
+  sudo networksetup -setv6off "$svc" 2>/dev/null || true
+done
+
 SPM="$HOME/spm"   # stable package dir so the public workflow can cache it
 
 ts "select xcode"
