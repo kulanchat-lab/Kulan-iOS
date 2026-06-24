@@ -72,16 +72,21 @@ final class StoriesService {
         ])
     }
 
-    // Record that I viewed a story: bumps my seen-ring marker + sends a view receipt.
+    // Record that I viewed a story: always bump my own seen-ring marker; only send a
+    // view receipt (so the author sees I viewed) if I have view receipts ON.
     func markViewed(_ story: Story) async {
         let me = uid
         guard !me.isEmpty, story.authorUid != me else { return }
         try? await db.collection("users").document(me)
             .collection("storyContexts").document(story.authorUid)
             .setData(["lastViewedAt": FieldValue.serverTimestamp()], merge: true)
-        try? await db.collection("stories").document(story.id)
-            .collection("views").document(me)
-            .setData(["viewedAt": FieldValue.serverTimestamp()])
+
+        let receiptsOn = UserDefaults.standard.object(forKey: "storyViewReceipts") as? Bool ?? true
+        if receiptsOn {
+            try? await db.collection("stories").document(story.id)
+                .collection("views").document(me)
+                .setData(["viewedAt": FieldValue.serverTimestamp()])
+        }
     }
 
     func deleteStory(_ id: String) async {
