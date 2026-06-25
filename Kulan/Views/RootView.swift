@@ -15,11 +15,10 @@ struct RootView: View {
             Theme.bg(scheme == .dark).ignoresSafeArea()
             switch phase {
             case .loading:
-                VStack(spacing: 18) {
-                    Text("Kulan").font(.system(size: 40, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
-                    ProgressView().tint(.secondary)
-                }
+                // Static branded launch screen (no spinner) — matches the native iOS launch
+                // screen so boot feels instant, like other chat apps. No "loading" UI.
+                Text("Kulan").font(.system(size: 40, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
             case .onboarding:
                 OnboardingView { phase = .main }
             case .main:
