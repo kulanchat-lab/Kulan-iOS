@@ -87,23 +87,31 @@ struct CallView: View {
         HStack(spacing: 26) {
             controlButton(call.isMuted ? "mic.slash.fill" : "mic.fill", on: call.isMuted) { call.toggleMute() }
             controlButton(call.isSpeaker ? "speaker.wave.2.fill" : "speaker.fill", on: call.isSpeaker) { call.toggleSpeaker() }
-            Button { CallKitManager.shared.end() } label: {   // route end through CallKit
+            Button {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                CallKitManager.shared.end()   // route end through CallKit
+            } label: {
                 Image(systemName: "phone.down.fill")
                     .font(.system(size: 26)).foregroundStyle(.white)
                     .frame(width: 66, height: 66)
                     .background(.red, in: Circle())
             }
+            .buttonStyle(CallControlStyle())
         }
     }
 
     private func controlButton(_ icon: String, on: Bool, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()   // tactile tap
+            action()
+        } label: {
             Image(systemName: icon)
                 .font(.system(size: 24))
                 .foregroundStyle(on ? .black : .white)
                 .frame(width: 66, height: 66)
-                .background(on ? AnyShapeStyle(.white) : AnyShapeStyle(.ultraThinMaterial), in: Circle())
+                .background(on ? AnyShapeStyle(.white) : AnyShapeStyle(Color.white.opacity(0.16)), in: Circle())
         }
+        .buttonStyle(CallControlStyle())
     }
 }
 
@@ -174,5 +182,15 @@ struct MiniCallBar: View {
         .frame(maxWidth: .infinity)
         .background(Color.green)
         .onReceive(ticker) { now = $0 }
+    }
+}
+
+// Press feedback for call control buttons: dips + dims on press, springs back.
+struct CallControlStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
