@@ -48,6 +48,9 @@ struct SettingsView: View {
                     NavigationLink { AppearanceSettingsView() } label: {
                         Label("Appearance", systemImage: "paintbrush")
                     }
+                    NavigationLink { StorySettingsView() } label: {
+                        Label("Stories", systemImage: "circle.dashed")
+                    }
                     NavigationLink { PrivacySettingsView() } label: {
                         Label("Privacy & Security", systemImage: "lock.shield")
                     }
@@ -223,6 +226,29 @@ struct AboutView: View {
             }
         }
         .navigationTitle("Help & About")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Story Settings
+
+struct StorySettingsView: View {
+    @AppStorage("storyViewReceipts") private var viewReceipts = true
+
+    var body: some View {
+        List {
+            Section {
+                Toggle("Share View Receipts", isOn: $viewReceipts)
+            } footer: {
+                Text("If on, people see when you've viewed their status, and you can see who viewed yours. If off, neither is shared.")
+            }
+            Section {
+                LabeledContent("Who can see my status", value: "Your chats")
+            } footer: {
+                Text("Your status is visible for 24 hours to everyone you've chatted with, then it's deleted automatically.")
+            }
+        }
+        .navigationTitle("Stories")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
