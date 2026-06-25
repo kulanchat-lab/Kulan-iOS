@@ -150,27 +150,32 @@ struct ReactionMenuOverlay: View {
         VStack(spacing: 0) {
             row("Reply", "arrowshape.turn.up.left", onReply)
             if !message.isCall {
-                Divider().padding(.leading, 16)
+                menuDivider
                 row("Forward", "arrowshape.turn.up.right", onForward)
             }
             if !message.isImage && !message.text.isEmpty {
-                Divider().padding(.leading, 16)
+                menuDivider
                 row("Copy", "doc.on.doc") { UIPasteboard.general.string = message.text; onCopy() }
             }
             Divider().padding(.leading, 16)
             row("Pin", "pin", onPin)
             if isMe && !message.isImage && !message.isAudio && !message.isCall && message.sendState == nil {
-                Divider().padding(.leading, 16)
+                menuDivider
                 row("Edit", "pencil", onEdit)
             }
             if isMe {
-                Divider().padding(.leading, 16)
+                menuDivider
                 row("Delete", "trash", onDelete, destructive: true)
             }
         }
         .frame(width: 250)
-        .liquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))   // real Liquid Glass
+        .liquidGlass(RoundedRectangle(cornerRadius: 18, style: .continuous))   // real Liquid Glass
         .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
+    }
+
+    // Full-width hairline between rows (Apple context-menu style, no leading inset).
+    private var menuDivider: some View {
+        Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.5)
     }
 
     @ViewBuilder

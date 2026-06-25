@@ -18,6 +18,11 @@ struct ThreadView: View {
     @State private var showCamera = false
     @State private var showLibrary = false
     @State private var showVideoSoon = false
+    // Hold-to-record voice gesture state (WhatsApp/Telegram-style).
+    @State private var recordLocked = false        // recording continues after finger lifts
+    @State private var recordDrag: CGSize = .zero   // live finger translation while holding
+    @State private var recordCancelArmed = false    // dragged left past the cancel threshold
+    @State private var holdStarted = false          // guards a single start per hold
     @State private var recorder = AudioRecorder()
     @State private var highlightId: String?
     @State private var isAtBottom = true
@@ -600,104 +605,224 @@ struct ThreadView: View {
     // Subtle neutral fill (no glass, no shadow) — the iMessage field tint.
     private var fieldFill: Color { dark ? Color(hex: 0x2A2A2E) : Color(hex: 0xEEEEF2) }
 
+    // True while the finger is held down recording (not yet locked).
+    private var recordingHeld: Bool { recorder.isRecording && !recordLocked }
+    // Live finger translation, clamped to up/left (the two meaningful directions).
+    private var clampedDrag: CGSize {
+        CGSize(width: max(-90, min(0, recordDrag.width)),
+               height: max(-100, min(0, recordDrag.height)))
+    }
+
     private var composer: some View {
         Group {
-            if recorder.isRecording { recordingBar } else { inputRow }
+            if recordLocked { lockedRecordingBar } else { inputRow }
         }
         .padding(.horizontal, 16)   // spec: 16pt left/right margin
         .padding(.top, 6)
         .padding(.bottom, 8)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: recordLocked)
     }
 
     private var inputRow: some View {
         HStack(alignment: .bottom, spacing: 8) {   // spec: 8pt gap + button -> input
-            // Far-left circular "+" — native Menu so the popup anchors to the button.
-            Menu {
-                Button { showCamera = true } label: { Label("Camera", systemImage: "camera") }
-                Button { showLibrary = true } label: { Label("Photo Library", systemImage: "photo") }
-            } label: {
-                Image(systemName: sendingPhoto ? "ellipsis" : "plus")
-                    .font(.system(size: 20, weight: .regular))   // spec: 20pt icon
-                    .foregroundStyle(.primary)
-                    .frame(width: 40, height: 40)                // spec: 40x40
-                    .liquidGlass(Circle())   // real iOS 26 Liquid Glass
+            // Far-left circular "+" — hidden while actively recording so the row is clean.
+            if !recordingHeld {
+                Menu {
+                    Button { showCamera = true } label: { Label("Camera", systemImage: "camera") }
+                    Button { showLibrary = true } label: { Label("Photo Library", systemImage: "photo") }
+                } label: {
+                    Image(systemName: sendingPhoto ? "ellipsis" : "plus")
+                        .font(.system(size: 20, weight: .regular))   // spec: 20pt icon
+                        .foregroundStyle(.primary)
+                        .frame(width: 40, height: 40)                // spec: 40x40
+                        .liquidGlass(Circle())   // real iOS 26 Liquid Glass
+                }
+                .tint(.primary)
+                .transition(.scale.combined(with: .opacity))
             }
-            .tint(.primary)
 
-            // Input container: optional reply preview + divider, then the text row.
+            // Input capsule: reply preview + divider, then text field OR the live record row.
             VStack(spacing: 0) {
-                if let r = replyingTo {
+                if let r = replyingTo, !recordingHeld {
                     replyPreviewRow(r)
                     Divider().padding(.horizontal, 12)
                 }
-                // Text row: send arrow when typing, mic to record a voice note when empty.
-                HStack(alignment: .bottom, spacing: 4) {
-                    TextField("Message", text: $input, axis: .vertical)
-                        .font(.system(size: 17))     // spec: SF Pro 17pt Regular
-                        .lineLimit(1...6)
-                        .focused($inputFocused)
-                        .padding(.leading, 14)       // spec: 14pt leading
-                        .padding(.vertical, 10)      // spec: 10pt vertical
-                        .onChange(of: input) { _, v in
-                            let now = !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            if now != typingSent {
-                                typingSent = now
-                                Task { await ChatService.setTyping(cid, now) }
-                            }
-                        }
-                    if hasText {
-                        Button { send() } label: {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 28))          // spec: 28pt icon
-                                .foregroundStyle(Theme.accent(dark))
-                                .frame(width: 34, height: 34)     // spec: 32-34pt tap target
-                        }
-                        .padding(.trailing, 3)
-                        .padding(.bottom, 3)
-                        .transition(.scale.combined(with: .opacity))
-                    } else {
-                        HStack(spacing: 12) {   // spec: 12pt spacing
-                            Button { showCamera = true } label: {
-                                Image(systemName: "camera").font(.system(size: 22)).foregroundStyle(.secondary)
-                            }
-                            Button { recorder.requestAndStart() } label: {
-                                Image(systemName: "mic").font(.system(size: 22)).foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.trailing, 12)   // spec: 12pt right padding
-                        .padding(.bottom, 9)
-                        .transition(.scale.combined(with: .opacity))
-                    }
-                }
-                // spec: fade + scale swap, ~0.22s easeInOut
-                .animation(.easeInOut(duration: 0.22), value: hasText)
+                if recordingHeld { recordingHoldRow } else { textRow }
             }
             .frame(minHeight: 40)   // spec: 40pt base height
             .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))   // real iOS 26 Liquid Glass
+
+            // Right side: send (when typing) or the hold-to-record mic.
+            if hasText {
+                Button { send() } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 34))
+                        .foregroundStyle(Theme.accent(dark))
+                }
+                .transition(.scale.combined(with: .opacity))
+            } else {
+                micButton
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: hasText)
+        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: recordingHeld)
+    }
+
+    // Text field + inline camera (send moved beside the capsule).
+    private var textRow: some View {
+        HStack(alignment: .bottom, spacing: 4) {
+            TextField("Message", text: $input, axis: .vertical)
+                .font(.system(size: 17))     // spec: SF Pro 17pt Regular
+                .lineLimit(1...6)
+                .focused($inputFocused)
+                .padding(.leading, 14)       // spec: 14pt leading
+                .padding(.vertical, 10)      // spec: 10pt vertical
+                .onChange(of: input) { _, v in
+                    let now = !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    if now != typingSent {
+                        typingSent = now
+                        Task { await ChatService.setTyping(cid, now) }
+                    }
+                }
+            if !hasText {
+                Button { showCamera = true } label: {
+                    Image(systemName: "camera").font(.system(size: 22)).foregroundStyle(.secondary)
+                }
+                .padding(.trailing, 12).padding(.bottom, 9)
+            }
         }
     }
 
-    // Shown while recording a voice note: cancel · red dot + timer · send.
-    private var recordingBar: some View {
+    // Live recording row inside the capsule: red dot + timer + "‹ slide to cancel".
+    private var recordingHoldRow: some View {
+        HStack(spacing: 10) {
+            Circle().fill(.red).frame(width: 9, height: 9)
+            Text(timeString(recorder.elapsed)).font(.subheadline.monospacedDigit())
+            Spacer(minLength: 8)
+            HStack(spacing: 3) {
+                Image(systemName: "chevron.left").font(.system(size: 12, weight: .semibold))
+                Text("slide to cancel").font(.system(size: 14))
+            }
+            .foregroundStyle(recordCancelArmed ? Color.red : Color.secondary)
+            // Fade the hint as the finger slides toward the cancel threshold.
+            .opacity(1.0 - min(1.0, Double(-clampedDrag.width) / 90.0) * 0.6)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 11)
+    }
+
+    // The hold-to-record mic: grows + tints while held, follows the finger, shows a lock
+    // hint above. Drag up to lock, drag left to cancel, release to send.
+    private var micButton: some View {
+        Image(systemName: "mic.fill")
+            .font(.system(size: recordingHeld ? 24 : 22, weight: .medium))
+            .foregroundStyle(recordingHeld ? Theme.onAccent(dark) : Color.secondary)
+            .frame(width: recordingHeld ? 56 : 40, height: recordingHeld ? 56 : 40)
+            .background {
+                if recordingHeld {
+                    Circle().fill(recordCancelArmed ? Color.red : Theme.accent(dark))
+                }
+            }
+            .offset(recordingHeld ? clampedDrag : .zero)
+            .overlay(alignment: .top) { if recordingHeld { lockHint } }
+            .gesture(recordGesture)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: recordingHeld)
+    }
+
+    // Floating lock pill above the mic; fills in as the finger approaches the lock point.
+    private var lockHint: some View {
+        let progress = min(1.0, Double(-clampedDrag.height) / 100.0)
+        return VStack(spacing: 5) {
+            Image(systemName: progress > 0.55 ? "lock.fill" : "lock.open.fill")
+            Image(systemName: "chevron.up")
+        }
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(progress > 0.55 ? Theme.accent(dark) : .secondary)
+        .padding(.vertical, 10).padding(.horizontal, 9)
+        .liquidGlass(Capsule())
+        .offset(y: -84 - clampedDrag.height * 0.3)
+        .opacity(0.6 + progress * 0.4)
+        .transition(.opacity)
+    }
+
+    private var recordGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { v in
+                if !holdStarted {
+                    holdStarted = true
+                    recordCancelArmed = false
+                    recordDrag = .zero
+                    recorder.requestAndStart()
+                    impact(.medium)               // start
+                }
+                recordDrag = v.translation
+                let armed = v.translation.width < -90
+                if armed != recordCancelArmed {
+                    recordCancelArmed = armed
+                    if armed { impact(.rigid) }    // entered cancel zone
+                }
+                if v.translation.height < -100 && !recordLocked { lockRecording() }
+            }
+            .onEnded { v in
+                guard holdStarted else { return }  // already locked → ignore release
+                holdStarted = false
+                if recordLocked { return }
+                let cancel = v.translation.width < -90
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { recordDrag = .zero }
+                recordCancelArmed = false
+                if cancel { recorder.cancel(); notify(.warning) }      // slide-to-cancel
+                else { Task { await stopAndSendAudio() }; impact(.light) }   // release-to-send
+            }
+    }
+
+    // Locked mode (finger lifted): delete · timer + waveform · send.
+    private var lockedRecordingBar: some View {
         HStack(spacing: 12) {
-            Button { recorder.cancel() } label: {
-                Image(systemName: "trash").font(.system(size: 18)).foregroundStyle(.red)
-                    .frame(width: 36, height: 36)
+            Button { cancelRecording() } label: {
+                Image(systemName: "trash.fill").font(.system(size: 18)).foregroundStyle(.red)
+                    .frame(width: 40, height: 40).liquidGlass(Circle())
             }
             HStack(spacing: 8) {
-                Circle().fill(.red).frame(width: 9, height: 9)
+                Image(systemName: "lock.fill").font(.system(size: 12)).foregroundStyle(.secondary)
                 Text(timeString(recorder.elapsed)).font(.subheadline.monospacedDigit())
                 LiveWaveform(levels: recorder.levels, color: Theme.accent(dark))
                     .frame(maxWidth: .infinity, maxHeight: 22)
             }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 36)
+            .padding(.horizontal, 14).frame(minHeight: 40)
             .liquidGlass(Capsule())
-            Button { Task { await stopAndSendAudio() } } label: {
-                Image(systemName: "arrow.up.circle.fill").font(.system(size: 32))
+            Button { sendRecording() } label: {
+                Image(systemName: "arrow.up.circle.fill").font(.system(size: 38))
                     .foregroundStyle(Theme.accent(dark))
             }
         }
+    }
+
+    private func lockRecording() {
+        holdStarted = false
+        recordCancelArmed = false
+        impact(.medium)   // lock
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            recordLocked = true
+            recordDrag = .zero
+        }
+    }
+    private func cancelRecording() {
+        recorder.cancel()
+        notify(.warning)
+        resetRecordingState()
+    }
+    private func sendRecording() {
+        Task { await stopAndSendAudio() }
+        impact(.light)
+        resetRecordingState()
+    }
+    private func resetRecordingState() {
+        withAnimation { recordLocked = false; recordDrag = .zero; recordCancelArmed = false; holdStarted = false }
+    }
+    private func impact(_ s: UIImpactFeedbackGenerator.FeedbackStyle) {
+        UIImpactFeedbackGenerator(style: s).impactOccurred()
+    }
+    private func notify(_ t: UINotificationFeedbackGenerator.FeedbackType) {
+        UINotificationFeedbackGenerator().notificationOccurred(t)
     }
 
     private func timeString(_ t: TimeInterval) -> String {
