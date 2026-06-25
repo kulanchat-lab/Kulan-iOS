@@ -340,7 +340,7 @@ struct ThreadView: View {
                 Image(systemName: "chevron.backward")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 48, height: 48)
                     .liquidGlass(Circle())
             }
             NavigationLink {
@@ -363,13 +363,13 @@ struct ThreadView: View {
             // Voice call — circular Liquid Glass button (Apple style), real call.
             Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
                 Image(systemName: "phone.fill").font(.system(size: 16, weight: .medium)).foregroundStyle(.primary)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 48, height: 48)
                     .liquidGlass(Circle())
             }
             // Video call — same glass style; honest "coming soon" (video isn't built yet).
             Button { showVideoSoon = true } label: {
                 Image(systemName: "video.fill").font(.system(size: 16, weight: .medium)).foregroundStyle(.primary)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 48, height: 48)
                     .liquidGlass(Circle())
             }
         }
