@@ -103,9 +103,11 @@ struct CallsView: View {
                                 }
                             )
                             .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 1, leading: 16, bottom: 1, trailing: 16))
                         }
                     }
                     .listStyle(.plain)
+                    .environment(\.defaultMinListRowHeight, 56)   // tight, compact rows
                 }
             }
             .navigationTitle("Calls")
@@ -177,7 +179,7 @@ struct CallHistoryRow: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 
     private func timeLabel(_ d: Date) -> String {
@@ -339,14 +341,16 @@ struct ChatsView: View {
 
     @ToolbarContentBuilder private var homeToolbar: some ToolbarContent {
         if selecting {
-            ToolbarItem(placement: .topBarLeading) { Button("Cancel") { exitSelect() } }
+            // Minimal X close (replaces "Cancel"); no "Select All" — tap rows to select.
+            ToolbarItem(placement: .topBarLeading) {
+                Button { exitSelect() } label: { Image(systemName: "xmark") }.tint(.primary)
+            }
             ToolbarItem(placement: .principal) {
                 Text(selection.isEmpty ? "Select Chats" : "\(selection.count) Selected").font(.headline)
             }
-            ToolbarItem(placement: .topBarTrailing) { Button("Select All") { selectAll() } }
         } else if #available(iOS 26.0, *) {
+            // Edit keeps its native Liquid Glass capsule (no sharedBackgroundVisibility opt-out).
             ToolbarItem(placement: .topBarLeading) { editButton.modifier(SwipeFade(on: showHeaderIcons)) }
-                .sharedBackgroundVisibility(.hidden)
             ToolbarItemGroup(placement: .topBarTrailing) {
                 filterMenu.modifier(SwipeFade(on: showHeaderIcons))
                 composeButton.modifier(SwipeFade(on: showHeaderIcons))
@@ -647,6 +651,18 @@ struct ChatRow: View {
         return decoded.isEmpty ? "Say hello 👋" : decoded
     }
     private var unread: Int { conv.isBlockedByMe(me) ? 0 : conv.unread(me) }   // silent block: no badge
+    private var muted: Bool { conv.isMuted(me, now: Date().timeIntervalSince1970 * 1000) }
+
+    // WhatsApp-style ticks for MY last message: single grey = sent, double accent = read.
+    @ViewBuilder private var ticksView: some View {
+        let read = conv.lastReadByOther(me)
+        HStack(spacing: -3) {
+            Image(systemName: "checkmark")
+            if read { Image(systemName: "checkmark") }
+        }
+        .font(.system(size: 10, weight: .bold))
+        .foregroundStyle(read ? Theme.accent(dark) : Color.secondary)
+    }
 
     private var timeStr: String {
         let ms = conv.displayUpdatedAt(me)   // frozen at block time for blocked chats
@@ -662,23 +678,32 @@ struct ChatRow: View {
     }
 
     var body: some View {
-        // Spec: 56pt avatar, 12pt avatar→text gap, 8pt text→time/badge gap, 74pt row.
+        // 56pt avatar; up to 2 preview lines; mute/pin/tick indicators inline.
         HStack(spacing: 12) {
             AvatarView(name: conv.name(for: me), photoUrl: conv.photoUrl(for: me), size: 56)
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Text(conv.name(for: me))
                         .font(.system(size: 16, weight: .semibold))
                         .lineLimit(1)
+                    if muted {
+                        Image(systemName: "bell.slash.fill")
+                            .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    }
                     Spacer(minLength: 8)
                     Text(timeStr)
                         .font(.system(size: 12))
                         .foregroundStyle(unread > 0 ? Theme.accent(dark) : .secondary)
                 }
-                HStack(spacing: 8) {
+                HStack(alignment: .top, spacing: 4) {
+                    if conv.lastIsMine(me) { ticksView.padding(.top, 2) }
                     Text(preview)
-                        .font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(1)
+                        .font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(2)
                     Spacer(minLength: 8)
+                    if conv.isPinned(me) {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    }
                     if unread > 0 {
                         Text("\(min(unread, 99))")
                             .font(.caption2.bold()).foregroundColor(Theme.onAccent(dark))
@@ -689,6 +714,7 @@ struct ChatRow: View {
                 }
             }
         }
-        .frame(height: 74)   // fixed row height per spec
+        .frame(minHeight: 76)
+        .padding(.vertical, 2)
     }
 }

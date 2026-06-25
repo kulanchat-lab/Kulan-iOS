@@ -103,14 +103,16 @@ struct ContactInfoView: View {
         .navigationDestination(isPresented: $openChat) {
             ThreadView(cid: cid, title: name, photoUrl: photoUrl)
         }
-        .confirmationDialog("Mute \(name)", isPresented: $showMuteOptions, titleVisibility: .visible) {
+        // Native flat action sheet (no custom capsules/tail/glow): dimmed header + clean rows.
+        .confirmationDialog("Mute this chat for…", isPresented: $showMuteOptions, titleVisibility: .visible) {
             if muted {
                 Button("Unmute") { muted = false; Task { await ChatService.setMute(cid, until: 0) } }
             }
-            Button("Mute for 1 hour") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(1)) } }
-            Button("Mute for 8 hours") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(8)) } }
-            Button("Mute for 1 week") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(168)) } }
-            Button("Mute Always") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(nil)) } }
+            Button("1 hour") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(1)) } }
+            Button("8 hours") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(8)) } }
+            Button("1 day") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(24)) } }
+            Button("1 week") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(168)) } }
+            Button("Always") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(nil)) } }
             Button("Cancel", role: .cancel) {}
         }
     }
