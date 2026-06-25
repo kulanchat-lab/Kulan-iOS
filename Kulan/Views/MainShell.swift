@@ -41,7 +41,7 @@ struct MainShell: View {
         guard let s = profile.me?.photoUrl, let url = URL(string: s),
               let (data, _) = try? await URLSession.shared.data(from: url),
               let img = UIImage(data: data) else { return }
-        let circ = img.circularIcon(56)
+        let circ = img.circularIcon(28)   // tab-icon size — 56 overflowed onto the label
         await MainActor.run { settingsIcon = circ }
     }
 }
