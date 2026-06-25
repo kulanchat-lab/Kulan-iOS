@@ -52,48 +52,32 @@ struct DevicesView: View {
 
     var body: some View {
         List {
-            Section {
-                VStack(spacing: 12) {
-                    Image(systemName: "laptopcomputer.and.iphone")
-                        .font(.system(size: 40, weight: .regular))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 4)
-                    // Was borderedProminent + white tint -> white text on a white capsule
-                    // (invisible). A bordered button shows the label in the tint color.
-                    Button { showAddInfo = true } label: {
-                        Label("Add Device", systemImage: "plus").font(.subheadline.weight(.semibold))
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.primary)
-                }
-                .frame(maxWidth: .infinity)
-                .listRowBackground(Color.clear)
-            }
-
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(UIDevice.current.name).font(.headline)
-                    Text("Kulan iOS \(appVersion)").font(.subheadline).foregroundStyle(.secondary)
-                    Text("\(UIDevice.current.systemName) \(UIDevice.current.systemVersion) • online")
+            // Native iOS Settings styling: standard section headers, default fonts,
+            // standard rows (no custom hero icon / bordered button / bold overrides).
+            Section("This Device") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(UIDevice.current.name)
+                    Text("Kulan iOS \(appVersion) · \(UIDevice.current.systemName) \(UIDevice.current.systemVersion)")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                .padding(.vertical, 4)
-                Button(role: .destructive) { showTerminateInfo = true } label: {
-                    Label("Terminate all other sessions", systemImage: "rectangle.portrait.and.arrow.right")
-                        .fontWeight(.semibold)
-                }
-            } header: {
-                Text("THIS DEVICE")
-            } footer: {
-                Text("Logs out all devices except for this one.")
+                LabeledContent("Status") { Text("Online").foregroundStyle(.secondary) }
             }
 
-            Section("ACTIVE SESSIONS") {
-                // Honest: anonymous login = one device per account, so there are no
-                // other live sessions to list. Wired to show real sessions when
-                // multi-device support is added.
-                Text("No other devices are signed in.")
-                    .foregroundStyle(.secondary)
+            Section("Other Sessions") {
+                // Honest: anonymous login = one device per account, so none to list yet.
+                Text("No other devices are signed in.").foregroundStyle(.secondary)
+            }
+
+            Section {
+                Button { showAddInfo = true } label: {
+                    Label("Add Device", systemImage: "plus")
+                }
+                .tint(.primary)
+                Button(role: .destructive) { showTerminateInfo = true } label: {
+                    Label("Terminate All Other Sessions", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+            } footer: {
+                Text("Adding a device isn't available yet. Terminate logs out all devices except this one.")
             }
         }
         .navigationTitle("Devices")
