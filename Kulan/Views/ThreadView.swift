@@ -2,14 +2,6 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
-private extension View {
-    // Remove the iOS 26 auto Liquid-Glass background pill from a single toolbar item
-    // (no-op on older OS). Used to show the avatar+name+status with no border.
-    @ViewBuilder func plainToolbarItem() -> some View {
-        if #available(iOS 26.0, *) { self.sharedBackgroundVisibility(.hidden) } else { self }
-    }
-}
-
 struct ThreadView: View {
     let cid: String
     let title: String
@@ -26,6 +18,7 @@ struct ThreadView: View {
     @State private var showCamera = false
     @State private var showLibrary = false
     @State private var showVideoSoon = false
+    @State private var showContactInfo = false   // tap avatar/name in header → profile
     // Hold-to-record voice gesture state (WhatsApp/Telegram-style).
     @State private var recordLocked = false        // recording continues after finger lifts
     @State private var recordDrag: CGSize = .zero   // live finger translation while holding
@@ -129,6 +122,9 @@ struct ThreadView: View {
         // like the Chats list header. Avatar/name/call buttons live in the toolbar.
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { chatToolbar }
+        .navigationDestination(isPresented: $showContactInfo) {
+            ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
+        }
         .alert("Video calls", isPresented: $showVideoSoon) {
             Button("OK", role: .cancel) {}
         } message: { Text("Video calling is coming soon.") }
@@ -379,24 +375,22 @@ struct ThreadView: View {
     // The native back button (leading) owns the real edge-swipe-back gesture.
     @ToolbarContentBuilder private var chatToolbar: some ToolbarContent {
         // Avatar + name grouped tightly right after the back button (leading), not centered.
+        // Plain (non-button) content so iOS 26 doesn't wrap it in a glass pill — no border.
+        // Tap opens the contact profile via navigationDestination.
         ToolbarItem(placement: .topBarLeading) {
-            NavigationLink {
-                ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
-            } label: {
-                HStack(spacing: 9) {
-                    AvatarView(name: title, photoUrl: photoUrl, size: 46)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(title).font(.headline).foregroundStyle(.primary).lineLimit(1)
-                        if let sub = presenceSubtitle {
-                            Text(sub).font(.caption2)
-                                .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
-                                .lineLimit(1)
-                        }
+            HStack(spacing: 9) {
+                AvatarView(name: title, photoUrl: photoUrl, size: 46)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                    if let sub = presenceSubtitle {
+                        Text(sub).font(.caption2)
+                            .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
+                            .lineLimit(1)
                     }
                 }
             }
-            .tint(.primary)
-            .plainToolbarItem()   // strip the iOS 26 glass pill around avatar+name only
+            .contentShape(Rectangle())
+            .onTapGesture { showContactInfo = true }
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
@@ -653,73 +647,78 @@ struct ThreadView: View {
     }
 
     private var inputRow: some View {
-        HStack(alignment: .bottom, spacing: 8) {   // spec: 8pt gap + button -> input
-            // Far-left circular "+" — hidden while actively recording so the row is clean.
+        HStack(alignment: .bottom, spacing: 8) {   // "+" outside-left, everything else in the field
             if !recordingHeld {
                 Menu {
                     Button { showCamera = true } label: { Label("Camera", systemImage: "camera") }
                     Button { showLibrary = true } label: { Label("Photo Library", systemImage: "photo") }
                 } label: {
                     Image(systemName: sendingPhoto ? "ellipsis" : "plus")
-                        .font(.system(size: 20, weight: .regular))   // spec: 20pt icon
+                        .font(.system(size: 20, weight: .regular))
                         .foregroundStyle(.primary)
-                        .frame(width: 40, height: 40)                // spec: 40x40
-                        .liquidGlass(Circle())   // real iOS 26 Liquid Glass
+                        .frame(width: 40, height: 40)
+                        .liquidGlass(Circle())
                 }
                 .tint(.primary)
                 .transition(.scale.combined(with: .opacity))
             }
 
-            // Input capsule: reply preview + divider, then text field OR the live record row.
-            VStack(spacing: 0) {
-                if let r = replyingTo, !recordingHeld {
-                    replyPreviewRow(r)
-                    Divider().padding(.horizontal, 12)
+            // Single field (Telegram/iMessage style): reply preview + text/record content on
+            // the left, and the camera/mic/send controls INSIDE on the right.
+            HStack(alignment: .bottom, spacing: 4) {
+                VStack(spacing: 0) {
+                    if let r = replyingTo, !recordingHeld {
+                        replyPreviewRow(r)
+                        Divider().padding(.horizontal, 12)
+                    }
+                    if recordingHeld { recordingHoldRow } else { messageField }
                 }
-                if recordingHeld { recordingHoldRow } else { textRow }
+                trailingControls
             }
-            .frame(minHeight: 40)   // spec: 40pt base height
-            // Native iMessage/WhatsApp field look: subtle neutral fill, not heavy glass.
+            .frame(minHeight: 40)
             .background(fieldFill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-
-            // Right side: send (when typing) or the hold-to-record mic.
-            if hasText {
-                Button { send() } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 34))
-                        .foregroundStyle(Theme.accent(dark))
-                }
-                .transition(.scale.combined(with: .opacity))
-            } else {
-                micButton
-            }
         }
         .animation(.easeInOut(duration: 0.2), value: hasText)
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: recordingHeld)
     }
 
-    // Text field + inline camera (send moved beside the capsule).
-    private var textRow: some View {
-        HStack(alignment: .bottom, spacing: 4) {
-            TextField("Message", text: $input, axis: .vertical)
-                .font(.system(size: 17))     // spec: SF Pro 17pt Regular
-                .lineLimit(1...6)
-                .focused($inputFocused)
-                .padding(.leading, 14)       // spec: 14pt leading
-                .padding(.vertical, 10)      // spec: 10pt vertical
-                .onChange(of: input) { _, v in
-                    let now = !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    if now != typingSent {
-                        typingSent = now
-                        Task { await ChatService.setTyping(cid, now) }
-                    }
+    // Just the text field — trailing buttons are stable siblings (so the mic view never
+    // unmounts when the field swaps to the recording row mid-hold).
+    private var messageField: some View {
+        TextField("Message", text: $input, axis: .vertical)
+            .font(.system(size: 17))
+            .lineLimit(1...6)
+            .focused($inputFocused)
+            .padding(.leading, 14)
+            .padding(.vertical, 10)
+            .onChange(of: input) { _, v in
+                let now = !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                if now != typingSent {
+                    typingSent = now
+                    Task { await ChatService.setTyping(cid, now) }
                 }
-            if !hasText {
+            }
+    }
+
+    // Inside-the-field controls: send when typing, otherwise camera + hold-to-record mic.
+    @ViewBuilder private var trailingControls: some View {
+        if hasText {
+            Button { send() } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 30)).foregroundStyle(Theme.accent(dark))
+            }
+            .padding(.trailing, 5).padding(.bottom, 5)
+            .transition(.scale.combined(with: .opacity))
+        } else {
+            HStack(spacing: 10) {
                 Button { showCamera = true } label: {
                     Image(systemName: "camera").font(.system(size: 22)).foregroundStyle(.secondary)
                 }
-                .padding(.trailing, 12).padding(.bottom, 9)
+                .opacity(recordingHeld ? 0 : 1)
+                .frame(width: recordingHeld ? 0 : nil)   // collapse camera while recording
+                micButton
             }
+            .padding(.trailing, 12).padding(.bottom, 7)
         }
     }
 
