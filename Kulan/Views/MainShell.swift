@@ -14,7 +14,7 @@ struct MainShell: View {
     var body: some View {
         TabView {
             ChatsView(onSignOut: onSignOut)
-                .tabItem { Label("Chats", systemImage: "bubble.fill") }
+                .tabItem { Label("Chats", systemImage: "message.fill") }
             CallsView()
                 .tabItem { Label("Calls", systemImage: "phone.fill") }
             SettingsView(onSignOut: onSignOut, asTab: true)
