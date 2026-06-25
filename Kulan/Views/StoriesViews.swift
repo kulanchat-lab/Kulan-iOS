@@ -10,13 +10,17 @@ struct StoriesRow: View {
     var onCompose: () -> Void
     var onOpen: (StoryGroup) -> Void
 
+    private let cardW: CGFloat = 92
+    private let cardH: CGFloat = 132
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: 14) {
-                myCell
+            HStack(alignment: .top, spacing: 12) {
+                myCard
                 ForEach(repo.others) { g in
-                    cell(name: g.name.isEmpty ? "User" : g.name, photo: g.photoUrl,
-                         unseen: g.hasUnseen) { onOpen(g) }
+                    card(cover: g.stories.last?.mediaUrl,
+                         name: g.name.isEmpty ? "User" : g.name,
+                         avatar: g.photoUrl, unseen: g.hasUnseen) { onOpen(g) }
                 }
             }
             .padding(.horizontal, 14)
@@ -25,39 +29,61 @@ struct StoriesRow: View {
         .task { await repo.load() }
     }
 
-    private var myCell: some View {
+    // My Status: my latest story photo (or my avatar) as the cover, a + badge to add.
+    private var myCard: some View {
+        card(cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
+             name: "My Story", avatar: mePhoto,
+             unseen: repo.mine?.hasUnseen ?? false, onBadge: onCompose) {
+            if let m = repo.mine { onOpen(m) } else { onCompose() }
+        }
+    }
+
+    // A cover card: rounded photo, accent border when unseen, small corner avatar (or a +
+    // badge for My Story), name underneath.
+    private func card(cover: String?, name: String, avatar: String?, unseen: Bool,
+                      onBadge: (() -> Void)? = nil, tap: @escaping () -> Void) -> some View {
         VStack(spacing: 6) {
             ZStack(alignment: .bottomTrailing) {
-                ring(name: repo.mine?.name ?? meName, photo: repo.mine?.photoUrl ?? mePhoto,
-                     unseen: repo.mine?.hasUnseen ?? false, hasStory: repo.mine != nil)
-                    .onTapGesture { if let m = repo.mine { onOpen(m) } else { onCompose() } }
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 20))
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, Color.accentColor)
-                    .onTapGesture { onCompose() }
+                coverImage(cover, name: name, avatar: avatar)
+                    .frame(width: cardW, height: cardH)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(unseen ? Color.accentColor : Color.white.opacity(0.18),
+                                    lineWidth: unseen ? 2.5 : 1)
+                    )
+                if let onBadge {
+                    Button(action: onBadge) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 22)).symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, Color.accentColor)
+                    }
+                    .buttonStyle(.plain).padding(6)
+                } else {
+                    AvatarView(name: name, photoUrl: avatar, size: 26)
+                        .overlay(Circle().stroke(.white, lineWidth: 1.5))
+                        .padding(6)
+                }
             }
-            Text("My Status").font(.system(size: 12)).lineLimit(1)
+            Text(name).font(.system(size: 12)).lineLimit(1).frame(width: cardW)
         }
-        .frame(width: 72)
+        .frame(width: cardW)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: tap)
     }
 
-    private func cell(name: String, photo: String?, unseen: Bool, tap: @escaping () -> Void) -> some View {
-        VStack(spacing: 6) {
-            ring(name: name, photo: photo, unseen: unseen, hasStory: true).onTapGesture(perform: tap)
-            Text(name).font(.system(size: 12)).lineLimit(1)
+    @ViewBuilder private func coverImage(_ cover: String?, name: String, avatar: String?) -> some View {
+        if let cover, let url = URL(string: cover) {
+            AsyncImage(url: url) { p in
+                if let img = p.image { img.resizable().scaledToFill() }
+                else { Color.secondary.opacity(0.25) }
+            }
+        } else {
+            ZStack {
+                Color.secondary.opacity(0.2)
+                AvatarView(name: name, photoUrl: avatar, size: cardW * 0.62)
+            }
         }
-        .frame(width: 72)
-    }
-
-    private func ring(name: String, photo: String?, unseen: Bool, hasStory: Bool) -> some View {
-        AvatarView(name: name, photoUrl: photo, size: 56)
-            .padding(3)
-            .overlay(
-                Circle().stroke(
-                    hasStory ? (unseen ? Color.accentColor : Color.secondary.opacity(0.35)) : Color.clear,
-                    lineWidth: 2.5)
-            )
     }
 
     func reload() { Task { await repo.load() } }
