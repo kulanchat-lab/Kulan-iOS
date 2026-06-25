@@ -7,6 +7,14 @@ import FirebaseAuth
 //   Chats    -> full message search (names + the text of every message)
 //   Calls    -> everyone you've chatted with, tap to start a call
 //   Settings -> search within Settings
+extension View {
+    // Auto-focus a `.searchable` field so the keyboard opens the moment the search
+    // page appears (no second tap). `searchFocused` is iOS 18+, so older OS just no-ops.
+    @ViewBuilder func autoFocusSearch(_ focused: FocusState<Bool>.Binding) -> some View {
+        if #available(iOS 18.0, *) { self.searchFocused(focused) } else { self }
+    }
+}
+
 struct SearchHubView: View {
     let context: Int            // 0 = Chats, 1 = Calls, 2 = Settings
     var onSignOut: () -> Void = {}
@@ -44,6 +52,7 @@ struct ChatSearchView: View {
     @State private var hits: [MessageHit] = []
     @State private var searching = false
     @State private var searchTask: Task<Void, Never>?
+    @FocusState private var searchFocused: Bool
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
@@ -106,8 +115,10 @@ struct ChatSearchView: View {
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
                     prompt: "Search messages")
+        .autoFocusSearch($searchFocused)
         .onAppear { repo.start() }
         .onChange(of: query) { _, _ in scheduleSearch() }
+        .task { try? await Task.sleep(nanoseconds: 350_000_000); searchFocused = true }
     }
 
     private func open(_ cid: String, _ name: String, _ photo: String?) {
@@ -186,6 +197,7 @@ struct ContactsSearchView: View {
     private var repo = ConversationsRepository.shared
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
+    @FocusState private var searchFocused: Bool
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
@@ -231,7 +243,9 @@ struct ContactsSearchView: View {
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
                     prompt: "Search contacts")
+        .autoFocusSearch($searchFocused)
         .onAppear { repo.start() }
+        .task { try? await Task.sleep(nanoseconds: 350_000_000); searchFocused = true }
     }
 }
 
@@ -240,6 +254,7 @@ struct ContactsSearchView: View {
 struct SettingsSearchView: View {
     var onSignOut: () -> Void = {}
     @State private var query = ""
+    @FocusState private var searchFocused: Bool
     private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
 
     private struct Entry: Identifiable {
@@ -305,5 +320,7 @@ struct SettingsSearchView: View {
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
                     prompt: "Search settings")
+        .autoFocusSearch($searchFocused)
+        .task { try? await Task.sleep(nanoseconds: 350_000_000); searchFocused = true }
     }
 }
