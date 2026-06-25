@@ -151,7 +151,7 @@ struct CallsView: View {
                             )
                             .tag(call.id)
                             .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 1, leading: 16, bottom: 1, trailing: 16))
+                            .listRowInsets(EdgeInsets(top: 7, leading: 16, bottom: 7, trailing: 16))
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) { deleteCall(call) } label: {
                                     Label("Delete", systemImage: "trash")
