@@ -54,7 +54,9 @@ struct StoriesRow: View {
                     Button(action: onBadge) {
                         Image(systemName: "plus.circle.fill")
                             .font(.system(size: 26)).symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, Color.accentColor)
+                            // plus glyph = page bg, circle = primary -> always contrasts in
+                            // both modes (accent is white in dark, so the old version was all white).
+                            .foregroundStyle(Color(.systemBackground), .primary)
                             .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
                     }
                     .buttonStyle(.plain).padding(8)

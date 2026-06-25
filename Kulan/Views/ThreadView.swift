@@ -971,7 +971,9 @@ struct MessageBubble: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 8).padding(.vertical, 5)
-            .background(isMe ? Color.white.opacity(0.15) : Color.primary.opacity(0.06))
+            // Tint the quote box with the (contrasting) text color so it's always visible —
+            // the old white tint vanished on the white "mine" bubble in dark mode.
+            .background(fg.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(Rectangle())
             .onTapGesture { onJumpTo(reply.id) }   // jump to the original message

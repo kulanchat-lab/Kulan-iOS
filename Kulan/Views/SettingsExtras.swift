@@ -53,15 +53,17 @@ struct DevicesView: View {
     var body: some View {
         List {
             Section {
-                VStack(spacing: 14) {
+                VStack(spacing: 12) {
                     Image(systemName: "laptopcomputer.and.iphone")
-                        .font(.system(size: 52, weight: .light))
+                        .font(.system(size: 40, weight: .regular))
                         .foregroundStyle(.secondary)
-                        .padding(.top, 8)
+                        .padding(.top, 4)
+                    // Was borderedProminent + white tint -> white text on a white capsule
+                    // (invisible). A bordered button shows the label in the tint color.
                     Button { showAddInfo = true } label: {
-                        Text("Add Device").fontWeight(.semibold).frame(maxWidth: .infinity)
+                        Label("Add Device", systemImage: "plus").font(.subheadline.weight(.semibold))
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                     .tint(.primary)
                 }
                 .frame(maxWidth: .infinity)
