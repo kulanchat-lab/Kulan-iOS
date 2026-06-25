@@ -27,6 +27,7 @@ struct ContactInfoView: View {
     @State private var viewerImage: Message?
     @State private var showClear = false
     @State private var showBlock = false
+    @State private var showShare = false
     @State private var showCallSoon = false
     @State private var showSearchSoon = false
     @State private var showVideoSoon = false
@@ -66,6 +67,7 @@ struct ContactInfoView: View {
         }
         .fullScreenCover(item: $viewerImage) { msg in ImageViewerView(message: msg, cid: cid) }
         .sheet(isPresented: $showAllMedia) { SharedMediaGridView(cid: cid, media: media) }
+        .sheet(isPresented: $showShare) { ActivityView(items: [shareText]) }
         .alert("Clear your messages?", isPresented: $showClear) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
@@ -162,12 +164,25 @@ struct ContactInfoView: View {
 
     private var moreMenu: some View {
         Menu {
+            // Auto-delete (disappearing messages) — native submenu, Off up to 1 year.
             Menu {
                 Button("Off") { setDisappear(0) }
                 Button("1 Day") { setDisappear(86_400) }
                 Button("1 Week") { setDisappear(604_800) }
+                Button("1 Month") { setDisappear(2_592_000) }
+                Button("1 Year") { setDisappear(31_536_000) }
             } label: { Label("Disappearing Messages", systemImage: "timer") }
+
+            Button { showShare = true } label: {
+                Label("Share Contact", systemImage: "square.and.arrow.up")
+            }
+
             Divider()
+
+            // Clear is a normal (non-red) action; only Block is destructive/red.
+            Button { showClear = true } label: {
+                Label("Clear my messages", systemImage: "trash")
+            }
             if blocked {
                 Button { Task { await ChatService.setBlocked(cid, false); blocked = false } } label: {
                     Label("Unblock", systemImage: "hand.raised.slash")
@@ -177,11 +192,14 @@ struct ContactInfoView: View {
                     Label("Block \(name)", systemImage: "hand.raised")
                 }
             }
-            Button(role: .destructive) { showClear = true } label: {
-                Label("Clear my messages", systemImage: "trash")
-            }
         } label: { tileLabel("more", "ellipsis") }
             .tint(.primary)
+    }
+
+    // Shareable contact link (opens/starts a chat with this user in Kulan).
+    private var shareText: String {
+        handle.isEmpty ? "Chat with \(name) on Kulan"
+                       : "Chat with \(name) on Kulan: kulan://u/\(handle)"
     }
 
     // The most recent real call with this person (nil if none) — drives the call-log card.
