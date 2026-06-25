@@ -6,6 +6,9 @@ struct ChatTarget: Identifiable, Hashable {
     let photo: String?
 }
 
+// New Message screen: search by name/username (+ QR), and an A–Z sectioned list of
+// everyone you've chatted with, with a side index — native-styled. (No groups / phone
+// lookup / note-to-self: those aren't real features in Kulan, so they're omitted.)
 struct NewChatView: View {
     let onOpen: (ChatTarget) -> Void
     init(onOpen: @escaping (ChatTarget) -> Void = { _ in }) { self.onOpen = onOpen }
@@ -19,52 +22,81 @@ struct NewChatView: View {
     @State private var showScan = false
 
     private var me: String { AuthService.shared.uid ?? "" }
-    private var recents: [Conversation] {
-        Array(convRepo.conversations.filter { !$0.isCleared(me) }.prefix(15))
+
+    // People you've chatted with, grouped by first letter (A–Z, then "#").
+    private var sections: [(letter: String, convs: [Conversation])] {
+        let all = convRepo.conversations.filter { !$0.isCleared(me) }
+        let grouped = Dictionary(grouping: all) { c -> String in
+            let n = c.name(for: me).trimmingCharacters(in: .whitespaces).uppercased()
+            guard let f = n.first, f.isLetter else { return "#" }
+            return String(f)
+        }
+        return grouped
+            .map { ($0.key, $0.value.sorted { $0.name(for: me).lowercased() < $1.name(for: me).lowercased() }) }
+            .sorted { $0.letter == "#" ? false : ($1.letter == "#" ? true : $0.letter < $1.letter) }
     }
+    private var indexLetters: [String] { sections.map(\.letter) }
 
     var body: some View {
         NavigationStack {
-            List {
-                if let error { Text(error).foregroundStyle(.red) }
+            ScrollViewReader { proxy in
+                List {
+                    if let error { Text(error).foregroundStyle(.red) }
 
-                if query.isEmpty {
-                    if recents.isEmpty {
-                        ContentUnavailableView("Start a new chat", systemImage: "square.and.pencil",
-                                               description: Text("Search a username to message someone."))
-                    } else {
-                        Section("Recent") {
-                            ForEach(recents) { conv in
-                                Button {
-                                    onOpen(ChatTarget(id: conv.id, name: conv.name(for: me), photo: conv.photoUrl(for: me)))
-                                } label: {
-                                    personRow(name: conv.name(for: me), handle: nil, photo: conv.photoUrl(for: me))
+                    if !query.isEmpty {
+                        Section("Results") {
+                            ForEach(results) { user in
+                                Button { start(user) } label: {
+                                    personRow(name: user.name.isEmpty ? user.handle : user.name,
+                                              handle: user.handle, photo: user.photoUrl)
+                                }
+                            }
+                            if results.isEmpty {
+                                if searching {
+                                    HStack { ProgressView(); Text("Searching…").foregroundStyle(.secondary) }
+                                } else {
+                                    Text("No one found for “\(query)”").foregroundStyle(.secondary)
                                 }
                             }
                         }
-                    }
-                } else {
-                    Section("Results") {
-                        ForEach(results) { user in
-                            Button { start(user) } label: {
-                                personRow(name: user.name.isEmpty ? user.handle : user.name,
-                                          handle: user.handle, photo: user.photoUrl)
+                    } else if sections.isEmpty {
+                        ContentUnavailableView("Start a new chat", systemImage: "square.and.pencil",
+                                               description: Text("Search a username to message someone."))
+                    } else {
+                        ForEach(sections, id: \.letter) { section in
+                            Section(section.letter) {
+                                ForEach(section.convs) { conv in
+                                    Button {
+                                        onOpen(ChatTarget(id: conv.id, name: conv.name(for: me), photo: conv.photoUrl(for: me)))
+                                    } label: {
+                                        personRow(name: conv.name(for: me), handle: nil, photo: conv.photoUrl(for: me))
+                                    }
+                                }
                             }
-                        }
-                        // Only after the query has FINISHED with zero hits — never
-                        // flashes "not found" while the lookup is still running.
-                        if results.isEmpty {
-                            if searching {
-                                HStack { ProgressView(); Text("Searching…").foregroundStyle(.secondary) }
-                            } else {
-                                Text("No one found for “\(query)”").foregroundStyle(.secondary)
-                            }
+                            .id(section.letter)
                         }
                     }
                 }
+                .listStyle(.plain)
+                // A–Z side index (SwiftUI has no native one) — tap a letter to jump.
+                .overlay(alignment: .trailing) {
+                    if query.isEmpty && indexLetters.count > 1 {
+                        VStack(spacing: 1) {
+                            ForEach(indexLetters, id: \.self) { l in
+                                Text(l)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.tint)
+                                    .frame(width: 16)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { withAnimation { proxy.scrollTo(l, anchor: .top) } }
+                            }
+                        }
+                        .padding(.trailing, 1)
+                    }
+                }
             }
-            .listStyle(.insetGrouped)
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search username")
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: "Name or username")
             .navigationTitle("New Message")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -84,10 +116,8 @@ struct NewChatView: View {
                 searching = true
                 Task {
                     var r = await ChatService.searchUsers(prefix: trimmed)
-                    // Exact-handle fallback so "@ayaan" / full handles still resolve.
                     if r.isEmpty, let exact = await ChatService.findByHandle(trimmed) { r = [exact] }
                     await MainActor.run {
-                        // Ignore stale results if the query moved on while we waited.
                         guard query.trimmingCharacters(in: .whitespaces) == trimmed else { return }
                         results = r
                         searching = false
@@ -111,8 +141,7 @@ struct NewChatView: View {
     }
 
     // The conversation ID is deterministic, so open the thread INSTANTLY and
-    // create/touch the conversation doc in the background — no network wait, no
-    // step-back to the chat list.
+    // create/touch the conversation doc in the background.
     private func start(_ user: UserProfile) {
         let cid = ChatService.convId(me, user.id)
         onOpen(ChatTarget(id: cid, name: user.name.isEmpty ? user.handle : user.name, photo: user.photoUrl))
