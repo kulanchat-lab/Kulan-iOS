@@ -46,7 +46,7 @@ struct StoriesRow: View {
             ZStack(alignment: .bottomLeading) {
                 coverImage(cover, name: name, avatar: avatar)
                     .frame(width: cardW, height: cardH)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
                     // No border/frame on the card itself — the viewed/unviewed ring lives
                     // only on the avatar badge below.
                 if let onBadge {
