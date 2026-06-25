@@ -433,44 +433,42 @@ struct ThreadView: View {
         let mine = m.callerUid == me
         let missed = m.callOutcome == "missed"
         let statusText = missed ? "Missed voice call" : "Voice call"
-        let subtitle: String = {
-            if missed { return "Tap to call back" }
-            if let d = m.callDuration, d > 0 { return callLogDuration(d) }
-            return mine ? "Outgoing" : "Incoming"
-        }()
         let time = m.createdAt.formatted(date: .omitted, time: .shortened)
-        let iconName = missed ? "phone.arrow.down.left" : "phone.fill"
+        // Second line: status + time, kept short so the bubble stays compact.
+        let detail: String = {
+            if missed { return "Tap to call back · \(time)" }
+            if let d = m.callDuration, d > 0 { return "\(callLogDuration(d)) · \(time)" }
+            return "\(mine ? "Outgoing" : "Incoming") · \(time)"
+        }()
+        let iconName = missed ? "phone.arrow.down.left" : (mine ? "phone.arrow.up.right" : "phone.arrow.down.left")
         let iconColor: Color = missed ? .red : (mine ? Theme.onAccent(dark) : Theme.accent(dark))
         let circleBg: Color = mine ? Color.white.opacity(0.22)
             : (missed ? Color.red.opacity(0.14) : Theme.accent(dark).opacity(0.14))
 
         return HStack(spacing: 0) {
-            if mine { Spacer(minLength: 48) }
-            HStack(alignment: .center, spacing: 11) {
+            if mine { Spacer(minLength: 60) }
+            // No flexible Spacer inside -> the bubble hugs its content (compact, not a banner).
+            HStack(alignment: .center, spacing: 10) {
                 ZStack {
-                    Circle().fill(circleBg).frame(width: 38, height: 38)
+                    Circle().fill(circleBg).frame(width: 34, height: 34)
                     Image(systemName: iconName)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(iconColor)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(statusText)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(mine ? Theme.onAccent(dark) : .primary)
-                    Text(subtitle)
+                    Text(detail)
                         .font(.system(size: 12))
                         .foregroundStyle(mine ? Theme.onAccent(dark).opacity(0.75) : .secondary)
                 }
-                Spacer(minLength: 10)
-                Text(time)
-                    .font(.system(size: 10))
-                    .foregroundStyle(mine ? Theme.onAccent(dark).opacity(0.7) : .secondary)
             }
-            .padding(.leading, 9).padding(.trailing, 12).padding(.vertical, 9)
+            .padding(.vertical, 8).padding(.horizontal, 12)
             .background(mine ? Theme.accent(dark) : Theme.received(dark))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .frame(maxWidth: UIScreen.main.bounds.width * 0.72, alignment: .leading)
-            if !mine { Spacer(minLength: 48) }
+            .frame(maxWidth: UIScreen.main.bounds.width * 0.7, alignment: mine ? .trailing : .leading)
+            if !mine { Spacer(minLength: 60) }
         }
         .contentShape(Rectangle())
         .onTapGesture { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) }
