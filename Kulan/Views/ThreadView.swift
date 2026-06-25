@@ -332,7 +332,6 @@ struct ThreadView: View {
                     )
                     .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
                     .id(msg.id)
-                    .contextMenu { messageMenu(msg) }   // real native menu (like the chat list)
                 }
             }
             if repo.otherTyping && !repo.iBlocked && typingPref { TypingBubble(dark: dark).padding(.top, 6).id("TYPING") }
@@ -343,31 +342,6 @@ struct ThreadView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-    }
-
-    // Real native context menu (system blur/animation, like the chat list long-press).
-    // Reactions sit in a native ControlGroup row at the top; then the standard actions.
-    @ViewBuilder private func messageMenu(_ msg: Message) -> some View {
-        ControlGroup {
-            ForEach(["❤️", "👍", "😂", "😮", "😢", "🙏"], id: \.self) { e in
-                Button(e) { react(msg, e) }
-            }
-        }
-        Button { replyingTo = msg } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
-        if !msg.isCall {
-            Button { forwardTarget = msg } label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
-        }
-        if !msg.isImage && !msg.text.isEmpty {
-            Button { UIPasteboard.general.string = msg.text } label: { Label("Copy", systemImage: "doc.on.doc") }
-        }
-        Button { Task { await ChatService.setPinnedMessage(cid, msg.id) } } label: { Label("Pin", systemImage: "pin") }
-        if msg.authorId == me && !msg.isImage && !msg.isAudio && !msg.isCall && msg.sendState == nil {
-            Button { editTarget = msg } label: { Label("Edit", systemImage: "pencil") }
-        }
-        Button { morePickerTarget = msg } label: { Label("More reactions…", systemImage: "face.smiling") }
-        if msg.authorId == me {
-            Button(role: .destructive) { pendingDelete = msg } label: { Label("Delete", systemImage: "trash") }
-        }
     }
 
     // Native toolbar header (real Liquid Glass + native back/swipe), same approach as the
@@ -1002,7 +976,11 @@ struct MessageBubble: View {
         HStack {
             if isMe { Spacer(minLength: 0) }
             VStack(alignment: isMe ? .trailing : .leading, spacing: 3) {
-                content   // long-press menu is now the native .contextMenu, attached in messageList
+                content
+                    .onLongPressGesture(minimumDuration: 0.35) {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        onLongPress(message)
+                    }
                 reactionBadges
                 if isMe && message.sendState == .failed {
                     Button { onResend(message) } label: {

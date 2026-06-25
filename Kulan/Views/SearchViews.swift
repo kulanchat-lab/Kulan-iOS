@@ -71,9 +71,9 @@ struct ChatSearchView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
     @State private var path = NavigationPath()
-    @State private var hits: [MessageHit] = []
-    @State private var searching = false
-    @State private var searchTask: Task<Void, Never>?
+    @State private var corpus: [SearchableMessage] = []   // loaded once; filtered in memory
+    @State private var loadingCorpus = false
+    @State private var loadTask: Task<Void, Never>?
     @FocusState private var searchFocused: Bool
 
     private var me: String { AuthService.shared.uid ?? "" }
@@ -87,6 +87,18 @@ struct ChatSearchView: View {
         return repo.conversations
             .filter { !$0.isCleared(me) && $0.name(for: me).lowercased().contains(q) }
             .sorted { $0.displayUpdatedAt(me) > $1.displayUpdatedAt(me) }
+    }
+
+    // Instant in-memory filter over the cached corpus — no network/decrypt per keystroke.
+    private var hits: [MessageHit] {
+        let q = trimmed.lowercased()
+        guard !q.isEmpty else { return [] }
+        return corpus
+            .filter { $0.text.lowercased().contains(q) }
+            .sorted { $0.date > $1.date }
+            .prefix(60)
+            .map { MessageHit(messageId: $0.id, cid: $0.cid, chatName: $0.chatName,
+                              photoUrl: $0.photoUrl, text: $0.text, date: $0.date) }
     }
 
     private var nothingFound: Bool { nameMatches.isEmpty && hits.isEmpty }
@@ -123,9 +135,9 @@ struct ChatSearchView: View {
                 if trimmed.isEmpty {
                     ContentUnavailableView("Search messages", systemImage: "magnifyingglass",
                                            description: Text("Search names and the text of every message."))
-                } else if searching && nothingFound {
+                } else if loadingCorpus && nothingFound {
                     ProgressView()
-                } else if !searching && nothingFound {
+                } else if !loadingCorpus && nothingFound {
                     ContentUnavailableView.search(text: trimmed)
                 }
             }
@@ -139,27 +151,21 @@ struct ChatSearchView: View {
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
                     prompt: "Search messages")
         .autoFocusSearch($searchFocused)
-        .onAppear { repo.start() }
-        .onChange(of: query) { _, _ in scheduleSearch() }
-        .task { try? await Task.sleep(nanoseconds: 350_000_000); searchFocused = true }
+        .onAppear {
+            repo.start()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { searchFocused = true }
+            loadTask?.cancel()
+            loadingCorpus = corpus.isEmpty
+            loadTask = Task {
+                let loaded = await MessageSearch.loadCorpus(me: me)
+                if Task.isCancelled { return }
+                await MainActor.run { corpus = loaded; loadingCorpus = false }
+            }
+        }
     }
 
     private func open(_ cid: String, _ name: String, _ photo: String?) {
         path.append(ChatTarget(id: cid, name: name, photo: photo))
-    }
-
-    private func scheduleSearch() {
-        searchTask?.cancel()
-        let q = trimmed
-        guard !q.isEmpty else { hits = []; searching = false; return }
-        searching = true
-        searchTask = Task {
-            try? await Task.sleep(nanoseconds: 300_000_000)   // debounce typing
-            if Task.isCancelled { return }
-            let found = await MessageSearch.run(query: q, me: me)
-            if Task.isCancelled { return }
-            await MainActor.run { hits = found; searching = false }
-        }
     }
 }
 
@@ -182,18 +188,28 @@ private struct MessageHitRow: View {
     }
 }
 
-// Runs the cross-chat message search off the main thread. Sequential per chat so
-// Crypto's caches are touched single-threaded; bounded to the most-recent page.
+// One cached, already-decrypted message (text only) — the unit for fast in-memory search.
+struct SearchableMessage {
+    let id: String
+    let cid: String
+    let chatName: String
+    let photoUrl: String?
+    let text: String
+    let date: Date
+}
+
+// Loads the recent messages across all chats ONCE (decrypting ONLY the text field, not
+// reactions/replies), so typing filters this in memory instead of re-querying Firestore
+// and re-decrypting on every keystroke (the cause of the lag/freeze).
 enum MessageSearch {
     private static let perChatLimit = 250
 
-    static func run(query: String, me: String) async -> [MessageHit] {
-        let q = query.lowercased()
+    static func loadCorpus(me: String) async -> [SearchableMessage] {
         let convs = await MainActor.run {
             ConversationsRepository.shared.conversations.filter { !$0.isCleared(me) }
         }
         let db = Firestore.firestore()
-        var hits: [MessageHit] = []
+        var out: [SearchableMessage] = []
         for c in convs {
             if Task.isCancelled { break }
             _ = await Crypto.shared.preloadKey(c.otherUid(me))   // needed before decrypt
@@ -204,13 +220,15 @@ enum MessageSearch {
                 .getDocuments() else { continue }
             let name = c.name(for: me), photo = c.photoUrl(for: me)
             for doc in snap.documents {
-                let m = Message(id: doc.documentID, data: doc.data(), cid: c.id, crypto: Crypto.shared)
-                guard !m.text.isEmpty, m.text.lowercased().contains(q) else { continue }
-                hits.append(MessageHit(messageId: m.id, cid: c.id, chatName: name,
-                                       photoUrl: photo, text: m.text, date: m.createdAt))
+                let data = doc.data()
+                let text = Crypto.shared.decrypt(data["text"] as? String ?? "", cid: c.id)
+                guard !text.isEmpty else { continue }
+                let date = (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
+                out.append(SearchableMessage(id: doc.documentID, cid: c.id, chatName: name,
+                                             photoUrl: photo, text: text, date: date))
             }
         }
-        return hits.sorted { $0.date > $1.date }
+        return out
     }
 }
 

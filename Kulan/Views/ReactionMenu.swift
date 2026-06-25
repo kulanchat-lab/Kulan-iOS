@@ -182,9 +182,9 @@ struct ReactionMenuOverlay: View {
     private func row(_ title: String, _ icon: String, _ action: @escaping () -> Void, destructive: Bool = false) -> some View {
         Button(action: { haptic(); action() }) {
             HStack(spacing: 14) {
+                Image(systemName: icon).frame(width: 24)   // icon on the left, like Signal/iOS menus
                 Text(title)
-                Spacer(minLength: 12)
-                Image(systemName: icon).frame(width: 22)   // icon on the right, like native iOS menus
+                Spacer(minLength: 8)
             }
             .font(.system(size: 17))   // native context-menu metrics
             .foregroundStyle(destructive ? Color.red : Color.primary)

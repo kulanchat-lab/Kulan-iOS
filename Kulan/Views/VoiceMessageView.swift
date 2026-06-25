@@ -22,22 +22,24 @@ struct VoiceMessageView: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Button { toggle() } label: {
                 Group {
                     if loading { ProgressView().tint(tint) }
                     else { Image(systemName: playing ? "pause.fill" : "play.fill").font(.system(size: 17)) }
                 }
                 .foregroundStyle(tint)
-                .frame(width: 24, height: 24)
+                .frame(width: 42, height: 42)
+                .background(tint.opacity(0.18), in: Circle())   // big round play button (reference)
             }
             .buttonStyle(.plain)
 
-            WaveformBars(bars: displayBars, progress: progress,
-                         played: tint, unplayed: tint.opacity(0.3)) { pct in seek(pct) }
-                .frame(width: 150, height: 28)
-
-            Text(durationText).font(.caption2).foregroundStyle(tint.opacity(0.8))
+            VStack(alignment: .leading, spacing: 4) {
+                WaveformBars(bars: displayBars, progress: progress,
+                             played: tint, unplayed: tint.opacity(0.3)) { pct in seek(pct) }
+                    .frame(width: 158, height: 26)
+                Text(durationText).font(.caption2).foregroundStyle(tint.opacity(0.8))
+            }
         }
         .onDisappear { stop() }
     }
@@ -118,6 +120,12 @@ struct WaveformBars: View {
                     ctx.fill(Path(roundedRect: rect, cornerRadius: barW / 2),
                              with: .color(i <= playedTo ? played : unplayed))
                 }
+                // White scrubber line at the current playback position (reference look).
+                let sx = max(1, size.width * CGFloat(max(0, min(1, progress))))
+                var line = Path()
+                line.move(to: CGPoint(x: sx, y: 0))
+                line.addLine(to: CGPoint(x: sx, y: size.height))
+                ctx.stroke(line, with: .color(played), lineWidth: 2)
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { v in
