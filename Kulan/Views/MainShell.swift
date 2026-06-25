@@ -428,6 +428,29 @@ struct ChatsView: View {
 
     private func exitSelect() { selecting = false; selection = [] }
     private func selectAll() { selection = Set(filtered.map { $0.id }) }
+
+    // System action list for a chat row's context menu (HIG order + SF Symbols).
+    @ViewBuilder private func chatMenu(_ conv: Conversation) -> some View {
+        if conv.unread(me) > 0 {
+            Button { Task { await ChatService.resetUnread(conv.id) } } label: {
+                Label("Read", systemImage: "envelope.open")
+            }
+        } else {
+            Button { Task { await ChatService.markUnread(conv.id) } } label: {
+                Label("Unread", systemImage: "envelope.badge")
+            }
+        }
+        Button { pendingMute = conv } label: { Label("Mute", systemImage: "bell.slash") }
+        Button { Task { await ChatService.setPinned(conv.id, !conv.isPinned(me)) } } label: {
+            Label(conv.isPinned(me) ? "Unpin" : "Pin", systemImage: "pin")
+        }
+        Button { Task { await ChatService.setArchived(conv.id, true) } } label: {
+            Label("Archive", systemImage: "archivebox")
+        }
+        Button(role: .destructive) { pendingDelete = conv } label: {
+            Label("Delete", systemImage: "trash")
+        }
+    }
     private func archiveSelected() {
         let ids = selection
         Task { for id in ids { await ChatService.setArchived(id, true) } }
@@ -489,27 +512,12 @@ struct ChatsView: View {
                             }
                             .tint(.orange)
                         }
-                        // Long-press menu (like Telegram/Signal) — same actions as the swipes.
+                        // Native peek + system actions. The preview-based API coexists with
+                        // swipeActions (the legacy closure form was eating the trailing swipe).
                         .contextMenu {
-                            Button { Task { await ChatService.setPinned(conv.id, !conv.isPinned(me)) } } label: {
-                                Label(conv.isPinned(me) ? "Unpin" : "Pin", systemImage: "pin")
-                            }
-                            if conv.unread(me) > 0 {
-                                Button { Task { await ChatService.resetUnread(conv.id) } } label: {
-                                    Label("Mark as Read", systemImage: "envelope.open")
-                                }
-                            } else {
-                                Button { Task { await ChatService.markUnread(conv.id) } } label: {
-                                    Label("Mark as Unread", systemImage: "envelope.badge")
-                                }
-                            }
-                            Button { pendingMute = conv } label: { Label("Mute", systemImage: "bell.slash") }
-                            Button { Task { await ChatService.setArchived(conv.id, true) } } label: {
-                                Label("Archive", systemImage: "archivebox")
-                            }
-                            Button(role: .destructive) { pendingDelete = conv } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
+                            chatMenu(conv)
+                        } preview: {
+                            ChatPeekPreview(conv: conv, me: me, dark: dark)
                         }
                       }
                       .onMove { source, destination in
