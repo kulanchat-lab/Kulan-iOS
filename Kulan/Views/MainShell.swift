@@ -1,10 +1,14 @@
 import SwiftUI
+import UIKit
 
 // Native TabView keeps both tabs permanently mounted -> the header avatar never
 // unmounts/blinks on tab switch (the RN bug, solved structurally).
 struct MainShell: View {
     var onSignOut: () -> Void
     private var call: CallService { CallService.shared }
+    private var profile = ProfileStore.shared
+    @State private var settingsIcon: UIImage?
+
     var body: some View {
         TabView {
             ChatsView(onSignOut: onSignOut)
@@ -12,11 +16,45 @@ struct MainShell: View {
             CallsView()
                 .tabItem { Label("Calls", systemImage: "phone.fill") }
             SettingsView(onSignOut: onSignOut, asTab: true)
-                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
+                .tabItem {
+                    Label {
+                        Text("Settings")
+                    } icon: {
+                        // Your profile photo as the tab icon (full-color circle), gear fallback.
+                        if let ui = settingsIcon {
+                            Image(uiImage: ui).renderingMode(.original)
+                        } else {
+                            Image(systemName: "person.crop.circle.fill")
+                        }
+                    }
+                }
         }
         // Call UI is mounted at the root (CallContainer in RootView) so it survives all
         // navigation. Here we only start listening for incoming calls.
         .onAppear { call.observeIncoming() }
+        .task(id: profile.me?.photoUrl) { await loadSettingsIcon() }
+    }
+
+    private func loadSettingsIcon() async {
+        guard let s = profile.me?.photoUrl, let url = URL(string: s),
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let img = UIImage(data: data) else { return }
+        let circ = img.circularIcon(56)
+        await MainActor.run { settingsIcon = circ }
+    }
+}
+
+// Render a circular, aspect-filled thumbnail for use as a (non-tinted) tab-bar icon.
+private extension UIImage {
+    func circularIcon(_ size: CGFloat) -> UIImage {
+        let s = CGSize(width: size, height: size)
+        return UIGraphicsImageRenderer(size: s).image { _ in
+            UIBezierPath(ovalIn: CGRect(origin: .zero, size: s)).addClip()
+            let scale = Swift.max(s.width / self.size.width, s.height / self.size.height)
+            let d = CGSize(width: self.size.width * scale, height: self.size.height * scale)
+            self.draw(in: CGRect(x: (s.width - d.width) / 2, y: (s.height - d.height) / 2,
+                                 width: d.width, height: d.height))
+        }.withRenderingMode(.alwaysOriginal)
     }
 }
 
