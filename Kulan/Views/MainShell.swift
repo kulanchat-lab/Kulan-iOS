@@ -11,7 +11,7 @@ struct MainShell: View {
                 .tabItem { Label("Chats", systemImage: "bubble.fill") }
             CallsView()
                 .tabItem { Label("Calls", systemImage: "phone.fill") }
-            SettingsView(onSignOut: onSignOut)
+            SettingsView(onSignOut: onSignOut, asTab: true)
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
         }
         // Call UI is mounted at the root (CallContainer in RootView) so it survives all
@@ -444,7 +444,10 @@ struct ChatsView: View {
                 StoryComposeSheet { Task { await StoriesRepository.shared.load() } }
             }
             .fullScreenCover(item: $viewerGroup) { g in
-                StoryViewer(group: g) { viewerGroup = nil }
+                StoryViewer(group: g) {
+                    viewerGroup = nil
+                    Task { await StoriesRepository.shared.load() }   // refresh seen rings
+                }
             }
             // ONE destination type for every chat (list taps AND search results),
             // keyed by cid via .id(...) so each conversation gets a fresh ThreadView

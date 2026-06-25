@@ -125,7 +125,7 @@ struct ReactionMenuOverlay: View {
             }
             Divider().padding(.leading, 16)
             row("Pin", "pin", onPin)
-            if isMe && !message.isImage && !message.isAudio && !message.isCall {
+            if isMe && !message.isImage && !message.isAudio && !message.isCall && message.sendState == nil {
                 Divider().padding(.leading, 16)
                 row("Edit", "pencil", onEdit)
             }

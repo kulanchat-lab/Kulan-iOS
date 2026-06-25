@@ -6,7 +6,11 @@ import FirebaseAuth
 // sub-screens (the Signal/Telegram structure), built our way with native List.
 struct SettingsView: View {
     var onSignOut: () -> Void
-    init(onSignOut: @escaping () -> Void) { self.onSignOut = onSignOut }
+    var asTab = false   // true when shown as a bottom tab (no "Done" — nothing to dismiss)
+    init(onSignOut: @escaping () -> Void, asTab: Bool = false) {
+        self.onSignOut = onSignOut
+        self.asTab = asTab
+    }
 
     @Environment(\.dismiss) private var dismiss
     private var profile = ProfileStore.shared
@@ -68,7 +72,9 @@ struct SettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .preferredColorScheme(AppAppearance(rawValue: appearanceRaw)?.colorScheme ?? nil)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+                if !asTab {
+                    ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+                }
             }
             .sheet(isPresented: $showEdit) { EditProfileView() }
             .sheet(isPresented: $showQR) { MyQRView() }

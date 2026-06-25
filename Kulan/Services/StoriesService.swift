@@ -46,7 +46,7 @@ final class StoriesService {
         let me = uid
         guard !me.isEmpty else { return }
         let storyId = UUID().uuidString
-        let path = "stories/\(storyId).jpg"
+        let path = "stories/\(storyId)/photo.jpg"   // {storyId}/ segment so Storage rules can audience-scope reads
 
         let jpeg = ChatService.downscaledJPEG(image)
         let ref = Storage.storage().reference().child(path)
@@ -138,11 +138,15 @@ final class StoriesRepository {
             if let ts = (d.data()["lastViewedAt"] as? Timestamp)?.dateValue() { lastViewed[d.documentID] = ts }
         }
 
-        let convs = ConversationsRepository.shared.conversations
+        // Snapshot @Observable singletons on the main actor (they're mutated there by
+        // live listeners) — never read them from this background context directly.
+        let (convs, myName, myPhoto) = await MainActor.run {
+            (ConversationsRepository.shared.conversations,
+             ProfileStore.shared.me?.name ?? "You",
+             ProfileStore.shared.me?.photoUrl)
+        }
         func display(_ uid: String) -> (String, String?) {
-            if uid == me {
-                return (ProfileStore.shared.me?.name ?? "You", ProfileStore.shared.me?.photoUrl)
-            }
+            if uid == me { return (myName, myPhoto) }
             if let c = convs.first(where: { $0.otherUid(me) == uid }) {
                 return (c.name(for: me), c.photoUrl(for: me))
             }

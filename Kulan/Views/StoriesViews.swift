@@ -71,6 +71,7 @@ struct StoryViewer: View {
 
     @State private var index = 0
     @State private var progress = 0.0
+    @State private var closing = false
     private let ticker = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
     private let perStory = 5.0   // seconds per photo
 
@@ -129,12 +130,14 @@ struct StoryViewer: View {
     private func fill(_ i: Int) -> Double { i < index ? 1 : (i == index ? progress : 0) }
 
     private func tick() {
-        progress += 0.02 / perStory
+        guard !closing, story != nil else { return }   // stop advancing once we're dismissing
+        progress = min(progress + 0.02 / perStory, 1)
         if progress >= 1 { next() }
     }
 
     private func next() {
-        if index < group.stories.count - 1 { index += 1; progress = 0 } else { onClose() }
+        if index < group.stories.count - 1 { index += 1; progress = 0 }
+        else { closing = true; onClose() }   // last story: close once
     }
 
     private func back() {
