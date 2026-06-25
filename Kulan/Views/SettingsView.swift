@@ -420,7 +420,7 @@ struct EditProfileView: View {
             .navigationTitle("Edit Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "xmark") }.tint(.primary) }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { Task { await save() } }.disabled(saving).fontWeight(.semibold)
                 }

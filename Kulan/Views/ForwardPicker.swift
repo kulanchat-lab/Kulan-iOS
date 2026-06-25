@@ -61,7 +61,7 @@ struct ForwardPicker: View {
             .navigationTitle("Forward to…")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "xmark") }.tint(.primary) }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Send") { Task { await sendAll() } }
                         .disabled(selected.isEmpty || sending)

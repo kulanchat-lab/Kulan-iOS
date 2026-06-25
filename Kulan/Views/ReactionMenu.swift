@@ -227,7 +227,7 @@ struct EmojiMorePicker: View {
             .searchable(text: $query, prompt: "Search emoji")
             .navigationTitle("React")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Cancel") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { dismiss() } label: { Image(systemName: "xmark") }.tint(.primary) } }
         }
         .presentationDetents([.medium, .large])
     }

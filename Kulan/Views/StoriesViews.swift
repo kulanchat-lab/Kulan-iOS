@@ -220,7 +220,7 @@ struct StoryComposeSheet: View {
             .padding()
             .navigationTitle("New Status")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "xmark") }.tint(.primary) } }
             .onChange(of: item) { _, it in
                 Task { if let it { data = try? await it.loadTransferable(type: Data.self) } }
             }

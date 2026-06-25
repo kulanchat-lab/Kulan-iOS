@@ -1172,7 +1172,7 @@ struct EditMessageSheet: View {
             .navigationTitle("Edit Message")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "xmark") }.tint(.primary) }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") { onSave(trimmed); dismiss() }
                         .fontWeight(.semibold).disabled(!canSave)
