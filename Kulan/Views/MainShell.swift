@@ -128,7 +128,7 @@ struct CallsView: View {
             // Tapping a row pushes the contact's profile (back chevron, native). Calling
             // back happens only via the round phone button on the row.
             .navigationDestination(item: $profileTarget) { c in
-                ContactInfoView(cid: c.cid, name: c.name, photoUrl: c.photoUrl)
+                ContactInfoView(cid: c.cid, name: c.name, photoUrl: c.photoUrl, source: .calls)
             }
             .sheet(isPresented: $showNew) { NewCallView() }
         }
