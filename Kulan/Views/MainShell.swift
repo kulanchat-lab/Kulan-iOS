@@ -13,9 +13,61 @@ struct MainShell: View {
     init(onSignOut: @escaping () -> Void) { self.onSignOut = onSignOut }
 
     var body: some View {
-        // SwiftUI does NOT auto-swap a base SF Symbol to its .fill on selection — it only
-        // tints. So we bind the selected tab and pick outline vs .fill ourselves: inactive
-        // = outline (grey), active = filled (tinted). This is the real outline↔fill toggle.
+        // iOS 26 gets the new `Tab` API: floating Liquid-Glass pill (Chats · Calls · Settings)
+        // with a native selected-tab highlight, plus the `.search` role tab drawn as the
+        // SEPARATE circular button detached to the right. Older OS (deployment target 17.0)
+        // can't use the `Tab` API, so it falls back to the classic `.tabItem` bar with a
+        // normal 4th Search tab — same screens, just not the floating/detached styling.
+        Group {
+            if #available(iOS 26.0, *) {
+                modernTabView
+            } else {
+                legacyTabView
+            }
+        }
+        // Call UI is mounted at the root (CallContainer in RootView) so it survives all
+        // navigation. Here we only start listening for incoming calls.
+        .onAppear { call.observeIncoming() }
+        .task(id: profile.me?.photoUrl) { await loadSettingsIcon() }
+    }
+
+    // Your profile photo as the Settings tab icon (full-color circle); falls back to a
+    // person glyph — outline when inactive, filled when this tab is active. SwiftUI does NOT
+    // auto-swap a base SF Symbol to its .fill on selection (it only tints), so we pick it.
+    @ViewBuilder private var settingsTabLabel: some View {
+        Label {
+            Text("Settings")
+        } icon: {
+            if let ui = settingsIcon {
+                Image(uiImage: ui).renderingMode(.original)
+            } else {
+                Image(systemName: tab == 2 ? "person.crop.circle.fill" : "person.crop.circle")
+            }
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private var modernTabView: some View {
+        TabView(selection: $tab) {
+            Tab("Chats", systemImage: tab == 0 ? "message.fill" : "message", value: 0) {
+                ChatsView(onSignOut: onSignOut)
+            }
+            Tab("Calls", systemImage: tab == 1 ? "phone.fill" : "phone", value: 1) {
+                CallsView()
+            }
+            Tab(value: 2) {
+                SettingsView(onSignOut: onSignOut, asTab: true)
+            } label: {
+                settingsTabLabel
+            }
+            // Detached circular search button (native iOS 26 search role) → global chat search.
+            Tab(value: 3, role: .search) {
+                ChatSearchView()
+            }
+        }
+    }
+
+    private var legacyTabView: some View {
         TabView(selection: $tab) {
             ChatsView(onSignOut: onSignOut)
                 .tabItem { Label("Chats", systemImage: tab == 0 ? "message.fill" : "message") }
@@ -24,25 +76,12 @@ struct MainShell: View {
                 .tabItem { Label("Calls", systemImage: tab == 1 ? "phone.fill" : "phone") }
                 .tag(1)
             SettingsView(onSignOut: onSignOut, asTab: true)
-                .tabItem {
-                    Label {
-                        Text("Settings")
-                    } icon: {
-                        // Your profile photo as the tab icon (full-color circle); falls back
-                        // to person — outline when inactive, filled when this tab is active.
-                        if let ui = settingsIcon {
-                            Image(uiImage: ui).renderingMode(.original)
-                        } else {
-                            Image(systemName: tab == 2 ? "person.crop.circle.fill" : "person.crop.circle")
-                        }
-                    }
-                }
+                .tabItem { settingsTabLabel }
                 .tag(2)
+            ChatSearchView()
+                .tabItem { Label("Search", systemImage: "magnifyingglass") }
+                .tag(3)
         }
-        // Call UI is mounted at the root (CallContainer in RootView) so it survives all
-        // navigation. Here we only start listening for incoming calls.
-        .onAppear { call.observeIncoming() }
-        .task(id: profile.me?.photoUrl) { await loadSettingsIcon() }
     }
 
     private func loadSettingsIcon() async {
@@ -295,7 +334,6 @@ struct ChatsView: View {
     @State private var path = NavigationPath()
     @State private var pendingDelete: Conversation?
     @State private var pendingMute: Conversation?
-    @State private var search = ""
     // Multi-select edit mode (Telegram-style).
     @State private var selecting = false
     @State private var selection = Set<String>()
@@ -303,8 +341,6 @@ struct ChatsView: View {
     @State private var showDeleteSelected = false
     @State private var showCompose = false
     @State private var viewerGroup: StoryGroup?
-    @State private var searchActive = false
-    @FocusState private var searchFocused: Bool
     // WhatsApp-style header fade: hide the nav-bar icons while a chat is pushed so they
     // don't float statically over the screen during the interactive swipe-back. Driven by
     // navigation depth — a non-empty path (which holds through the ENTIRE drag) keeps them
@@ -336,13 +372,6 @@ struct ChatsView: View {
                 }
                 return a.displayUpdatedAt(me) > b.displayUpdatedAt(me)   // recency (frozen if blocked)
             }
-    }
-
-    // Real search: filter the visible chats by contact name.
-    private var filtered: [Conversation] {
-        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return visible }
-        return visible.filter { $0.name(for: me).lowercased().contains(q) }
     }
 
 
@@ -436,8 +465,7 @@ struct ChatsView: View {
 
     // Persist a pinned-chat reorder via fractional indexing (Telegram-style).
     private func reorderPinned(from source: IndexSet, to destination: Int) {
-        guard search.isEmpty else { return }            // indices map to a subset while searching
-        let rows = filtered
+        let rows = visible
         guard let from = source.first, rows.indices.contains(from) else { return }
         let moved = rows[from]
         guard moved.isPinned(me) else { return }
@@ -465,7 +493,7 @@ struct ChatsView: View {
     }
 
     private func exitSelect() { selecting = false; selection = [] }
-    private func selectAll() { selection = Set(filtered.map { $0.id }) }
+    private func selectAll() { selection = Set(visible.map { $0.id }) }
 
     // System action list for a chat row's context menu (HIG order + SF Symbols).
     @ViewBuilder private func chatMenu(_ conv: Conversation) -> some View {
@@ -489,28 +517,6 @@ struct ChatsView: View {
             Label("Delete", systemImage: "trash")
         }
     }
-    // Inline search field shown when the floating search button is tapped.
-    private var searchBar: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search", text: $search).focused($searchFocused).submitLabel(.search)
-                if !search.isEmpty {
-                    Button { search = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .padding(.horizontal, 10).padding(.vertical, 8)
-            .background(Color.primary.opacity(0.06), in: Capsule())
-            Button("Cancel") { search = ""; searchActive = false; searchFocused = false }
-                .tint(.primary)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(.bar)
-        .onAppear { searchFocused = true }
-    }
-
     private func archiveSelected() {
         let ids = selection
         Task { for id in ids { await ChatService.setArchived(id, true) } }
@@ -543,15 +549,23 @@ struct ChatsView: View {
                           .listRowSeparator(.hidden)
                           .moveDisabled(true)
                           .deleteDisabled(true)
-                      ForEach(filtered) { conv in
-                        NavigationLink(value: ChatTarget(id: conv.id, name: conv.name(for: me),
-                                                         photo: conv.photoUrl(for: me))) {
-                            ChatRow(conv: conv, me: me, dark: dark)
-                        }
+                      ForEach(visible) { conv in
+                        // Plain row + an invisible NavigationLink overlay. This removes the
+                        // default List disclosure chevron (the trailing arrow) AND makes the
+                        // drag-reorder snapshot a plain cell which, with zero row insets, no
+                        // longer drifts horizontally while reordering (locked to the Y axis).
+                        ChatRow(conv: conv, me: me, dark: dark)
+                          .contentShape(Rectangle())
+                          .overlay {
+                              NavigationLink(value: ChatTarget(id: conv.id, name: conv.name(for: me),
+                                                               photo: conv.photoUrl(for: me))) {
+                                  Color.clear
+                              }
+                          }
                         .tag(conv.id)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                        .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)   // clean, no row lines (like Signal)
-                        .moveDisabled(!conv.isPinned(me) || !search.isEmpty)   // only pinned drag
+                        .moveDisabled(!conv.isPinned(me))   // only pinned chats can be dragged
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
                                 pendingDelete = conv
@@ -590,23 +604,8 @@ struct ChatsView: View {
             }
             .navigationTitle("Chats")
             .navigationBarTitleDisplayMode(.inline)   // one row: avatar · Chats · compose
-            // Floating search button (replaces the top search bar) → inline search field.
-            .overlay(alignment: .bottomTrailing) {
-                if !selecting && !searchActive {
-                    Button { searchActive = true } label: {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(Theme.onAccent(dark))
-                            .frame(width: 52, height: 52)
-                            .background(Theme.accent(dark), in: Circle())
-                            .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
-                    }
-                    .padding(.trailing, 18).padding(.bottom, 18)
-                }
-            }
-            .safeAreaInset(edge: .top) {
-                if searchActive { searchBar }
-            }
+            // Search now lives in its own tab (the detached search circle), so the old
+            // in-list search FAB + inline search bar were removed.
             .toolbar { homeToolbar }
             // Hide the header icons whenever a chat is on the stack (incl. the swipe-back
             // drag); reveal them only when we're fully back at the root list.
@@ -800,5 +799,66 @@ struct ChatRow: View {
         }
         .frame(minHeight: 76)
         .padding(.vertical, 2)
+        .padding(.horizontal, 16)   // 16pt gutter moved inside the cell (row insets are now
+                                    // zero) so the reorder drag preview matches the cell width
+                                    // and stays locked to the vertical axis (no horizontal drift)
+    }
+}
+
+// Global chat search — the screen behind the detached search-circle tab (iOS 26 `.search`
+// role). Real search: filters every non-cleared conversation by contact name; tapping a
+// result opens that chat. Empty query shows guidance; no matches shows the native no-results.
+struct ChatSearchView: View {
+    private var repo = ConversationsRepository.shared
+    @Environment(\.colorScheme) private var scheme
+    @State private var query = ""
+    @State private var path = NavigationPath()
+
+    private var me: String { AuthService.shared.uid ?? "" }
+    private var dark: Bool { scheme == .dark }
+    private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
+
+    private var results: [Conversation] {
+        let q = trimmed.lowercased()
+        guard !q.isEmpty else { return [] }
+        return repo.conversations
+            .filter { !$0.isCleared(me) }
+            .filter { $0.name(for: me).lowercased().contains(q) }
+            .sorted { $0.displayUpdatedAt(me) > $1.displayUpdatedAt(me) }
+    }
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            Group {
+                if trimmed.isEmpty {
+                    ContentUnavailableView("Search your chats", systemImage: "magnifyingglass",
+                                           description: Text("Find a conversation by name."))
+                } else if results.isEmpty {
+                    ContentUnavailableView.search(text: trimmed)
+                } else {
+                    List(results) { conv in
+                        ChatRow(conv: conv, me: me, dark: dark)
+                            .contentShape(Rectangle())
+                            .overlay {
+                                NavigationLink(value: ChatTarget(id: conv.id, name: conv.name(for: me),
+                                                                 photo: conv.photoUrl(for: me))) {
+                                    Color.clear
+                                }
+                            }
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("Search")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: ChatTarget.self) { t in
+                ThreadView(cid: t.id, title: t.name, photoUrl: t.photo).id(t.id)
+            }
+        }
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Search chats")
+        .onAppear { repo.start() }
     }
 }
