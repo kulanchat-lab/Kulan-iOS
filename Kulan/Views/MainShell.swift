@@ -9,6 +9,8 @@ struct MainShell: View {
     private var profile = ProfileStore.shared
     @State private var settingsIcon: UIImage?
 
+    init(onSignOut: @escaping () -> Void) { self.onSignOut = onSignOut }
+
     var body: some View {
         TabView {
             ChatsView(onSignOut: onSignOut)
