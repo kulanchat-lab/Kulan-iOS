@@ -40,6 +40,7 @@ struct Message: Identifiable, Equatable {
     var imageUrl: String?
     var audioUrl: String?
     var duration: Double?     // voice note length (seconds)
+    var waveform: [Int] = []  // tiny amplitude bars (0…100) for the voice-note UI
     var enc: EncMeta?
     var clientId: String?
     var replyTo: ReplyRef?
@@ -98,6 +99,8 @@ struct Message: Identifiable, Equatable {
         self.imageUrl = data["imageUrl"] as? String
         self.audioUrl = data["audioUrl"] as? String
         self.duration = (data["duration"] as? NSNumber)?.doubleValue
+        self.waveform = (data["waveform"] as? [Int])
+            ?? (data["waveform"] as? [NSNumber])?.map { $0.intValue } ?? []
         self.width = (data["width"] as? NSNumber)?.doubleValue
         self.height = (data["height"] as? NSNumber)?.doubleValue
         self.callerUid = data["callerUid"] as? String
