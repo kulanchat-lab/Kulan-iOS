@@ -57,56 +57,7 @@ struct ThreadView: View {
             VStack(spacing: 0) {
             pinnedBar(proxy)
             ScrollView {
-                LazyVStack(spacing: 0) {
-                    // Scroll-to-top spinner: pages in older history, then restores the anchor.
-                    if repo.canLoadOlder {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .id("TOP")
-                            .onAppear { loadOlderWithAnchor(proxy) }
-                    }
-                    ForEach(Array(repo.items.enumerated()), id: \.element.rowId) { index, msg in
-                        if shouldShowDate(at: index) {
-                            Text(dayLabel(msg.createdAt))
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
-                        }
-                        if msg.id == firstUnreadId { unreadDivider }
-                        if msg.isCall {
-                            callRow(msg).padding(.top, 8).id(msg.id)
-                        } else {
-                        MessageBubble(
-                            message: msg, isMe: msg.authorId == me, dark: dark, cid: cid,
-                            nameFor: { $0 == me ? "You" : title },
-                            onReply: { replyingTo = $0 },
-                            onDelete: { m in Task { await ChatService.deleteMessage(cid: cid, messageId: m.id) } },
-                            onTapImage: { viewerImage = $0 },
-                            onReact: { emoji in Task { await ChatService.setReaction(cid: cid, messageId: msg.id, emoji: emoji) } },
-                            onPin: { m in Task { await ChatService.setPinnedMessage(cid, m.id) } },
-                            onTapReactions: { reactorsTarget = msg },
-                            onLongPress: { m in withAnimation(.easeOut(duration: 0.15)) { menuTarget = m } },
-                            onResend: { m in resend(m) },
-                            onJumpTo: { id in jump(to: id, proxy) },
-                            isHighlighted: msg.id == highlightId,
-                            isFirstInCluster: isFirstInCluster(at: index),
-                            isLastInCluster: isLastInCluster(at: index),
-                            otherLastRead: repo.otherLastReadMillis
-                        )
-                        .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
-                        .id(msg.id)
-                        }
-                    }
-                    if repo.otherTyping && !repo.iBlocked && typingPref { TypingBubble(dark: dark).padding(.top, 6).id("TYPING") }
-                    // Bottom sentinel: drives "am I at the bottom?" for the scroll button.
-                    Color.clear.frame(height: 1).id("BOTTOM")
-                        .onAppear { isAtBottom = true; newWhileAway = 0 }
-                        .onDisappear { isAtBottom = false }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                messageList(proxy)
             }
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)   // drag the messages down -> keyboard follows
@@ -331,6 +282,62 @@ struct ThreadView: View {
 
     private var otherUid: String {
         cid.split(separator: "_").map(String.init).first { $0 != me } ?? ""
+    }
+
+    // Extracted from `body` so the type-checker can handle the screen (the inline ForEach
+    // with all its closures was too complex as one expression after the header refactor).
+    @ViewBuilder
+    private func messageList(_ proxy: ScrollViewProxy) -> some View {
+        LazyVStack(spacing: 0) {
+            // Scroll-to-top spinner: pages in older history, then restores the anchor.
+            if repo.canLoadOlder {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .id("TOP")
+                    .onAppear { loadOlderWithAnchor(proxy) }
+            }
+            ForEach(Array(repo.items.enumerated()), id: \.element.rowId) { index, msg in
+                if shouldShowDate(at: index) {
+                    Text(dayLabel(msg.createdAt))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                if msg.id == firstUnreadId { unreadDivider }
+                if msg.isCall {
+                    callRow(msg).padding(.top, 8).id(msg.id)
+                } else {
+                    MessageBubble(
+                        message: msg, isMe: msg.authorId == me, dark: dark, cid: cid,
+                        nameFor: { $0 == me ? "You" : title },
+                        onReply: { replyingTo = $0 },
+                        onDelete: { m in Task { await ChatService.deleteMessage(cid: cid, messageId: m.id) } },
+                        onTapImage: { viewerImage = $0 },
+                        onReact: { emoji in Task { await ChatService.setReaction(cid: cid, messageId: msg.id, emoji: emoji) } },
+                        onPin: { m in Task { await ChatService.setPinnedMessage(cid, m.id) } },
+                        onTapReactions: { reactorsTarget = msg },
+                        onLongPress: { m in withAnimation(.easeOut(duration: 0.15)) { menuTarget = m } },
+                        onResend: { m in resend(m) },
+                        onJumpTo: { id in jump(to: id, proxy) },
+                        isHighlighted: msg.id == highlightId,
+                        isFirstInCluster: isFirstInCluster(at: index),
+                        isLastInCluster: isLastInCluster(at: index),
+                        otherLastRead: repo.otherLastReadMillis
+                    )
+                    .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
+                    .id(msg.id)
+                }
+            }
+            if repo.otherTyping && !repo.iBlocked && typingPref { TypingBubble(dark: dark).padding(.top, 6).id("TYPING") }
+            // Bottom sentinel: drives "am I at the bottom?" for the scroll button.
+            Color.clear.frame(height: 1).id("BOTTOM")
+                .onAppear { isAtBottom = true; newWhileAway = 0 }
+                .onDisappear { isAtBottom = false }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     // Native toolbar header (real Liquid Glass + native back/swipe), same approach as the

@@ -150,40 +150,45 @@ struct ReactionMenuOverlay: View {
         VStack(spacing: 0) {
             row("Reply", "arrowshape.turn.up.left", onReply)
             if !message.isCall {
-                Divider().padding(.leading, 16)
+                menuDivider
                 row("Forward", "arrowshape.turn.up.right", onForward)
             }
             if !message.isImage && !message.text.isEmpty {
-                Divider().padding(.leading, 16)
+                menuDivider
                 row("Copy", "doc.on.doc") { UIPasteboard.general.string = message.text; onCopy() }
             }
             Divider().padding(.leading, 16)
             row("Pin", "pin", onPin)
             if isMe && !message.isImage && !message.isAudio && !message.isCall && message.sendState == nil {
-                Divider().padding(.leading, 16)
+                menuDivider
                 row("Edit", "pencil", onEdit)
             }
             if isMe {
-                Divider().padding(.leading, 16)
+                menuDivider
                 row("Delete", "trash", onDelete, destructive: true)
             }
         }
         .frame(width: 250)
-        .liquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))   // real Liquid Glass
+        .liquidGlass(RoundedRectangle(cornerRadius: 14, style: .continuous))   // real Liquid Glass
         .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
+    }
+
+    // Full-width hairline between rows — matches the native context-menu separators.
+    private var menuDivider: some View {
+        Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.5)
     }
 
     @ViewBuilder
     private func row(_ title: String, _ icon: String, _ action: @escaping () -> Void, destructive: Bool = false) -> some View {
         Button(action: { haptic(); action() }) {
             HStack(spacing: 14) {
-                Image(systemName: icon).frame(width: 22)
                 Text(title)
-                Spacer()
+                Spacer(minLength: 12)
+                Image(systemName: icon).frame(width: 22)   // icon on the right, like native iOS menus
             }
             .font(.system(size: 17))   // native context-menu metrics
             .foregroundStyle(destructive ? Color.red : Color.primary)
-            .padding(.horizontal, 16).padding(.vertical, 12)
+            .padding(.horizontal, 16).padding(.vertical, 11)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

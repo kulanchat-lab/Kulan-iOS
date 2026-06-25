@@ -380,6 +380,14 @@ struct ChatsView: View {
             ToolbarItem(placement: .principal) {
                 Text(selection.isEmpty ? "Select Chats" : "\(selection.count) Selected").font(.headline)
             }
+            // Native bottom toolbar (like Mail/Photos edit mode) — no custom glass bar.
+            ToolbarItemGroup(placement: .bottomBar) {
+                Button("Archive") { archiveSelected() }.tint(.primary).disabled(selection.isEmpty)
+                Spacer()
+                Button("Read All") { markReadSelected() }.tint(.primary).disabled(selection.isEmpty)
+                Spacer()
+                Button("Delete", role: .destructive) { showDeleteSelected = true }.disabled(selection.isEmpty)
+            }
         } else if #available(iOS 26.0, *) {
             // Edit keeps its native Liquid Glass capsule (no sharedBackgroundVisibility opt-out).
             ToolbarItem(placement: .topBarLeading) { editButton.modifier(SwipeFade(on: showHeaderIcons)) }
@@ -394,38 +402,6 @@ struct ChatsView: View {
                 composeButton.modifier(SwipeFade(on: showHeaderIcons))
             }
         }
-    }
-
-    // Bottom action bar shown in edit mode (replaces the tab bar).
-    // Three floating glass buttons: Archive ○ · "Read All" capsule · Delete ○ (red).
-    private var selectionBar: some View {
-        HStack {
-            Button { archiveSelected() } label: {
-                Image(systemName: "archivebox").font(.system(size: 20))
-                    .frame(width: 48, height: 48)
-            }
-            .liquidGlass(Circle())
-            .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
-            Spacer()
-            Button { markReadSelected() } label: {
-                Text("Read All").font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 22).frame(height: 48)
-            }
-            .liquidGlass(Capsule())
-            .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
-            Spacer()
-            Button { showDeleteSelected = true } label: {
-                Image(systemName: "trash").font(.system(size: 20)).foregroundStyle(.red)
-                    .frame(width: 48, height: 48)
-            }
-            .liquidGlass(Circle())
-            .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
-        }
-        .tint(.primary)
-        .padding(.horizontal, 28)
-        .padding(.bottom, 16)
-        .disabled(selection.isEmpty)
-        .opacity(selection.isEmpty ? 0.5 : 1)
     }
 
     // Persist a pinned-chat reorder via fractional indexing (Telegram-style).
@@ -629,7 +605,6 @@ struct ChatsView: View {
                 Button("Cancel", role: .cancel) { pendingMute = nil }
             }
             .toolbar(selecting ? .hidden : .automatic, for: .tabBar)
-            .safeAreaInset(edge: .bottom) { if selecting { selectionBar } }
             .sheet(isPresented: $showArchived) { ArchivedChatsView() }
             .confirmationDialog("Delete \(selection.count) chat\(selection.count == 1 ? "" : "s")?",
                                 isPresented: $showDeleteSelected, titleVisibility: .visible) {
@@ -725,6 +700,14 @@ struct ArchivedChatsView: View {
                     ToolbarItem(placement: .principal) {
                         Text(selection.isEmpty ? "Select Chats" : "\(selection.count) Selected").font(.headline)
                     }
+                    // Native bottom toolbar, same as the main chat list selection mode.
+                    ToolbarItemGroup(placement: .bottomBar) {
+                        Button("Unarchive") { unarchiveSelected() }.tint(.primary).disabled(selection.isEmpty)
+                        Spacer()
+                        Button("Read All") { markReadSelected() }.tint(.primary).disabled(selection.isEmpty)
+                        Spacer()
+                        Button("Delete", role: .destructive) { showDeleteSelected = true }.disabled(selection.isEmpty)
+                    }
                 } else {
                     if hasAnyArchived {
                         ToolbarItem(placement: .topBarLeading) {
@@ -734,7 +717,6 @@ struct ArchivedChatsView: View {
                     ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
                 }
             }
-            .safeAreaInset(edge: .bottom) { if selecting { selectionBar } }
             .confirmationDialog("Delete \(selection.count) chat\(selection.count == 1 ? "" : "s")?",
                                 isPresented: $showDeleteSelected, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { deleteSelected() }
@@ -742,30 +724,6 @@ struct ArchivedChatsView: View {
             }
         }
         .onAppear { repo.start() }
-    }
-
-    // Same three actions as the main chat-list selection mode.
-    private var selectionBar: some View {
-        HStack {
-            selectButton("Unarchive", "tray.and.arrow.up") { unarchiveSelected() }
-            selectButton("Read All", "envelope.open") { markReadSelected() }
-            selectButton("Delete", "trash", destructive: true) { showDeleteSelected = true }
-        }
-        .padding(.vertical, 10).padding(.horizontal, 12)
-        .background(.bar)
-        .disabled(selection.isEmpty)
-        .opacity(selection.isEmpty ? 0.5 : 1)
-    }
-    private func selectButton(_ title: String, _ icon: String, destructive: Bool = false,
-                              _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 3) {
-                Image(systemName: icon).font(.system(size: 18))
-                Text(title).font(.caption2)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .tint(destructive ? .red : .primary)
     }
 
     private func exitSelect() { selecting = false; selection = [] }
