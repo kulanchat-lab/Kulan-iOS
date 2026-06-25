@@ -120,9 +120,17 @@ struct CallsView: View {
     @State private var filter = 0            // 0 = All, 1 = Missed
     @State private var profileTarget: CallEntry?
     @State private var showNew = false
+    @State private var selecting = false
+    @State private var selection = Set<String>()
 
     private var shown: [CallEntry] {
         filter == 1 ? repo.calls.filter { $0.missed } : repo.calls
+    }
+    private func deleteCall(_ c: CallEntry) { Task { await repo.delete(c) } }
+    private func deleteSelectedCalls() {
+        let ids = selection
+        Task { await repo.delete(ids: ids) }
+        selecting = false; selection = []
     }
 
     var body: some View {
@@ -132,7 +140,7 @@ struct CallsView: View {
                     ContentUnavailableView("No Calls Yet", systemImage: "phone",
                                            description: Text("Your call history will appear here."))
                 } else {
-                    List {
+                    List(selection: selecting ? $selection : .constant(Set<String>())) {
                         ForEach(shown) { call in
                             CallHistoryRow(
                                 call: call,
@@ -141,28 +149,54 @@ struct CallsView: View {
                                     CallService.shared.startCall(to: call.otherUid, name: call.name, photo: call.photoUrl)
                                 }
                             )
+                            .tag(call.id)
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 1, leading: 16, bottom: 1, trailing: 16))
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) { deleteCall(call) } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                     .listStyle(.plain)
                     .environment(\.defaultMinListRowHeight, 56)   // tight, compact rows
+                    .environment(\.editMode, .constant(selecting ? .active : .inactive))
                 }
             }
             .navigationTitle("Calls")
-            // Search moved to the global search tab (the detached circle), so the old
-            // in-page search FAB + inline search bar were removed from Calls too.
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Picker("", selection: $filter) {
-                        Text("All").tag(0)
-                        Text("Missed").tag(1)
+                if selecting {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { selecting = false; selection = [] } label: { Image(systemName: "xmark") }.tint(.primary)
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 190)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showNew = true } label: { Image(systemName: "phone.badge.plus") }
+                    ToolbarItem(placement: .principal) {
+                        Text(selection.isEmpty ? "Select Calls" : "\(selection.count) Selected").font(.headline)
+                    }
+                    ToolbarItemGroup(placement: .bottomBar) {
+                        Spacer()
+                        Button(role: .destructive) { deleteSelectedCalls() } label: {
+                            Image(systemName: "trash")
+                        }
+                        .disabled(selection.isEmpty)
+                    }
+                } else {
+                    if !repo.calls.isEmpty {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Edit") { selecting = true }.tint(.primary)
+                        }
+                    }
+                    ToolbarItem(placement: .principal) {
+                        Picker("", selection: $filter) {
+                            Text("All").tag(0)
+                            Text("Missed").tag(1)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 190)
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { showNew = true } label: { Image(systemName: "phone.badge.plus") }
+                    }
                 }
             }
             .task { await repo.load() }

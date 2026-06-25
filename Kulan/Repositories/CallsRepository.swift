@@ -60,4 +60,21 @@ final class CallsRepository {
         all.sort { $0.date > $1.date }
         await MainActor.run { self.calls = all; self.loading = false }
     }
+
+    // Delete one call record (the underlying call message doc).
+    func delete(_ entry: CallEntry) async {
+        try? await db.collection("conversations").document(entry.cid)
+            .collection("messages").document(entry.id).delete()
+        await MainActor.run { calls.removeAll { $0.id == entry.id } }
+    }
+
+    // Delete several selected call records.
+    func delete(ids: Set<String>) async {
+        let targets = await MainActor.run { calls.filter { ids.contains($0.id) } }
+        for c in targets {
+            try? await db.collection("conversations").document(c.cid)
+                .collection("messages").document(c.id).delete()
+        }
+        await MainActor.run { calls.removeAll { ids.contains($0.id) } }
+    }
 }
