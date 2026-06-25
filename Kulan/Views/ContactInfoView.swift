@@ -50,7 +50,6 @@ struct ContactInfoView: View {
                 hero
                 quickActions
                 if source == .calls, lastCall != nil { callLogCard }
-                disappearRow
                 if !about.isEmpty { bioCard }
                 if !media.isEmpty { mediaCard }
             }
@@ -64,14 +63,6 @@ struct ContactInfoView: View {
         .task {
             await load()
             disappearSeconds = ConversationsRepository.shared.conversations.first(where: { $0.id == cid })?.disappearSeconds ?? 0
-        }
-        .confirmationDialog("Disappearing Messages", isPresented: $showDisappear, titleVisibility: .visible) {
-            Button("Off") { setDisappear(0) }
-            Button("1 Day") { setDisappear(86_400) }
-            Button("1 Week") { setDisappear(604_800) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("New and existing messages auto-delete after the timer. Applies for both of you.")
         }
         .fullScreenCover(item: $viewerImage) { msg in ImageViewerView(message: msg, cid: cid) }
         .sheet(isPresented: $showAllMedia) { SharedMediaGridView(cid: cid, media: media) }
@@ -102,18 +93,6 @@ struct ContactInfoView: View {
         } message: { Text("Video calling is coming soon.") }
         .navigationDestination(isPresented: $openChat) {
             ThreadView(cid: cid, title: name, photoUrl: photoUrl)
-        }
-        // Native flat action sheet (no custom capsules/tail/glow): dimmed header + clean rows.
-        .confirmationDialog("Mute this chat for…", isPresented: $showMuteOptions, titleVisibility: .visible) {
-            if muted {
-                Button("Unmute") { muted = false; Task { await ChatService.setMute(cid, until: 0) } }
-            }
-            Button("1 hour") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(1)) } }
-            Button("8 hours") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(8)) } }
-            Button("1 day") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(24)) } }
-            Button("1 week") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(168)) } }
-            Button("Always") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(nil)) } }
-            Button("Cancel", role: .cancel) {}
         }
     }
 
@@ -162,7 +141,18 @@ struct ContactInfoView: View {
             }
             actionTile("video", "video.fill") { showVideoSoon = true }
             actionTile("voice", "phone.fill") { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl) }
-            actionTile(muted ? "unmute" : "mute", muted ? "bell.fill" : "bell.slash.fill") { showMuteOptions = true }
+            // Native menu (pops up) instead of a custom action sheet.
+            Menu {
+                if muted { Button("Unmute") { muted = false; Task { await ChatService.setMute(cid, until: 0) } } }
+                Button("1 hour") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(1)) } }
+                Button("8 hours") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(8)) } }
+                Button("1 day") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(24)) } }
+                Button("1 week") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(168)) } }
+                Button("Always") { muted = true; Task { await ChatService.setMute(cid, until: ChatService.muteUntil(nil)) } }
+            } label: {
+                tileLabel(muted ? "unmute" : "mute", muted ? "bell.fill" : "bell.slash.fill")
+            }
+            .tint(.primary)
             if source == .chat {
                 actionTile("search", "magnifyingglass") { showSearchSoon = true }
             }
@@ -172,6 +162,12 @@ struct ContactInfoView: View {
 
     private var moreMenu: some View {
         Menu {
+            Menu {
+                Button("Off") { setDisappear(0) }
+                Button("1 Day") { setDisappear(86_400) }
+                Button("1 Week") { setDisappear(604_800) }
+            } label: { Label("Disappearing Messages", systemImage: "timer") }
+            Divider()
             if blocked {
                 Button { Task { await ChatService.setBlocked(cid, false); blocked = false } } label: {
                     Label("Unblock", systemImage: "hand.raised.slash")
