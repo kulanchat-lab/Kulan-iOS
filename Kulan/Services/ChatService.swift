@@ -184,6 +184,30 @@ enum ChatService {
         try await batch.commit()
     }
 
+    /// Forward an existing message into another conversation. Because every chat is
+    /// E2EE with its own key, media is decrypted from the source chat and re-encrypted
+    /// for the target by reusing the normal send pipeline (never re-uses source ciphertext).
+    static func forwardMessage(_ m: Message, from sourceCid: String, to targetCid: String) async throws {
+        if m.isImage {
+            let bytes: Data
+            if let local = m.localImageData {
+                bytes = local
+            } else if let s = m.imageUrl, let url = URL(string: s), let meta = m.enc,
+                      let (cipher, _) = try? await URLSession.shared.data(from: url),
+                      let dec = await Crypto.shared.decryptBytes(sourceCid, cipher: cipher, meta: meta) {
+                bytes = dec
+            } else { return }
+            try await sendImage(cid: targetCid, data: bytes)
+        } else if m.isAudio {
+            guard let s = m.audioUrl, let url = URL(string: s), let meta = m.enc,
+                  let (cipher, _) = try? await URLSession.shared.data(from: url),
+                  let dec = await Crypto.shared.decryptBytes(sourceCid, cipher: cipher, meta: meta) else { return }
+            try await sendAudio(cid: targetCid, data: dec, duration: m.duration ?? 0, waveform: m.waveform)
+        } else {
+            try await sendText(cid: targetCid, text: m.text)
+        }
+    }
+
     /// Recent image messages in a conversation (for the Shared Media section).
     /// Filters client-side to avoid needing a composite index.
     static func sharedMedia(_ cid: String) async -> [Message] {

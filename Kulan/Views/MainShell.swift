@@ -77,6 +77,8 @@ struct CallsView: View {
     @State private var query = ""
     @State private var profileTarget: CallEntry?
     @State private var showNew = false
+    @State private var searchActive = false
+    @FocusState private var searchFocused: Bool
 
     private var shown: [CallEntry] {
         var list = repo.calls
@@ -111,7 +113,41 @@ struct CallsView: View {
                 }
             }
             .navigationTitle("Calls")
-            .searchable(text: $query, prompt: "Search")
+            .overlay(alignment: .bottomTrailing) {
+                if !searchActive {
+                    Button { searchActive = true } label: {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(Theme.onAccent(false))
+                            .frame(width: 52, height: 52)
+                            .background(Theme.accent(false), in: Circle())
+                            .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
+                    }
+                    .padding(.trailing, 18).padding(.bottom, 18)
+                }
+            }
+            .safeAreaInset(edge: .top) {
+                if searchActive {
+                    HStack(spacing: 8) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                            TextField("Search", text: $query).focused($searchFocused).submitLabel(.search)
+                            if !query.isEmpty {
+                                Button { query = "" } label: {
+                                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 8)
+                        .background(Color.primary.opacity(0.06), in: Capsule())
+                        Button("Cancel") { query = ""; searchActive = false; searchFocused = false }
+                            .tint(.primary)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(.bar)
+                    .onAppear { searchFocused = true }
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Picker("", selection: $filter) {
@@ -267,6 +303,8 @@ struct ChatsView: View {
     @State private var showDeleteSelected = false
     @State private var showCompose = false
     @State private var viewerGroup: StoryGroup?
+    @State private var searchActive = false
+    @FocusState private var searchFocused: Bool
     // WhatsApp-style header fade: hide the nav-bar icons while a chat is pushed so they
     // don't float statically over the screen during the interactive swipe-back. Driven by
     // navigation depth — a non-empty path (which holds through the ENTIRE drag) keeps them
@@ -428,6 +466,51 @@ struct ChatsView: View {
 
     private func exitSelect() { selecting = false; selection = [] }
     private func selectAll() { selection = Set(filtered.map { $0.id }) }
+
+    // System action list for a chat row's context menu (HIG order + SF Symbols).
+    @ViewBuilder private func chatMenu(_ conv: Conversation) -> some View {
+        if conv.unread(me) > 0 {
+            Button { Task { await ChatService.resetUnread(conv.id) } } label: {
+                Label("Read", systemImage: "envelope.open")
+            }
+        } else {
+            Button { Task { await ChatService.markUnread(conv.id) } } label: {
+                Label("Unread", systemImage: "envelope.badge")
+            }
+        }
+        Button { pendingMute = conv } label: { Label("Mute", systemImage: "bell.slash") }
+        Button { Task { await ChatService.setPinned(conv.id, !conv.isPinned(me)) } } label: {
+            Label(conv.isPinned(me) ? "Unpin" : "Pin", systemImage: "pin")
+        }
+        Button { Task { await ChatService.setArchived(conv.id, true) } } label: {
+            Label("Archive", systemImage: "archivebox")
+        }
+        Button(role: .destructive) { pendingDelete = conv } label: {
+            Label("Delete", systemImage: "trash")
+        }
+    }
+    // Inline search field shown when the floating search button is tapped.
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search", text: $search).focused($searchFocused).submitLabel(.search)
+                if !search.isEmpty {
+                    Button { search = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .background(Color.primary.opacity(0.06), in: Capsule())
+            Button("Cancel") { search = ""; searchActive = false; searchFocused = false }
+                .tint(.primary)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .background(.bar)
+        .onAppear { searchFocused = true }
+    }
+
     private func archiveSelected() {
         let ids = selection
         Task { for id in ids { await ChatService.setArchived(id, true) } }
@@ -489,27 +572,12 @@ struct ChatsView: View {
                             }
                             .tint(.orange)
                         }
-                        // Long-press menu (like Telegram/Signal) — same actions as the swipes.
+                        // Native peek + system actions. The preview-based API coexists with
+                        // swipeActions (the legacy closure form was eating the trailing swipe).
                         .contextMenu {
-                            Button { Task { await ChatService.setPinned(conv.id, !conv.isPinned(me)) } } label: {
-                                Label(conv.isPinned(me) ? "Unpin" : "Pin", systemImage: "pin")
-                            }
-                            if conv.unread(me) > 0 {
-                                Button { Task { await ChatService.resetUnread(conv.id) } } label: {
-                                    Label("Mark as Read", systemImage: "envelope.open")
-                                }
-                            } else {
-                                Button { Task { await ChatService.markUnread(conv.id) } } label: {
-                                    Label("Mark as Unread", systemImage: "envelope.badge")
-                                }
-                            }
-                            Button { pendingMute = conv } label: { Label("Mute", systemImage: "bell.slash") }
-                            Button { Task { await ChatService.setArchived(conv.id, true) } } label: {
-                                Label("Archive", systemImage: "archivebox")
-                            }
-                            Button(role: .destructive) { pendingDelete = conv } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
+                            chatMenu(conv)
+                        } preview: {
+                            ChatPeekPreview(conv: conv, me: me, dark: dark)
                         }
                       }
                       .onMove { source, destination in
@@ -522,7 +590,23 @@ struct ChatsView: View {
             }
             .navigationTitle("Chats")
             .navigationBarTitleDisplayMode(.inline)   // one row: avatar · Chats · compose
-            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
+            // Floating search button (replaces the top search bar) → inline search field.
+            .overlay(alignment: .bottomTrailing) {
+                if !selecting && !searchActive {
+                    Button { searchActive = true } label: {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(Theme.onAccent(dark))
+                            .frame(width: 52, height: 52)
+                            .background(Theme.accent(dark), in: Circle())
+                            .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
+                    }
+                    .padding(.trailing, 18).padding(.bottom, 18)
+                }
+            }
+            .safeAreaInset(edge: .top) {
+                if searchActive { searchBar }
+            }
             .toolbar { homeToolbar }
             // Hide the header icons whenever a chat is on the stack (incl. the swipe-back
             // drag); reveal them only when we're fully back at the root list.
