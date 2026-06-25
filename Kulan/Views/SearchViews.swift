@@ -65,7 +65,8 @@ struct MessageHit: Identifiable {
 // Message search is on-demand and bounded (most-recent page per chat) so it can't
 // run away on a long history; it's debounced so typing doesn't refire per keystroke.
 struct ChatSearchView: View {
-    var onCancel: () -> Void = {}
+    var onCancel: () -> Void
+    init(onCancel: @escaping () -> Void = {}) { self.onCancel = onCancel }
     private var repo = ConversationsRepository.shared
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
@@ -216,7 +217,8 @@ enum MessageSearch {
 // MARK: - Calls: search anyone you've chatted with, tap to call
 
 struct ContactsSearchView: View {
-    var onCancel: () -> Void = {}
+    var onCancel: () -> Void
+    init(onCancel: @escaping () -> Void = {}) { self.onCancel = onCancel }
     private var repo = ConversationsRepository.shared
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
@@ -276,8 +278,11 @@ struct ContactsSearchView: View {
 // MARK: - Settings search
 
 struct SettingsSearchView: View {
-    var onSignOut: () -> Void = {}
-    var onCancel: () -> Void = {}
+    var onSignOut: () -> Void
+    var onCancel: () -> Void
+    init(onSignOut: @escaping () -> Void = {}, onCancel: @escaping () -> Void = {}) {
+        self.onSignOut = onSignOut; self.onCancel = onCancel
+    }
     @State private var query = ""
     @FocusState private var searchFocused: Bool
     private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
