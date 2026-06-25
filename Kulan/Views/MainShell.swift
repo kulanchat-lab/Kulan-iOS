@@ -382,11 +382,13 @@ struct ChatsView: View {
             }
             // Native bottom toolbar (like Mail/Photos edit mode) — no custom glass bar.
             ToolbarItemGroup(placement: .bottomBar) {
-                Button("Archive") { archiveSelected() }.tint(.primary).disabled(selection.isEmpty)
+                Button { archiveSelected() } label: { Image(systemName: "archivebox") }
+                    .tint(.primary).disabled(selection.isEmpty)
                 Spacer()
                 Button("Read All") { markReadSelected() }.tint(.primary).disabled(selection.isEmpty)
                 Spacer()
-                Button("Delete", role: .destructive) { showDeleteSelected = true }.disabled(selection.isEmpty)
+                Button(role: .destructive) { showDeleteSelected = true } label: { Image(systemName: "trash") }
+                    .disabled(selection.isEmpty)
             }
         } else if #available(iOS 26.0, *) {
             // Edit keeps its native Liquid Glass capsule (no sharedBackgroundVisibility opt-out).
@@ -702,11 +704,13 @@ struct ArchivedChatsView: View {
                     }
                     // Native bottom toolbar, same as the main chat list selection mode.
                     ToolbarItemGroup(placement: .bottomBar) {
-                        Button("Unarchive") { unarchiveSelected() }.tint(.primary).disabled(selection.isEmpty)
+                        Button { unarchiveSelected() } label: { Image(systemName: "tray.and.arrow.up") }
+                            .tint(.primary).disabled(selection.isEmpty)
                         Spacer()
                         Button("Read All") { markReadSelected() }.tint(.primary).disabled(selection.isEmpty)
                         Spacer()
-                        Button("Delete", role: .destructive) { showDeleteSelected = true }.disabled(selection.isEmpty)
+                        Button(role: .destructive) { showDeleteSelected = true } label: { Image(systemName: "trash") }
+                            .disabled(selection.isEmpty)
                     }
                 } else {
                     if hasAnyArchived {
