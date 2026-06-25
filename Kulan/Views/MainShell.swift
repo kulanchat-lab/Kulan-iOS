@@ -8,28 +8,36 @@ struct MainShell: View {
     private var call: CallService { CallService.shared }
     private var profile = ProfileStore.shared
     @State private var settingsIcon: UIImage?
+    @State private var tab = 0
 
     init(onSignOut: @escaping () -> Void) { self.onSignOut = onSignOut }
 
     var body: some View {
-        TabView {
+        // SwiftUI does NOT auto-swap a base SF Symbol to its .fill on selection — it only
+        // tints. So we bind the selected tab and pick outline vs .fill ourselves: inactive
+        // = outline (grey), active = filled (tinted). This is the real outline↔fill toggle.
+        TabView(selection: $tab) {
             ChatsView(onSignOut: onSignOut)
-                .tabItem { Label("Chats", systemImage: "message") }   // iOS auto-fills when selected
+                .tabItem { Label("Chats", systemImage: tab == 0 ? "message.fill" : "message") }
+                .tag(0)
             CallsView()
-                .tabItem { Label("Calls", systemImage: "phone") }
+                .tabItem { Label("Calls", systemImage: tab == 1 ? "phone.fill" : "phone") }
+                .tag(1)
             SettingsView(onSignOut: onSignOut, asTab: true)
                 .tabItem {
                     Label {
                         Text("Settings")
                     } icon: {
-                        // Your profile photo as the tab icon (full-color circle), gear fallback.
+                        // Your profile photo as the tab icon (full-color circle); falls back
+                        // to person — outline when inactive, filled when this tab is active.
                         if let ui = settingsIcon {
                             Image(uiImage: ui).renderingMode(.original)
                         } else {
-                            Image(systemName: "person.crop.circle.fill")
+                            Image(systemName: tab == 2 ? "person.crop.circle.fill" : "person.crop.circle")
                         }
                     }
                 }
+                .tag(2)
         }
         // Call UI is mounted at the root (CallContainer in RootView) so it survives all
         // navigation. Here we only start listening for incoming calls.
