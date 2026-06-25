@@ -1,10 +1,16 @@
 import SwiftUI
+import UIKit
 
 // Native TabView keeps both tabs permanently mounted -> the header avatar never
 // unmounts/blinks on tab switch (the RN bug, solved structurally).
 struct MainShell: View {
     var onSignOut: () -> Void
     private var call: CallService { CallService.shared }
+    private var profile = ProfileStore.shared
+    @State private var settingsIcon: UIImage?
+
+    init(onSignOut: @escaping () -> Void) { self.onSignOut = onSignOut }
+
     var body: some View {
         TabView {
             ChatsView(onSignOut: onSignOut)
@@ -12,11 +18,45 @@ struct MainShell: View {
             CallsView()
                 .tabItem { Label("Calls", systemImage: "phone.fill") }
             SettingsView(onSignOut: onSignOut, asTab: true)
-                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
+                .tabItem {
+                    Label {
+                        Text("Settings")
+                    } icon: {
+                        // Your profile photo as the tab icon (full-color circle), gear fallback.
+                        if let ui = settingsIcon {
+                            Image(uiImage: ui).renderingMode(.original)
+                        } else {
+                            Image(systemName: "person.crop.circle.fill")
+                        }
+                    }
+                }
         }
         // Call UI is mounted at the root (CallContainer in RootView) so it survives all
         // navigation. Here we only start listening for incoming calls.
         .onAppear { call.observeIncoming() }
+        .task(id: profile.me?.photoUrl) { await loadSettingsIcon() }
+    }
+
+    private func loadSettingsIcon() async {
+        guard let s = profile.me?.photoUrl, let url = URL(string: s),
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let img = UIImage(data: data) else { return }
+        let circ = img.circularIcon(56)
+        await MainActor.run { settingsIcon = circ }
+    }
+}
+
+// Render a circular, aspect-filled thumbnail for use as a (non-tinted) tab-bar icon.
+private extension UIImage {
+    func circularIcon(_ size: CGFloat) -> UIImage {
+        let s = CGSize(width: size, height: size)
+        return UIGraphicsImageRenderer(size: s).image { _ in
+            UIBezierPath(ovalIn: CGRect(origin: .zero, size: s)).addClip()
+            let scale = Swift.max(s.width / self.size.width, s.height / self.size.height)
+            let d = CGSize(width: self.size.width * scale, height: self.size.height * scale)
+            self.draw(in: CGRect(x: (s.width - d.width) / 2, y: (s.height - d.height) / 2,
+                                 width: d.width, height: d.height))
+        }.withRenderingMode(.alwaysOriginal)
     }
 }
 
@@ -205,7 +245,7 @@ struct ChatsView: View {
     private var router = AppRouter.shared
     @Environment(\.colorScheme) private var scheme
     @State private var showNew = false
-    @State private var showSettings = false
+    @State private var chatFilter = 0   // 0 = all, 1 = unread
     @State private var path = NavigationPath()
     @State private var pendingDelete: Conversation?
     @State private var pendingMute: Conversation?
@@ -224,6 +264,7 @@ struct ChatsView: View {
     private var visible: [Conversation] {
         repo.conversations
             .filter { !$0.isCleared(me) && !$0.isArchived(me) }
+            .filter { chatFilter == 0 || $0.unread(me) > 0 }   // Filter: All / Unread
             .sorted { a, b in
                 if a.isPinned(me) != b.isPinned(me) { return a.isPinned(me) }
                 // Both pinned: manual order (higher rank = higher in list).
@@ -247,14 +288,25 @@ struct ChatsView: View {
     // opt-out, same as the chat header. Keeps the large "Chats" title + smooth
     // push transitions instead of a hand-rolled bar.
     // Avatar dropdown menu: Select Chats / Settings / Archive (Telegram-style).
-    private var avatarMenu: some View {
+    // Left: Edit (multi-select). Settings moved to its own tab, so no avatar here anymore.
+    private var editButton: some View {
+        Button("Edit") { selecting = true }.tint(.primary)
+    }
+    // Right: filter the list (All / Unread) + reach Archived.
+    private var filterMenu: some View {
         Menu {
-            Button { selecting = true } label: { Label("Select Chats", systemImage: "checkmark.circle") }
-            Button { showSettings = true } label: { Label("Settings", systemImage: "gearshape") }
-            Button { showArchived = true } label: { Label("Archive", systemImage: "archivebox") }
+            Picker("Filter", selection: $chatFilter) {
+                Label("All Chats", systemImage: "bubble.left.and.bubble.right").tag(0)
+                Label("Unread", systemImage: "circlebadge.fill").tag(1)
+            }
+            Divider()
+            Button { showArchived = true } label: { Label("Archived", systemImage: "archivebox") }
         } label: {
-            AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 40)
+            Image(systemName: chatFilter == 1 ? "line.3.horizontal.decrease.circle.fill"
+                                              : "line.3.horizontal.decrease.circle")
+                .font(.system(size: 18))
         }
+        .tint(.primary)
     }
     private var composeButton: some View {
         Button { showNew = true } label: {
@@ -271,12 +323,12 @@ struct ChatsView: View {
             }
             ToolbarItem(placement: .topBarTrailing) { Button("Select All") { selectAll() } }
         } else if #available(iOS 26.0, *) {
-            ToolbarItem(placement: .topBarLeading) { avatarMenu }
+            ToolbarItem(placement: .topBarLeading) { editButton }
                 .sharedBackgroundVisibility(.hidden)
-            ToolbarItem(placement: .topBarTrailing) { composeButton }
+            ToolbarItemGroup(placement: .topBarTrailing) { filterMenu; composeButton }
         } else {
-            ToolbarItem(placement: .topBarLeading) { avatarMenu }
-            ToolbarItem(placement: .topBarTrailing) { composeButton }
+            ToolbarItem(placement: .topBarLeading) { editButton }
+            ToolbarItemGroup(placement: .topBarTrailing) { filterMenu; composeButton }
         }
     }
 
@@ -464,7 +516,6 @@ struct ChatsView: View {
                     showNew = false
                 }
             }
-            .sheet(isPresented: $showSettings) { SettingsView(onSignOut: onSignOut) }
             .confirmationDialog("Delete this chat?",
                                 isPresented: Binding(get: { pendingDelete != nil },
                                                      set: { if !$0 { pendingDelete = nil } }),
