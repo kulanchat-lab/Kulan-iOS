@@ -133,6 +133,8 @@ struct Conversation: Identifiable, Equatable, Hashable {
     var names: [String: String]
     var photos: [String: String]
     var lastMessageCipher: String
+    var lastImageUrl: String?          // last message's image (when it's a photo) → list thumbnail
+    var lastImageEnc: EncMeta?         // enc meta to decrypt that thumbnail
     var lastSender: String             // uid of who sent the last message ("" if unknown)
     var unreadCount: [String: Int]
     var typing: [String: Bool]
@@ -153,6 +155,8 @@ struct Conversation: Identifiable, Equatable, Hashable {
         self.names = data["names"] as? [String: String] ?? [:]
         self.photos = data["photos"] as? [String: String] ?? [:]
         self.lastMessageCipher = data["lastMessage"] as? String ?? ""
+        self.lastImageUrl = data["lastImageUrl"] as? String
+        self.lastImageEnc = (data["lastImageEnc"] as? [String: Any]).flatMap(EncMeta.init(map:))
         self.lastSender = data["lastSender"] as? String ?? ""
         self.unreadCount = intMap(data["unreadCount"])
         self.typing = boolMap(data["typing"])

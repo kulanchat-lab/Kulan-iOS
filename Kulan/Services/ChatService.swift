@@ -139,6 +139,11 @@ enum ChatService {
         batch.setData(imgMsg, forDocument: msgRef)
         batch.updateData([
             "lastMessage": "📷 Photo",   // plaintext preview (server never sees the image)
+            // Last-image pointer so the chat list can show a real thumbnail (not just text).
+            // Gated on lastMessage == "📷 Photo" at display time, so a later text message
+            // ignores this without us having to clear it.
+            "lastImageUrl": url,
+            "lastImageEnc": ["v": meta.v, "n": meta.n, "k": meta.k, "kn": meta.kn],
             "lastSender": uid,
             "updatedAt": FieldValue.serverTimestamp(),
             "unreadCount.\(other)": FieldValue.increment(Int64(1)),

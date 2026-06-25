@@ -530,17 +530,20 @@ struct ChatsView: View {
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)   // clean, no row lines (like Signal)
                         .moveDisabled(!conv.isPinned(me))   // only pinned chats can be dragged
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                pendingDelete = conv
-                            } label: { Label("Delete", systemImage: "trash") }
-                            .tint(.red)
+                        // Full-swipe enabled like the leading (Pin) edge. The FIRST action is
+                        // what a full swipe triggers, so Archive leads (WhatsApp-style): a long
+                        // left swipe archives; Mute/Delete are still revealed for a tap.
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button {
                                 Task { await ChatService.setArchived(conv.id, true) }
-                            } label: { Label("Archive", systemImage: "archivebox") }
+                            } label: { Label("Archive", systemImage: "archivebox.fill") }
                             .tint(.gray)
-                            Button { pendingMute = conv } label: { Label("Mute", systemImage: "bell.slash") }
+                            Button { pendingMute = conv } label: { Label("Mute", systemImage: "bell.slash.fill") }
                             .tint(.indigo)
+                            Button(role: .destructive) {
+                                pendingDelete = conv
+                            } label: { Label("Delete", systemImage: "trash.fill") }
+                            .tint(.red)
                         }
                         .swipeActions(edge: .leading) {
                             Button {
@@ -796,6 +799,24 @@ struct ChatRow: View {
     private var unread: Int { conv.isBlockedByMe(me) ? 0 : conv.unread(me) }   // silent block: no badge
     private var muted: Bool { conv.isMuted(me, now: Date().timeIntervalSince1970 * 1000) }
 
+    // The last message is a photo we can preview (and not a frozen blocked-chat row).
+    private var isPhotoPreview: Bool {
+        !conv.leaksBlocked(me) && conv.lastMessageCipher == "📷 Photo" && (conv.lastImageUrl?.isEmpty == false)
+    }
+    // Preview area: a real image thumbnail for photo messages, otherwise the text preview.
+    @ViewBuilder private var previewContent: some View {
+        if isPhotoPreview {
+            HStack(spacing: 5) {
+                SecureImageView(imageUrl: conv.lastImageUrl ?? "", enc: conv.lastImageEnc, cid: conv.id)
+                    .frame(width: 20, height: 20)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                Text("Photo").font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(1)
+            }
+        } else {
+            Text(preview).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(2)
+        }
+    }
+
     // WhatsApp-style ticks for MY last message: single grey = sent, double accent = read.
     @ViewBuilder private var ticksView: some View {
         let read = conv.lastReadByOther(me)
@@ -840,8 +861,7 @@ struct ChatRow: View {
                 }
                 HStack(alignment: .top, spacing: 4) {
                     if conv.lastIsMine(me) { ticksView.padding(.top, 2) }
-                    Text(preview)
-                        .font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(2)
+                    previewContent
                     Spacer(minLength: 8)
                     if conv.isPinned(me) {
                         Image(systemName: "pin.fill")
