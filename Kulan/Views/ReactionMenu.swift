@@ -45,6 +45,7 @@ enum EmojiCatalog {
 // Floating dim overlay: a quick-emoji bar on top, message actions below.
 struct ReactionMenuOverlay: View {
     let message: Message
+    let cid: String
     let dark: Bool
     let isMe: Bool
     let myReaction: String?
@@ -81,37 +82,65 @@ struct ReactionMenuOverlay: View {
         }
     }
 
-    // A copy of the tapped message, floating above the menu (the native "lift").
-    private var liftedBubble: some View {
-        Text(message.isImage ? "📷 Photo" : (message.isAudio ? "🎤 Voice message" : message.text))
-            .font(.body)
-            .foregroundColor(isMe ? Theme.onAccent(dark) : (dark ? .white : .black))
-            .padding(.horizontal, 13).padding(.vertical, 9)
-            .background(isMe ? Theme.accent(dark) : Theme.received(dark))
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .frame(maxWidth: 260, alignment: isMe ? .trailing : .leading)
-            .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+    // The ACTUAL tapped message lifted above the menu (native "peek" feel): the real
+    // image, the real voice widget, or the real text bubble — never a placeholder string.
+    @ViewBuilder private var liftedBubble: some View {
+        Group {
+            if message.isImage {
+                imageLift
+            } else if message.isAudio {
+                VoiceMessageView(message: message, cid: cid, isMe: isMe, dark: dark)
+                    .padding(.horizontal, 13).padding(.vertical, 9)
+                    .background(isMe ? Theme.accent(dark) : Theme.received(dark))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .frame(maxWidth: 260, alignment: isMe ? .trailing : .leading)
+            } else {
+                Text(message.text)
+                    .font(.body)
+                    .foregroundColor(isMe ? Theme.onAccent(dark) : (dark ? .white : .black))
+                    .padding(.horizontal, 13).padding(.vertical, 9)
+                    .background(isMe ? Theme.accent(dark) : Theme.received(dark))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .frame(maxWidth: 260, alignment: isMe ? .trailing : .leading)
+            }
+        }
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
     }
 
+    @ViewBuilder private var imageLift: some View {
+        Group {
+            if let data = message.localImageData, let ui = UIImage(data: data) {
+                Image(uiImage: ui).resizable().scaledToFill()
+            } else if let url = message.imageUrl {
+                SecureImageView(imageUrl: url, enc: message.enc, cid: cid)
+            }
+        }
+        .frame(maxWidth: 240, maxHeight: 280)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func haptic() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+
+    // Compact native-sized reaction bar: 26pt glyphs, frosted glass, trailing "…" button.
     private var emojiBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             ForEach(quick, id: \.self) { e in
-                Button { onPick(e) } label: {
-                    Text(e).font(.system(size: 30))
-                        .padding(6)
+                Button { haptic(); onPick(e) } label: {
+                    Text(e).font(.system(size: 26))
+                        .padding(5)
                         .background(myReaction == e ? Color.accentColor.opacity(0.22) : .clear, in: Circle())
                 }
                 .buttonStyle(.plain)
             }
-            Button { onMore() } label: {
-                Image(systemName: "plus").font(.system(size: 18, weight: .semibold))
+            Button { haptic(); onMore() } label: {
+                Image(systemName: "ellipsis").font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 42, height: 42)
+                    .frame(width: 34, height: 34)
                     .background(Theme.received(dark), in: Circle())
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 14).padding(.vertical, 8)
+        .padding(.horizontal, 10).padding(.vertical, 6)
         .liquidGlass(Capsule())   // real iOS 26 Liquid Glass
         .shadow(color: .black.opacity(0.18), radius: 16, y: 6)   // float above the chat
     }
@@ -141,15 +170,15 @@ struct ReactionMenuOverlay: View {
 
     @ViewBuilder
     private func row(_ title: String, _ icon: String, _ action: @escaping () -> Void, destructive: Bool = false) -> some View {
-        Button(action: action) {
+        Button(action: { haptic(); action() }) {
             HStack(spacing: 14) {
-                Image(systemName: icon).frame(width: 20)
+                Image(systemName: icon).frame(width: 22)
                 Text(title)
                 Spacer()
             }
-            .font(.system(size: 16))
+            .font(.system(size: 17))   // native context-menu metrics
             .foregroundStyle(destructive ? Color.red : Color.primary)
-            .padding(.horizontal, 16).padding(.vertical, 13)
+            .padding(.horizontal, 16).padding(.vertical, 12)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

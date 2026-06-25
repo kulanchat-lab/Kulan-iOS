@@ -180,7 +180,7 @@ struct ThreadView: View {
         .overlay {
             if let m = menuTarget {
                 ReactionMenuOverlay(
-                    message: m, dark: dark, isMe: m.authorId == me, myReaction: m.reactions[me],
+                    message: m, cid: cid, dark: dark, isMe: m.authorId == me, myReaction: m.reactions[me],
                     onPick: { emoji in react(m, emoji); dismissMenu() },
                     onMore: { dismissMenu(); morePickerTarget = m },
                     onReply: { replyingTo = m; dismissMenu() },
