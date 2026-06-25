@@ -53,8 +53,6 @@ struct ThreadView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-        chatHeader
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
             pinnedBar(proxy)
@@ -167,11 +165,11 @@ struct ThreadView: View {
             }
             }
         }
-        }
         .toolbar(.hidden, for: .tabBar)
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationBarBackButtonHidden(true)
-        .background(SwipeBackEnabler())   // header is in the body -> slides 1:1; keep swipe-back
+        // Native nav bar = real iOS 26 Liquid Glass + the genuine edge-swipe-back, exactly
+        // like the Chats list header. Avatar/name/call buttons live in the toolbar.
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { chatToolbar }
         .alert("Video calls", isPresented: $showVideoSoon) {
             Button("OK", role: .cancel) {}
         } message: { Text("Video calling is coming soon.") }
@@ -335,52 +333,40 @@ struct ThreadView: View {
         cid.split(separator: "_").map(String.init).first { $0 != me } ?? ""
     }
 
-    // Header lives in the BODY (not the toolbar) so it slides 1:1 with the messages
-    // during the edge swipe-back — exactly like Signal. Back chevron + avatar + name
-    // on the left, voice-call button on the right.
-    private var chatHeader: some View {
-        HStack(spacing: 10) {
-            // Back — circular Liquid Glass button (Apple style).
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.backward")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 48, height: 48)
-                    .liquidGlass(Circle())
-            }
+    // Native toolbar header (real Liquid Glass + native back/swipe), same approach as the
+    // Chats list. Avatar + name (+ presence) centered; voice + video as trailing glass items.
+    // The native back button (leading) owns the real edge-swipe-back gesture.
+    @ToolbarContentBuilder private var chatToolbar: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
             NavigationLink {
                 ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
             } label: {
-                HStack(spacing: 10) {
-                    AvatarView(name: title, photoUrl: photoUrl, size: 40)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
+                HStack(spacing: 8) {
+                    AvatarView(name: title, photoUrl: photoUrl, size: 32)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(title).font(.headline).foregroundStyle(.primary).lineLimit(1)
                         if let sub = presenceSubtitle {
-                            Text(sub).font(.system(size: 12))
+                            Text(sub).font(.caption2)
                                 .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
                                 .lineLimit(1)
                         }
                     }
                 }
             }
-            .buttonStyle(.plain)
-            Spacer(minLength: 8)
-            // Voice call — circular Liquid Glass button (Apple style), real call.
-            Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
-                Image(systemName: "phone.fill").font(.system(size: 16, weight: .medium)).foregroundStyle(.primary)
-                    .frame(width: 48, height: 48)
-                    .liquidGlass(Circle())
-            }
-            // Video call — same glass style; honest "coming soon" (video isn't built yet).
-            Button { showVideoSoon = true } label: {
-                Image(systemName: "video.fill").font(.system(size: 16, weight: .medium)).foregroundStyle(.primary)
-                    .frame(width: 48, height: 48)
-                    .liquidGlass(Circle())
-            }
+            .tint(.primary)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Theme.bg(dark))   // same as the page -> blends seamlessly, no separate bar
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
+                Image(systemName: "phone.fill")
+            }
+            .tint(.primary)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Button { showVideoSoon = true } label: {
+                Image(systemName: "video.fill")
+            }
+            .tint(.primary)
+        }
     }
 
     private func send() {
