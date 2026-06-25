@@ -483,7 +483,16 @@ struct ChatsView: View {
                 Label("Unread", systemImage: "envelope.badge")
             }
         }
-        Button { pendingMute = conv } label: { Label("Mute", systemImage: "bell.slash") }
+        // Native submenu (clean popover) instead of a custom mute sheet.
+        Menu {
+            if conv.isMuted(me, now: Date().timeIntervalSince1970 * 1000) {
+                Button("Unmute") { Task { await ChatService.setMute(conv.id, until: 0) } }
+            }
+            Button("Mute for 1 hour") { Task { await ChatService.setMute(conv.id, until: ChatService.muteUntil(1)) } }
+            Button("Mute for 8 hours") { Task { await ChatService.setMute(conv.id, until: ChatService.muteUntil(8)) } }
+            Button("Mute for 1 week") { Task { await ChatService.setMute(conv.id, until: ChatService.muteUntil(168)) } }
+            Button("Mute Always") { Task { await ChatService.setMute(conv.id, until: ChatService.muteUntil(nil)) } }
+        } label: { Label("Mute", systemImage: "bell.slash") }
         Button { Task { await ChatService.setPinned(conv.id, !conv.isPinned(me)) } } label: {
             Label(conv.isPinned(me) ? "Unpin" : "Pin", systemImage: "pin")
         }
