@@ -38,7 +38,7 @@ struct CallView: View {
                 // Header (inside the safe area, not floating): a top-left back/minimize
                 // chevron. Tapping it minimizes the call screen — it never ends the call.
                 HStack {
-                    Button { call.minimized = true } label: {
+                    Button { withAnimation(.easeInOut(duration: 0.25)) { call.minimized = true } } label: {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(.white)
@@ -134,9 +134,10 @@ struct CallContainer<Content: View>: View {
             }
             content
         }
-        .animation(.easeInOut(duration: 0.25), value: call.minimized)
-        .animation(.easeInOut(duration: 0.25), value: call.state)
-        // Full call screen presents above everything; dismissing = minimizing (state kept).
+        // NO app-wide implicit animation here: wrapping `content` in .animation made the
+        // whole chat view warp/distort whenever call state changed. Only the mini bar
+        // animates now (its own .transition + withAnimation at the toggle sites), so the
+        // call screen slides up as a clean native cover over a perfectly still chat view.
         .fullScreenCover(isPresented: Binding(
             get: { isActive && !call.minimized },
             set: { _ in }

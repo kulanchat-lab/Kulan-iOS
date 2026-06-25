@@ -7,10 +7,16 @@ import FirebaseFirestore
 // shared media, bio); honest "coming soon" for features not built yet (calls live
 // on a separate branch; in-chat search isn't built). No fabricated data — the title
 // is the @handle (Kulan has no phone numbers).
+// Where this profile was opened from — the action row + a call-log card adapt to it.
+// From a chat: you're already chatting, so offer Search (not Message). From the Calls
+// tab: offer Message (jump into the chat) + show the recent call with this person.
+enum ProfileSource { case chat, calls }
+
 struct ContactInfoView: View {
     let cid: String
     let name: String
     let photoUrl: String?
+    var source: ProfileSource = .chat
 
     @State private var handle = ""
     @State private var about = ""
@@ -23,6 +29,8 @@ struct ContactInfoView: View {
     @State private var showBlock = false
     @State private var showCallSoon = false
     @State private var showSearchSoon = false
+    @State private var showVideoSoon = false
+    @State private var openChat = false
     @State private var showAllMedia = false
     @State private var showMuteOptions = false
     @State private var showDisappear = false
@@ -41,6 +49,7 @@ struct ContactInfoView: View {
             VStack(spacing: 16) {
                 hero
                 quickActions
+                if source == .calls, lastCall != nil { callLogCard }
                 disappearRow
                 if !about.isEmpty { bioCard }
                 if !media.isEmpty { mediaCard }
@@ -88,6 +97,12 @@ struct ContactInfoView: View {
         .alert("Search", isPresented: $showSearchSoon) {
             Button("OK", role: .cancel) {}
         } message: { Text("In-chat search is coming soon.") }
+        .alert("Video calls", isPresented: $showVideoSoon) {
+            Button("OK", role: .cancel) {}
+        } message: { Text("Video calling is coming soon.") }
+        .navigationDestination(isPresented: $openChat) {
+            ThreadView(cid: cid, title: name, photoUrl: photoUrl)
+        }
         .confirmationDialog("Mute \(name)", isPresented: $showMuteOptions, titleVisibility: .visible) {
             if muted {
                 Button("Unmute") { muted = false; Task { await ChatService.setMute(cid, until: 0) } }
@@ -136,26 +151,67 @@ struct ContactInfoView: View {
         .padding(.top, 8)
     }
 
+    // Context-aware row. From Calls: Message (open the chat) leads. From a chat: Search
+    // trails (you're already here). Video is an honest "coming soon"; Voice always calls.
     private var quickActions: some View {
         HStack(spacing: 12) {
-            actionTile("call", "phone.fill") { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl) }
+            if source == .calls {
+                actionTile("message", "message.fill") { openChat = true }
+            }
+            actionTile("video", "video.fill") { showVideoSoon = true }
+            actionTile("voice", "phone.fill") { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl) }
             actionTile(muted ? "unmute" : "mute", muted ? "bell.fill" : "bell.slash.fill") { showMuteOptions = true }
-            actionTile("search", "magnifyingglass") { showSearchSoon = true }
-            Menu {
-                if blocked {
-                    Button { Task { await ChatService.setBlocked(cid, false); blocked = false } } label: {
-                        Label("Unblock", systemImage: "hand.raised.slash")
-                    }
-                } else {
-                    Button(role: .destructive) { showBlock = true } label: {
-                        Label("Block \(name)", systemImage: "hand.raised")
-                    }
+            if source == .chat {
+                actionTile("search", "magnifyingglass") { showSearchSoon = true }
+            }
+            moreMenu
+        }
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            if blocked {
+                Button { Task { await ChatService.setBlocked(cid, false); blocked = false } } label: {
+                    Label("Unblock", systemImage: "hand.raised.slash")
                 }
-                Button(role: .destructive) { showClear = true } label: {
-                    Label("Clear my messages", systemImage: "trash")
+            } else {
+                Button(role: .destructive) { showBlock = true } label: {
+                    Label("Block \(name)", systemImage: "hand.raised")
                 }
-            } label: { tileLabel("more", "ellipsis") }
-                .tint(.primary)
+            }
+            Button(role: .destructive) { showClear = true } label: {
+                Label("Clear my messages", systemImage: "trash")
+            }
+        } label: { tileLabel("more", "ellipsis") }
+            .tint(.primary)
+    }
+
+    // The most recent real call with this person (nil if none) — drives the call-log card.
+    private var lastCall: CallEntry? {
+        CallsRepository.shared.calls.filter { $0.cid == cid }.max { $0.date < $1.date }
+    }
+
+    private var callLogCard: some View {
+        Group {
+            if let call = lastCall {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(call.date.formatted(.dateTime.month(.abbreviated).day().year()))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        Image(systemName: call.mine ? "phone.arrow.up.right" : "phone.arrow.down.left")
+                            .foregroundStyle(call.missed ? .red : .secondary)
+                        Text(call.missed ? "Missed voice call"
+                                         : (call.mine ? "Outgoing voice call" : "Incoming voice call"))
+                        Spacer()
+                        Text(call.date.formatted(date: .omitted, time: .shortened))
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.subheadline)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(cardColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
         }
     }
 
