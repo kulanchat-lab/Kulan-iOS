@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UIKit
 
 // Horizontal Stories row for the top of the Chats screen: "My Status" cell (tap to add
 // or view your own) + friends' rings (unseen = accent ring, seen = grey). Loads on appear.
@@ -10,13 +11,17 @@ struct StoriesRow: View {
     var onCompose: () -> Void
     var onOpen: (StoryGroup) -> Void
 
-    // "People"-card proportions (Apple promo look): wider than tall-narrow, ~1.46x.
-    private let cardW: CGFloat = 100
-    private let cardH: CGFloat = 146
+    private let storySpacing: CGFloat = 10
+    private let storyHPad: CGFloat = 12
+    // Size cards so EXACTLY 4 fit the screen width with even gaps — no half card at the edge.
+    private var cardW: CGFloat {
+        (UIScreen.main.bounds.width - storyHPad * 2 - storySpacing * 3) / 4
+    }
+    private var cardH: CGFloat { cardW * 1.46 }   // "people"-card proportions
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: storySpacing) {
                 myCard
                 ForEach(repo.others) { g in
                     card(cover: g.stories.last?.mediaUrl,
@@ -24,7 +29,7 @@ struct StoriesRow: View {
                          avatar: g.photoUrl, unseen: g.hasUnseen) { onOpen(g) }
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, storyHPad)
             .padding(.vertical, 10)
         }
         .task { await repo.load() }
@@ -47,7 +52,7 @@ struct StoriesRow: View {
             ZStack(alignment: .bottomLeading) {
                 coverImage(cover, name: name, avatar: avatar)
                     .frame(width: cardW, height: cardH)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                     // No border/frame on the card itself — the viewed/unviewed ring lives
                     // only on the avatar badge below.
                 if let onBadge {
