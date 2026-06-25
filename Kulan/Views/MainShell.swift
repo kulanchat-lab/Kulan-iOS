@@ -14,9 +14,9 @@ struct MainShell: View {
     var body: some View {
         TabView {
             ChatsView(onSignOut: onSignOut)
-                .tabItem { Label("Chats", systemImage: "message.fill") }
+                .tabItem { Label("Chats", systemImage: "message") }   // iOS auto-fills when selected
             CallsView()
-                .tabItem { Label("Calls", systemImage: "phone.fill") }
+                .tabItem { Label("Calls", systemImage: "phone") }
             SettingsView(onSignOut: onSignOut, asTab: true)
                 .tabItem {
                     Label {
