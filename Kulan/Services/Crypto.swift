@@ -33,7 +33,7 @@ struct MissingRecipientKeyError: Error {
 }
 
 /// Per-attachment envelope stored alongside an encrypted file. Mirrors EncMeta in crypto.ts.
-struct EncMeta: Codable, Equatable {
+struct EncMeta: Codable, Equatable, Hashable {
     let v: Int       // always 1
     let n: String    // b64 secretbox nonce (the file data)
     let k: String    // b64 file key, wrapped to the recipient with box

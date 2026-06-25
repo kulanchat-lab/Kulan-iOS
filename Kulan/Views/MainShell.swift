@@ -791,10 +791,24 @@ struct ChatRow: View {
     let me: String
     let dark: Bool
 
-    private var preview: String {
+    private var decodedLast: String {
         if conv.leaksBlocked(me) { return "" }   // don't leak a blocked person's message into the list
-        let decoded = Crypto.shared.decrypt(conv.lastMessageCipher, cid: conv.id)
-        return decoded.isEmpty ? "Say hello 👋" : decoded
+        return Crypto.shared.decrypt(conv.lastMessageCipher, cid: conv.id)
+    }
+    // Stored plaintext markers → an SF Symbol + clean label (native look, no emoji).
+    private func previewBadge(_ s: String) -> (String, String)? {
+        switch s {
+        case "🎤 Voice message": return ("mic.fill", "Voice message")
+        case "📞 Missed call":   return ("phone.down.fill", "Missed call")
+        case "📞 Call":          return ("phone.fill", "Call")
+        default: return nil
+        }
+    }
+    private func previewRow(_ icon: String, _ text: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(text).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(1)
+        }
     }
     private var unread: Int { conv.isBlockedByMe(me) ? 0 : conv.unread(me) }   // silent block: no badge
     private var muted: Bool { conv.isMuted(me, now: Date().timeIntervalSince1970 * 1000) }
@@ -812,8 +826,12 @@ struct ChatRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                 Text("Photo").font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(1)
             }
+        } else if !conv.leaksBlocked(me), let badge = previewBadge(conv.lastMessageCipher) {
+            previewRow(badge.0, badge.1)
+        } else if !conv.leaksBlocked(me), decodedLast.isEmpty {
+            previewRow("hand.wave.fill", "Say hello")
         } else {
-            Text(preview).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(2)
+            Text(decodedLast).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(2)
         }
     }
 
