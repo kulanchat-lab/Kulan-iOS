@@ -70,8 +70,15 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .listSectionSpacing(.compact)   // tighten the dead space between blocks
             .preferredColorScheme(AppAppearance(rawValue: appearanceRaw)?.colorScheme ?? nil)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showQR = true } label: { Image(systemName: "qrcode") }.tint(.primary)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Edit") { showEdit = true }.tint(.primary)
+                }
                 if !asTab {
                     ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
                 }
@@ -93,7 +100,7 @@ struct SettingsView: View {
             Text("Edit profile").font(.footnote).foregroundStyle(.tint)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
+        .padding(.top, 2).padding(.bottom, 4)
     }
 }
 

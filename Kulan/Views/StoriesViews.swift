@@ -10,8 +10,8 @@ struct StoriesRow: View {
     var onCompose: () -> Void
     var onOpen: (StoryGroup) -> Void
 
-    private let cardW: CGFloat = 92
-    private let cardH: CGFloat = 132
+    private let cardW: CGFloat = 88
+    private let cardH: CGFloat = 140
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -43,26 +43,26 @@ struct StoriesRow: View {
     private func card(cover: String?, name: String, avatar: String?, unseen: Bool,
                       onBadge: (() -> Void)? = nil, tap: @escaping () -> Void) -> some View {
         VStack(spacing: 6) {
-            ZStack(alignment: .bottomTrailing) {
+            ZStack(alignment: .bottomLeading) {
                 coverImage(cover, name: name, avatar: avatar)
                     .frame(width: cardW, height: cardH)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(unseen ? Color.accentColor : Color.white.opacity(0.18),
-                                    lineWidth: unseen ? 2.5 : 1)
-                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    // No border/frame on the card itself — the viewed/unviewed ring lives
+                    // only on the avatar badge below.
                 if let onBadge {
                     Button(action: onBadge) {
                         Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 22)).symbolRenderingMode(.palette)
+                            .font(.system(size: 26)).symbolRenderingMode(.palette)
                             .foregroundStyle(.white, Color.accentColor)
+                            .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
                     }
-                    .buttonStyle(.plain).padding(6)
+                    .buttonStyle(.plain).padding(8)
                 } else {
-                    AvatarView(name: name, photoUrl: avatar, size: 26)
-                        .overlay(Circle().stroke(.white, lineWidth: 1.5))
-                        .padding(6)
+                    AvatarView(name: name, photoUrl: avatar, size: 32)
+                        // Status ring ONLY here: accent when unseen, gone once viewed.
+                        .overlay(Circle().stroke(Color.accentColor, lineWidth: unseen ? 2.5 : 0))
+                        .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
+                        .padding(8)
                 }
             }
             Text(name).font(.system(size: 12)).lineLimit(1).frame(width: cardW)
