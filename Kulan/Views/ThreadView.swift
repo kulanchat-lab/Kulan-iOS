@@ -2,6 +2,14 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
+private extension View {
+    // Remove the iOS 26 auto Liquid-Glass background pill from a single toolbar item
+    // (no-op on older OS). Used to show the avatar+name+status with no border.
+    @ViewBuilder func plainToolbarItem() -> some View {
+        if #available(iOS 26.0, *) { self.sharedBackgroundVisibility(.hidden) } else { self }
+    }
+}
+
 struct ThreadView: View {
     let cid: String
     let title: String
@@ -388,6 +396,7 @@ struct ThreadView: View {
                 }
             }
             .tint(.primary)
+            .plainToolbarItem()   // strip the iOS 26 glass pill around avatar+name only
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
