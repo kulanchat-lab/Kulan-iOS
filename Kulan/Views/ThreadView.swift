@@ -259,12 +259,11 @@ struct ThreadView: View {
                     Image(systemName: "pin.slash").font(.system(size: 15)).foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 12)
-            .frame(height: 46)
-            .liquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.5), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.05), radius: 8, y: 3)
-            .padding(.horizontal, 12).padding(.top, 8)
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            // Native full-width system bar (like a toolbar), not a floating glass capsule.
+            .background(.bar)
+            .overlay(alignment: .bottom) { Divider() }
             .contentShape(Rectangle())
             .onTapGesture { if let id = msg?.id { withAnimation { proxy.scrollTo(id, anchor: .center) } } }
             .transition(.move(edge: .top).combined(with: .opacity))
@@ -1073,13 +1072,13 @@ struct MessageBubble: View {
                 // text wraps and the time stays at the bottom-right corner.
                 HStack(alignment: .bottom, spacing: 6) {
                     Text(message.text)
-                        .font(.body)
+                        .font(.system(size: 17))
                         .foregroundColor(isMe ? Theme.onAccent(dark) : (dark ? .white : .black))
                     if isLastInCluster { metaRow.padding(.bottom, 1) }   // time once per cluster
                 }
             }
-            .padding(.horizontal, 13)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 10)
             .background(isMe ? Theme.accent(dark) : Theme.received(dark))
             .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
         }
