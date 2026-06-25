@@ -148,7 +148,7 @@ struct ChatSearchView: View {
                 ThreadView(cid: t.id, title: t.name, photoUrl: t.photo).id(t.id)
             }
         }
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+        .searchable(text: $query,
                     prompt: "Search messages")
         .autoFocusSearch($searchFocused)
         .onAppear {
@@ -285,7 +285,7 @@ struct ContactsSearchView: View {
             .navigationBarTitleDisplayMode(.inline)
             .background { SearchCancelWatcher(canReturn: { trimmed.isEmpty }, onCancel: onCancel) }
         }
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+        .searchable(text: $query,
                     prompt: "Search contacts")
         .autoFocusSearch($searchFocused)
         .onAppear { repo.start() }
@@ -367,7 +367,7 @@ struct SettingsSearchView: View {
             .navigationBarTitleDisplayMode(.inline)
             .background { SearchCancelWatcher(canReturn: { trimmed.isEmpty }, onCancel: onCancel) }
         }
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+        .searchable(text: $query,
                     prompt: "Search settings")
         .autoFocusSearch($searchFocused)
         .task { try? await Task.sleep(nanoseconds: 350_000_000); searchFocused = true }
