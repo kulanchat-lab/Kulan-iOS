@@ -257,6 +257,20 @@ struct ChatsView: View {
     @State private var showDeleteSelected = false
     @State private var showCompose = false
     @State private var viewerGroup: StoryGroup?
+    // WhatsApp-style header fade: hide the nav-bar icons while a chat is pushed so they
+    // don't float statically over the screen during the interactive swipe-back. Driven by
+    // navigation depth — a non-empty path (which holds through the ENTIRE drag) keeps them
+    // hidden; they fade back only when the list is fully back (path empty again on commit).
+    @State private var showHeaderIcons = true
+
+    // Drops the toolbar icons to opacity 0 the instant we leave the list and fades them
+    // back when it re-appears — without this SwiftUI keeps them pinned over the transition.
+    private struct SwipeFade: ViewModifier {
+        let on: Bool
+        func body(content: Content) -> some View {
+            content.opacity(on ? 1 : 0).animation(.easeInOut(duration: 0.15), value: on)
+        }
+    }
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
@@ -323,12 +337,18 @@ struct ChatsView: View {
             }
             ToolbarItem(placement: .topBarTrailing) { Button("Select All") { selectAll() } }
         } else if #available(iOS 26.0, *) {
-            ToolbarItem(placement: .topBarLeading) { editButton }
+            ToolbarItem(placement: .topBarLeading) { editButton.modifier(SwipeFade(on: showHeaderIcons)) }
                 .sharedBackgroundVisibility(.hidden)
-            ToolbarItemGroup(placement: .topBarTrailing) { filterMenu; composeButton }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                filterMenu.modifier(SwipeFade(on: showHeaderIcons))
+                composeButton.modifier(SwipeFade(on: showHeaderIcons))
+            }
         } else {
-            ToolbarItem(placement: .topBarLeading) { editButton }
-            ToolbarItemGroup(placement: .topBarTrailing) { filterMenu; composeButton }
+            ToolbarItem(placement: .topBarLeading) { editButton.modifier(SwipeFade(on: showHeaderIcons)) }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                filterMenu.modifier(SwipeFade(on: showHeaderIcons))
+                composeButton.modifier(SwipeFade(on: showHeaderIcons))
+            }
         }
     }
 
@@ -492,6 +512,9 @@ struct ChatsView: View {
             .navigationBarTitleDisplayMode(.inline)   // one row: avatar · Chats · compose
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search")
             .toolbar { homeToolbar }
+            // Hide the header icons whenever a chat is on the stack (incl. the swipe-back
+            // drag); reveal them only when we're fully back at the root list.
+            .onChange(of: path.count) { showHeaderIcons = path.isEmpty }
             .sheet(isPresented: $showCompose) {
                 StoryComposeSheet { Task { await StoriesRepository.shared.load() } }
             }
