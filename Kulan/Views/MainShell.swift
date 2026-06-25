@@ -113,18 +113,11 @@ private extension UIImage {
 struct CallsView: View {
     @State private var repo = CallsRepository.shared
     @State private var filter = 0            // 0 = All, 1 = Missed
-    @State private var query = ""
     @State private var profileTarget: CallEntry?
     @State private var showNew = false
-    @State private var searchActive = false
-    @FocusState private var searchFocused: Bool
 
     private var shown: [CallEntry] {
-        var list = repo.calls
-        if filter == 1 { list = list.filter { $0.missed } }
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        if !q.isEmpty { list = list.filter { $0.name.lowercased().contains(q) } }
-        return list
+        filter == 1 ? repo.calls.filter { $0.missed } : repo.calls
     }
 
     var body: some View {
@@ -152,41 +145,8 @@ struct CallsView: View {
                 }
             }
             .navigationTitle("Calls")
-            .overlay(alignment: .bottomTrailing) {
-                if !searchActive {
-                    Button { searchActive = true } label: {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(Theme.onAccent(false))
-                            .frame(width: 52, height: 52)
-                            .background(Theme.accent(false), in: Circle())
-                            .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
-                    }
-                    .padding(.trailing, 18).padding(.bottom, 18)
-                }
-            }
-            .safeAreaInset(edge: .top) {
-                if searchActive {
-                    HStack(spacing: 8) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                            TextField("Search", text: $query).focused($searchFocused).submitLabel(.search)
-                            if !query.isEmpty {
-                                Button { query = "" } label: {
-                                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 8)
-                        .background(Color.primary.opacity(0.06), in: Capsule())
-                        Button("Cancel") { query = ""; searchActive = false; searchFocused = false }
-                            .tint(.primary)
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.bar)
-                    .onAppear { searchFocused = true }
-                }
-            }
+            // Search moved to the global search tab (the detached circle), so the old
+            // in-page search FAB + inline search bar were removed from Calls too.
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Picker("", selection: $filter) {
