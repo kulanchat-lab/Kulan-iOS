@@ -17,6 +17,7 @@ struct ThreadView: View {
     @State private var sendError: String?
     @State private var showCamera = false
     @State private var showLibrary = false
+    @State private var showVideoSoon = false
     @State private var recorder = AudioRecorder()
     @State private var highlightId: String?
     @State private var isAtBottom = true
@@ -166,6 +167,9 @@ struct ThreadView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .background(SwipeBackEnabler())   // header is in the body -> slides 1:1; keep swipe-back
+        .alert("Video calls", isPresented: $showVideoSoon) {
+            Button("OK", role: .cancel) {}
+        } message: { Text("Video calling is coming soon.") }
         .alert("Message not sent", isPresented: Binding(get: { sendError != nil },
                                                         set: { if !$0 { sendError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -330,19 +334,20 @@ struct ThreadView: View {
     // during the edge swipe-back — exactly like Signal. Back chevron + avatar + name
     // on the left, voice-call button on the right.
     private var chatHeader: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
+            // Back — circular Liquid Glass button (Apple style).
             Button { dismiss() } label: {
                 Image(systemName: "chevron.backward")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: 32, height: 40)
-                    .contentShape(Rectangle())
+                    .frame(width: 44, height: 44)
+                    .liquidGlass(Circle())
             }
             NavigationLink {
                 ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
             } label: {
                 HStack(spacing: 10) {
-                    AvatarView(name: title, photoUrl: photoUrl, size: 38)
+                    AvatarView(name: title, photoUrl: photoUrl, size: 40)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
                         if let sub = presenceSubtitle {
@@ -355,13 +360,20 @@ struct ThreadView: View {
             }
             .buttonStyle(.plain)
             Spacer(minLength: 8)
+            // Voice call — circular Liquid Glass button (Apple style), real call.
             Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
-                Image(systemName: "phone.fill").font(.system(size: 17)).foregroundStyle(.primary)
-                    .frame(width: 38, height: 38)
+                Image(systemName: "phone.fill").font(.system(size: 16, weight: .medium)).foregroundStyle(.primary)
+                    .frame(width: 44, height: 44)
+                    .liquidGlass(Circle())
+            }
+            // Video call — same glass style; honest "coming soon" (video isn't built yet).
+            Button { showVideoSoon = true } label: {
+                Image(systemName: "video.fill").font(.system(size: 16, weight: .medium)).foregroundStyle(.primary)
+                    .frame(width: 44, height: 44)
+                    .liquidGlass(Circle())
             }
         }
-        .padding(.leading, 6)
-        .padding(.trailing, 12)
+        .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(Theme.bg(dark))   // same as the page -> blends seamlessly, no separate bar
     }
