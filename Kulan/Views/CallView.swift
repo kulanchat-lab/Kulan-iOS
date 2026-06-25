@@ -40,10 +40,10 @@ struct CallView: View {
                 HStack {
                     Button { call.minimized = true } label: {
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 21, weight: .semibold))
+                            .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(.white)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
+                            .frame(width: 40, height: 40)
+                            .background(.ultraThinMaterial, in: Circle())   // always visible on any bg
                     }
                     Spacer()
                 }

@@ -33,18 +33,23 @@ struct VoiceMessageView: View {
             }
             .buttonStyle(.plain)
 
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(tint.opacity(0.3)).frame(height: 3)
-                    Capsule().fill(tint).frame(width: max(3, geo.size.width * progress), height: 3)
-                }
-                .frame(maxHeight: .infinity, alignment: .center)
-            }
-            .frame(width: 130, height: 24)
+            WaveformBars(bars: displayBars, progress: progress,
+                         played: tint, unplayed: tint.opacity(0.3)) { pct in seek(pct) }
+                .frame(width: 150, height: 28)
 
             Text(durationText).font(.caption2).foregroundStyle(tint.opacity(0.8))
         }
         .onDisappear { stop() }
+    }
+
+    // Real captured waveform, or a neutral flat one for older messages that lack it.
+    private var displayBars: [Int] {
+        message.waveform.isEmpty ? Array(repeating: 35, count: 28) : message.waveform
+    }
+
+    private func seek(_ pct: Double) {
+        progress = max(0, min(1, pct))
+        if let p = player { p.currentTime = progress * p.duration }
     }
 
     private func toggle() {
@@ -87,4 +92,55 @@ struct VoiceMessageView: View {
 
     private func pause() { player?.pause(); playing = false; timer?.invalidate(); timer = nil }
     private func stop() { player?.stop(); playing = false; timer?.invalidate(); timer = nil }
+}
+
+// Premium waveform (Signal/WhatsApp style): rounded amplitude bars, the played portion
+// tinted, draggable to seek. Drawn in a Canvas (one pass — cheap to redraw on progress).
+struct WaveformBars: View {
+    let bars: [Int]          // 0…100
+    var progress: Double     // 0…1
+    var played: Color
+    var unplayed: Color
+    var onSeek: (Double) -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            Canvas { ctx, size in
+                let count = max(bars.count, 1)
+                let slot = size.width / CGFloat(count)
+                let barW = max(2, slot * 0.5)
+                let playedTo = Int(Double(count) * progress)
+                for (i, v) in bars.enumerated() {
+                    let norm = CGFloat(max(0, min(100, v))) / 100
+                    let h = max(3, norm * size.height)
+                    let x = CGFloat(i) * slot + (slot - barW) / 2
+                    let rect = CGRect(x: x, y: (size.height - h) / 2, width: barW, height: h)
+                    ctx.fill(Path(roundedRect: rect, cornerRadius: barW / 2),
+                             with: .color(i <= playedTo ? played : unplayed))
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { v in
+                onSeek(Double(v.location.x / max(1, geo.size.width)))
+            })
+        }
+    }
+}
+
+// Live recording waveform: scrolling capsules from the most recent mic levels.
+struct LiveWaveform: View {
+    let levels: [Float]      // 0…1
+    var color: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(Array(levels.enumerated()), id: \.offset) { _, lvl in
+                    Capsule().fill(color)
+                        .frame(width: 2.5, height: max(3, CGFloat(lvl) * geo.size.height))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+        }
+    }
 }

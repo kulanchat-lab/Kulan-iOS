@@ -673,7 +673,8 @@ struct ThreadView: View {
             HStack(spacing: 8) {
                 Circle().fill(.red).frame(width: 9, height: 9)
                 Text(timeString(recorder.elapsed)).font(.subheadline.monospacedDigit())
-                Spacer()
+                LiveWaveform(levels: recorder.levels, color: Theme.accent(dark))
+                    .frame(maxWidth: .infinity, maxHeight: 22)
             }
             .padding(.horizontal, 14)
             .frame(minHeight: 36)
@@ -690,8 +691,8 @@ struct ThreadView: View {
     }
 
     private func stopAndSendAudio() async {
-        guard let (data, dur) = recorder.finish() else { return }
-        try? await ChatService.sendAudio(cid: cid, data: data, duration: dur)
+        guard let (data, dur, wf) = recorder.finish() else { return }
+        try? await ChatService.sendAudio(cid: cid, data: data, duration: dur, waveform: wf)
     }
 
     private func sendCaptured(_ data: Data) async {
