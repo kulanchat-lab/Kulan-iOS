@@ -52,6 +52,7 @@ struct ReactionMenuOverlay: View {
     var onPick: (String) -> Void
     var onMore: () -> Void
     var onReply: () -> Void
+    var onForward: () -> Void
     var onPin: () -> Void
     var onCopy: () -> Void
     var onEdit: () -> Void
@@ -148,6 +149,10 @@ struct ReactionMenuOverlay: View {
     private var actions: some View {
         VStack(spacing: 0) {
             row("Reply", "arrowshape.turn.up.left", onReply)
+            if !message.isCall {
+                Divider().padding(.leading, 16)
+                row("Forward", "arrowshape.turn.up.right", onForward)
+            }
             if !message.isImage && !message.text.isEmpty {
                 Divider().padding(.leading, 16)
                 row("Copy", "doc.on.doc") { UIPasteboard.general.string = message.text; onCopy() }

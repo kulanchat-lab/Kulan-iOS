@@ -29,6 +29,7 @@ struct ThreadView: View {
     @State private var reactorsTarget: Message?   // "who reacted" sheet
     @State private var pendingDelete: Message?
     @State private var editTarget: Message?       // edit-message sheet
+    @State private var forwardTarget: Message?    // forward-to-chat picker
     @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
@@ -184,6 +185,7 @@ struct ThreadView: View {
                     onPick: { emoji in react(m, emoji); dismissMenu() },
                     onMore: { dismissMenu(); morePickerTarget = m },
                     onReply: { replyingTo = m; dismissMenu() },
+                    onForward: { dismissMenu(); forwardTarget = m },
                     onPin: { Task { await ChatService.setPinnedMessage(cid, m.id) }; dismissMenu() },
                     onCopy: { dismissMenu() },
                     onEdit: { dismissMenu(); editTarget = m },
@@ -201,6 +203,9 @@ struct ThreadView: View {
             EditMessageSheet(original: m.text) { newText in
                 Task { try? await ChatService.editMessage(cid: cid, messageId: m.id, newText: newText) }
             }
+        }
+        .sheet(item: $forwardTarget) { m in
+            ForwardPicker(message: m, sourceCid: cid)
         }
         .confirmationDialog("Delete this message?",
                             isPresented: Binding(get: { pendingDelete != nil },
