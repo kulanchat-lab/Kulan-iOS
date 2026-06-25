@@ -67,7 +67,7 @@ struct MainShell: View {
             // Detached circular search button (native iOS 26 search role). Context-aware:
             // searches Chats / Calls / Settings depending on the tab you came from.
             Tab(value: 3, role: .search) {
-                SearchHubView(context: previousTab, onSignOut: onSignOut)
+                SearchHubView(context: previousTab, onSignOut: onSignOut, onCancel: { tab = previousTab })
             }
         }
     }
@@ -83,7 +83,7 @@ struct MainShell: View {
             SettingsView(onSignOut: onSignOut, asTab: true)
                 .tabItem { settingsTabLabel }
                 .tag(2)
-            SearchHubView(context: previousTab, onSignOut: onSignOut)
+            SearchHubView(context: previousTab, onSignOut: onSignOut, onCancel: { tab = previousTab })
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
                 .tag(3)
         }

@@ -10,9 +10,9 @@ struct StoriesRow: View {
     var onCompose: () -> Void
     var onOpen: (StoryGroup) -> Void
 
-    // Tall "people"-card proportions (Apple promo look): height ~1.74x width.
-    private let cardW: CGFloat = 92
-    private let cardH: CGFloat = 160
+    // "People"-card proportions (Apple promo look): wider than tall-narrow, ~1.46x.
+    private let cardW: CGFloat = 100
+    private let cardH: CGFloat = 146
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -47,7 +47,7 @@ struct StoriesRow: View {
             ZStack(alignment: .bottomLeading) {
                 coverImage(cover, name: name, avatar: avatar)
                     .frame(width: cardW, height: cardH)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                     // No border/frame on the card itself — the viewed/unviewed ring lives
                     // only on the avatar badge below.
                 if let onBadge {

@@ -18,13 +18,33 @@ extension View {
 struct SearchHubView: View {
     let context: Int            // 0 = Chats, 1 = Calls, 2 = Settings
     var onSignOut: () -> Void = {}
+    var onCancel: () -> Void = {}   // tapping the search field's Cancel returns to the prior tab
 
     var body: some View {
         switch context {
-        case 1: ContactsSearchView()
-        case 2: SettingsSearchView(onSignOut: onSignOut)
-        default: ChatSearchView()
+        case 1: ContactsSearchView(onCancel: onCancel)
+        case 2: SettingsSearchView(onSignOut: onSignOut, onCancel: onCancel)
+        default: ChatSearchView(onCancel: onCancel)
         }
+    }
+}
+
+// Watches the native search field; when the user cancels (search deactivates with an
+// empty query and nothing pushed), it calls onCancel so we can return to the prior tab.
+private struct SearchCancelWatcher: View {
+    var canReturn: () -> Bool
+    var onCancel: () -> Void
+    @Environment(\.isSearching) private var isSearching
+    @State private var wasSearching = false
+    var body: some View {
+        Color.clear
+            .onChange(of: isSearching) { _, now in
+                if now { wasSearching = true }
+                else if wasSearching {
+                    wasSearching = false
+                    if canReturn() { onCancel() }
+                }
+            }
     }
 }
 
@@ -45,6 +65,7 @@ struct MessageHit: Identifiable {
 // Message search is on-demand and bounded (most-recent page per chat) so it can't
 // run away on a long history; it's debounced so typing doesn't refire per keystroke.
 struct ChatSearchView: View {
+    var onCancel: () -> Void = {}
     private var repo = ConversationsRepository.shared
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
@@ -109,6 +130,7 @@ struct ChatSearchView: View {
             }
             .navigationTitle("Search")
             .navigationBarTitleDisplayMode(.inline)
+            .background { SearchCancelWatcher(canReturn: { trimmed.isEmpty && path.isEmpty }, onCancel: onCancel) }
             .navigationDestination(for: ChatTarget.self) { t in
                 ThreadView(cid: t.id, title: t.name, photoUrl: t.photo).id(t.id)
             }
@@ -194,6 +216,7 @@ enum MessageSearch {
 // MARK: - Calls: search anyone you've chatted with, tap to call
 
 struct ContactsSearchView: View {
+    var onCancel: () -> Void = {}
     private var repo = ConversationsRepository.shared
     @Environment(\.colorScheme) private var scheme
     @State private var query = ""
@@ -240,6 +263,7 @@ struct ContactsSearchView: View {
             }
             .navigationTitle("Call")
             .navigationBarTitleDisplayMode(.inline)
+            .background { SearchCancelWatcher(canReturn: { trimmed.isEmpty }, onCancel: onCancel) }
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
                     prompt: "Search contacts")
@@ -253,6 +277,7 @@ struct ContactsSearchView: View {
 
 struct SettingsSearchView: View {
     var onSignOut: () -> Void = {}
+    var onCancel: () -> Void = {}
     @State private var query = ""
     @FocusState private var searchFocused: Bool
     private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
@@ -317,6 +342,7 @@ struct SettingsSearchView: View {
             }
             .navigationTitle("Search Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .background { SearchCancelWatcher(canReturn: { trimmed.isEmpty }, onCancel: onCancel) }
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
                     prompt: "Search settings")
