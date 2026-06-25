@@ -1,6 +1,8 @@
 import SwiftUI
 import PhotosUI
+import UIKit
 import FirebaseAuth
+import FirebaseFirestore
 
 // Parent settings — profile cell on top, then grouped rows that push to dedicated
 // sub-screens (the Signal/Telegram structure), built our way with native List.
@@ -203,14 +205,44 @@ struct AccountSettingsView: View {
     @State private var showDelete = false
     @State private var showSignOut = false
     @State private var working = false
+    @State private var exporting = false
+    @State private var exportFile: ExportFile?
 
     var body: some View {
         List {
-            Section("Account") {
-                LabeledContent("Name", value: profile.me?.name ?? "—")
-                LabeledContent("Username", value: profile.me.map { "@\($0.handle)" } ?? "—")
-                LabeledContent("Account ID", value: String((AuthService.shared.uid ?? "").prefix(10)) + "…")
+            // Profile header (native grouped, clear background).
+            Section {
+                VStack(spacing: 8) {
+                    AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 84)
+                    Text(profile.me?.name ?? "You").font(.title2.weight(.bold))
+                    if let h = profile.me?.handle, !h.isEmpty {
+                        Text("@\(h)").font(.subheadline).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .listRowBackground(Color.clear)
             }
+
+            Section("Account") {
+                LabeledContent("Username", value: profile.me.map { "@\($0.handle)" } ?? "—")
+                LabeledContent("Account ID", value: String((AuthService.shared.uid ?? "").prefix(12)) + "…")
+            }
+
+            Section {
+                Button { Task { await exportData() } } label: {
+                    HStack {
+                        Label("Export My Data", systemImage: "square.and.arrow.up")
+                        Spacer()
+                        if exporting { ProgressView() }
+                    }
+                }
+                .tint(.primary)
+                .disabled(exporting)
+            } footer: {
+                Text("Saves your profile and all chats to a text file you can share or keep.")
+            }
+
             Section {
                 Button(role: .destructive) { showSignOut = true } label: {
                     Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
@@ -223,6 +255,7 @@ struct AccountSettingsView: View {
         .navigationTitle("Account")
         .navigationBarTitleDisplayMode(.inline)
         .disabled(working)
+        .sheet(item: $exportFile) { f in ActivityView(items: [f.url]) }
         .alert("Sign out?", isPresented: $showSignOut) {
             Button("Cancel", role: .cancel) {}
             Button("Sign Out", role: .destructive) {
@@ -240,6 +273,54 @@ struct AccountSettingsView: View {
             Text("This permanently deletes your account and profile. This can't be undone.")
         }
     }
+
+    // Gather profile + all chats (decrypted) into a text file, then present the share sheet.
+    private func exportData() async {
+        exporting = true
+        let me = AuthService.shared.uid ?? ""
+        var out = "Kulan — Data Export\n\n"
+        out += "Name: \(profile.me?.name ?? "")\n"
+        out += "Username: @\(profile.me?.handle ?? "")\n"
+        if let about = profile.me?.about, !about.isEmpty { out += "Bio: \(about)\n" }
+        out += "Account ID: \(me)\n\n"
+
+        let convs = await MainActor.run {
+            ConversationsRepository.shared.conversations.filter { !$0.isCleared(me) }
+        }
+        let db = Firestore.firestore()
+        for c in convs {
+            _ = await Crypto.shared.preloadKey(c.otherUid(me))
+            out += "===== Chat with \(c.name(for: me)) =====\n"
+            if let snap = try? await db.collection("conversations").document(c.id)
+                .collection("messages").order(by: "createdAt").getDocuments() {
+                for d in snap.documents {
+                    let m = Message(id: d.documentID, data: d.data(), cid: c.id, crypto: Crypto.shared)
+                    let who = m.authorId == me ? "You" : c.name(for: me)
+                    let when = m.createdAt.formatted(date: .abbreviated, time: .shortened)
+                    let body = m.isImage ? "[Photo]" : (m.isAudio ? "[Voice message]"
+                              : (m.isCall ? "[Call]" : m.text))
+                    out += "[\(when)] \(who): \(body)\n"
+                }
+            }
+            out += "\n"
+        }
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Kulan-Data-Export.txt")
+        try? out.write(to: url, atomically: true, encoding: .utf8)
+        await MainActor.run { exportFile = ExportFile(url: url); exporting = false }
+    }
+}
+
+// Wraps a file URL so it can drive a .sheet(item:).
+struct ExportFile: Identifiable { let id = UUID(); let url: URL }
+
+// Native share sheet.
+struct ActivityView: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }
 
 struct AppearanceSettingsView: View {

@@ -56,7 +56,7 @@ struct ContactInfoView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
         }
-        .navigationTitle(handle.isEmpty ? name : "@\(handle)")
+        .navigationTitle("")   // name + @handle already show in the hero below
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)   // show nav bar (back + title) below the notch
         .navigationBarBackButtonHidden(false)
