@@ -82,6 +82,7 @@ enum ChatService {
         batch.setData(msg, forDocument: msgRef)
         batch.updateData([
             "lastMessage": cipher,
+            "lastSender": uid,                 // drives the read-receipt ticks in the chat list
             "updatedAt": FieldValue.serverTimestamp(),
             "unreadCount.\(other)": FieldValue.increment(Int64(1)),
         ], forDocument: convRef)
@@ -138,6 +139,7 @@ enum ChatService {
         batch.setData(imgMsg, forDocument: msgRef)
         batch.updateData([
             "lastMessage": "📷 Photo",   // plaintext preview (server never sees the image)
+            "lastSender": uid,
             "updatedAt": FieldValue.serverTimestamp(),
             "unreadCount.\(other)": FieldValue.increment(Int64(1)),
         ], forDocument: convRef)
@@ -175,6 +177,7 @@ enum ChatService {
         ], forDocument: msgRef)
         batch.updateData([
             "lastMessage": "🎤 Voice message",
+            "lastSender": uid,
             "updatedAt": FieldValue.serverTimestamp(),
             "unreadCount.\(other)": FieldValue.increment(Int64(1)),
         ], forDocument: convRef)

@@ -133,6 +133,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
     var names: [String: String]
     var photos: [String: String]
     var lastMessageCipher: String
+    var lastSender: String             // uid of who sent the last message ("" if unknown)
     var unreadCount: [String: Int]
     var typing: [String: Bool]
     var mutedBy: [String: Double]      // expiry in ms
@@ -152,6 +153,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
         self.names = data["names"] as? [String: String] ?? [:]
         self.photos = data["photos"] as? [String: String] ?? [:]
         self.lastMessageCipher = data["lastMessage"] as? String ?? ""
+        self.lastSender = data["lastSender"] as? String ?? ""
         self.unreadCount = intMap(data["unreadCount"])
         self.typing = boolMap(data["typing"])
         self.mutedBy = doubleMap(data["mutedBy"])
@@ -192,6 +194,10 @@ struct Conversation: Identifiable, Equatable, Hashable {
     func isArchived(_ me: String) -> Bool { archivedBy[me] ?? false }
     /// "delete for me" until a newer message arrives (parity with RN Db.isCleared).
     func isCleared(_ me: String) -> Bool { updatedAtMillis <= (clearedAt[me] ?? 0) }
+    /// My message is the most recent one — show delivery/read ticks for it in the list.
+    func lastIsMine(_ me: String) -> Bool { !lastSender.isEmpty && lastSender == me }
+    /// The other person has read my last message once their unread count hits 0.
+    func lastReadByOther(_ me: String) -> Bool { (unreadCount[otherUid(me)] ?? 0) == 0 }
 }
 
 extension EncMeta {
