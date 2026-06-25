@@ -344,13 +344,14 @@ struct ThreadView: View {
     // Chats list. Avatar + name (+ presence) centered; voice + video as trailing glass items.
     // The native back button (leading) owns the real edge-swipe-back gesture.
     @ToolbarContentBuilder private var chatToolbar: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
+        // Avatar + name grouped tightly right after the back button (leading), not centered.
+        ToolbarItem(placement: .topBarLeading) {
             NavigationLink {
                 ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
             } label: {
-                HStack(spacing: 8) {
-                    AvatarView(name: title, photoUrl: photoUrl, size: 32)
-                    VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 9) {
+                    AvatarView(name: title, photoUrl: photoUrl, size: 46)
+                    VStack(alignment: .leading, spacing: 1) {
                         Text(title).font(.headline).foregroundStyle(.primary).lineLimit(1)
                         if let sub = presenceSubtitle {
                             Text(sub).font(.caption2)
