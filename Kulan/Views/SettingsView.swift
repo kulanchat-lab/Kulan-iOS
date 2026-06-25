@@ -395,12 +395,16 @@ struct EditProfileView: View {
                         .onChange(of: name) { _, v in if v.count > 40 { name = String(v.prefix(40)) } }
                 }
                 Section {
-                    TextField("username", text: $handle)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .onChange(of: handle) { _, v in
-                            let clean = ChatService.sanitizeHandle(v)
-                            if clean != v { handle = clean }   // block spaces/symbols as you type
-                        }
+                    // "@" prefix so the username field is clearly distinct from the name.
+                    HStack(spacing: 1) {
+                        Text("@").foregroundStyle(.secondary)
+                        TextField("username", text: $handle)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .onChange(of: handle) { _, v in
+                                let clean = ChatService.sanitizeHandle(v)
+                                if clean != v { handle = clean }   // block spaces/symbols as you type
+                            }
+                    }
                 } header: {
                     Text("Username")
                 } footer: {

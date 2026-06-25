@@ -105,12 +105,15 @@ struct OnboardingView: View {
                 Section {
                     TextField("Your name", text: $name)
                         .textInputAutocapitalization(.words)
-                    TextField("Username", text: $handle)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .onChange(of: handle) { _, v in
-                            let clean = ChatService.sanitizeHandle(v)
-                            if clean != v { handle = clean }
-                        }
+                    HStack(spacing: 1) {
+                        Text("@").foregroundStyle(.secondary)
+                        TextField("Username", text: $handle)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .onChange(of: handle) { _, v in
+                                let clean = ChatService.sanitizeHandle(v)
+                                if clean != v { handle = clean }
+                            }
+                    }
                 } header: {
                     Text("Create your profile")
                 } footer: {
