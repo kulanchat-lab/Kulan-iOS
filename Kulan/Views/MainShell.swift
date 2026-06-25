@@ -205,7 +205,7 @@ struct ChatsView: View {
     private var router = AppRouter.shared
     @Environment(\.colorScheme) private var scheme
     @State private var showNew = false
-    @State private var showSettings = false
+    @State private var chatFilter = 0   // 0 = all, 1 = unread
     @State private var path = NavigationPath()
     @State private var pendingDelete: Conversation?
     @State private var pendingMute: Conversation?
@@ -224,6 +224,7 @@ struct ChatsView: View {
     private var visible: [Conversation] {
         repo.conversations
             .filter { !$0.isCleared(me) && !$0.isArchived(me) }
+            .filter { chatFilter == 0 || $0.unread(me) > 0 }   // Filter: All / Unread
             .sorted { a, b in
                 if a.isPinned(me) != b.isPinned(me) { return a.isPinned(me) }
                 // Both pinned: manual order (higher rank = higher in list).
@@ -247,14 +248,25 @@ struct ChatsView: View {
     // opt-out, same as the chat header. Keeps the large "Chats" title + smooth
     // push transitions instead of a hand-rolled bar.
     // Avatar dropdown menu: Select Chats / Settings / Archive (Telegram-style).
-    private var avatarMenu: some View {
+    // Left: Edit (multi-select). Settings moved to its own tab, so no avatar here anymore.
+    private var editButton: some View {
+        Button("Edit") { selecting = true }.tint(.primary)
+    }
+    // Right: filter the list (All / Unread) + reach Archived.
+    private var filterMenu: some View {
         Menu {
-            Button { selecting = true } label: { Label("Select Chats", systemImage: "checkmark.circle") }
-            Button { showSettings = true } label: { Label("Settings", systemImage: "gearshape") }
-            Button { showArchived = true } label: { Label("Archive", systemImage: "archivebox") }
+            Picker("Filter", selection: $chatFilter) {
+                Label("All Chats", systemImage: "bubble.left.and.bubble.right").tag(0)
+                Label("Unread", systemImage: "circlebadge.fill").tag(1)
+            }
+            Divider()
+            Button { showArchived = true } label: { Label("Archived", systemImage: "archivebox") }
         } label: {
-            AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 40)
+            Image(systemName: chatFilter == 1 ? "line.3.horizontal.decrease.circle.fill"
+                                              : "line.3.horizontal.decrease.circle")
+                .font(.system(size: 18))
         }
+        .tint(.primary)
     }
     private var composeButton: some View {
         Button { showNew = true } label: {
@@ -271,12 +283,12 @@ struct ChatsView: View {
             }
             ToolbarItem(placement: .topBarTrailing) { Button("Select All") { selectAll() } }
         } else if #available(iOS 26.0, *) {
-            ToolbarItem(placement: .topBarLeading) { avatarMenu }
+            ToolbarItem(placement: .topBarLeading) { editButton }
                 .sharedBackgroundVisibility(.hidden)
-            ToolbarItem(placement: .topBarTrailing) { composeButton }
+            ToolbarItemGroup(placement: .topBarTrailing) { filterMenu; composeButton }
         } else {
-            ToolbarItem(placement: .topBarLeading) { avatarMenu }
-            ToolbarItem(placement: .topBarTrailing) { composeButton }
+            ToolbarItem(placement: .topBarLeading) { editButton }
+            ToolbarItemGroup(placement: .topBarTrailing) { filterMenu; composeButton }
         }
     }
 
@@ -464,7 +476,6 @@ struct ChatsView: View {
                     showNew = false
                 }
             }
-            .sheet(isPresented: $showSettings) { SettingsView(onSignOut: onSignOut) }
             .confirmationDialog("Delete this chat?",
                                 isPresented: Binding(get: { pendingDelete != nil },
                                                      set: { if !$0 { pendingDelete = nil } }),
