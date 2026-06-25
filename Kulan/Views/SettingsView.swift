@@ -36,10 +36,9 @@ struct SettingsView: View {
                     NavigationLink { AccountSettingsView(onSignOut: onSignOut) } label: {
                         Label("Account", systemImage: "person.crop.circle")
                     }
-                    Button { showEdit = true } label: {
+                    NavigationLink { MyProfileView() } label: {
                         Label("My Profile", systemImage: "person.text.rectangle")
                     }
-                    .tint(.primary)
                     NavigationLink { DevicesView() } label: {
                         Label("Linked Devices", systemImage: "laptopcomputer.and.iphone")
                     }
@@ -101,6 +100,95 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 2).padding(.bottom, 4)
+    }
+}
+
+// MARK: - My Profile
+
+// Your own profile, shown the way other people see it (hero avatar, name, @handle, bio),
+// with your own Stories section below. Edit lives in the top-right (opens EditProfileView).
+struct MyProfileView: View {
+    private var profile = ProfileStore.shared
+    @State private var stories = StoriesRepository.shared
+    @State private var viewerGroup: StoryGroup?
+    @State private var showEdit = false
+    @Environment(\.colorScheme) private var scheme
+
+    private var dark: Bool { scheme == .dark }
+    private var cardColor: Color { dark ? Color(hex: 0x1C1C1E) : Color(hex: 0xF2F2F7) }
+    private var title: String {
+        if let h = profile.me?.handle, !h.isEmpty { return "@\(h)" }
+        return profile.me?.name ?? "My Profile"
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                hero
+                if let about = profile.me?.about, !about.isEmpty { bioCard(about) }
+                storiesSection
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { Button("Edit") { showEdit = true }.tint(.primary) }
+        }
+        .sheet(isPresented: $showEdit) { EditProfileView() }
+        .task { await stories.load() }
+        .fullScreenCover(item: $viewerGroup) { g in
+            StoryViewer(group: g) { viewerGroup = nil; Task { await stories.load() } }
+        }
+    }
+
+    private var hero: some View {
+        VStack(spacing: 6) {
+            AvatarView(name: profile.me?.name ?? "", photoUrl: profile.me?.photoUrl, size: 96)
+            Text(profile.me?.name ?? "You").font(.title.weight(.bold))
+            if let h = profile.me?.handle, !h.isEmpty {
+                Text("@\(h)").font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+    }
+
+    private func bioCard(_ about: String) -> some View {
+        Text(about).font(.body)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(cardColor, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    @ViewBuilder private var storiesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("My Stories").font(.headline)
+            if let mine = stories.mine, !mine.stories.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(mine.stories) { s in
+                            AsyncImage(url: URL(string: s.mediaUrl)) { p in
+                                if let img = p.image { img.resizable().scaledToFill() }
+                                else { Color.secondary.opacity(0.2) }
+                            }
+                            .frame(width: 92, height: 150)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .contentShape(Rectangle())
+                            .onTapGesture { viewerGroup = mine }
+                        }
+                    }
+                }
+            } else {
+                Text("You have no active stories.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(cardColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

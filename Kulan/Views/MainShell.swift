@@ -9,6 +9,7 @@ struct MainShell: View {
     private var profile = ProfileStore.shared
     @State private var settingsIcon: UIImage?
     @State private var tab = 0
+    @State private var previousTab = 0   // last non-search tab → drives what the search circle searches
 
     init(onSignOut: @escaping () -> Void) { self.onSignOut = onSignOut }
 
@@ -29,6 +30,9 @@ struct MainShell: View {
         // navigation. Here we only start listening for incoming calls.
         .onAppear { call.observeIncoming() }
         .task(id: profile.me?.photoUrl) { await loadSettingsIcon() }
+        // Remember the last real tab so the search circle (tab 3) knows whether to do a
+        // Chats / Calls / Settings search.
+        .onChange(of: tab) { _, new in if new != 3 { previousTab = new } }
     }
 
     // Your profile photo as the Settings tab icon (full-color circle); falls back to a
@@ -60,9 +64,10 @@ struct MainShell: View {
             } label: {
                 settingsTabLabel
             }
-            // Detached circular search button (native iOS 26 search role) → global chat search.
+            // Detached circular search button (native iOS 26 search role). Context-aware:
+            // searches Chats / Calls / Settings depending on the tab you came from.
             Tab(value: 3, role: .search) {
-                ChatSearchView()
+                SearchHubView(context: previousTab, onSignOut: onSignOut)
             }
         }
     }
@@ -78,7 +83,7 @@ struct MainShell: View {
             SettingsView(onSignOut: onSignOut, asTab: true)
                 .tabItem { settingsTabLabel }
                 .tag(2)
-            ChatSearchView()
+            SearchHubView(context: previousTab, onSignOut: onSignOut)
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
                 .tag(3)
         }
@@ -651,34 +656,130 @@ struct ArchivedChatsView: View {
     private var repo = ConversationsRepository.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
+    @State private var search = ""
+    @State private var path = NavigationPath()
+    @State private var selecting = false
+    @State private var selection = Set<String>()
+    @State private var showDeleteSelected = false
+
     private var me: String { AuthService.shared.uid ?? "" }
-    private var archived: [Conversation] {
-        repo.conversations.filter { $0.isArchived(me) && !$0.isCleared(me) }
-            .sorted { $0.updatedAtMillis > $1.updatedAtMillis }
+    private var dark: Bool { scheme == .dark }
+
+    private var hasAnyArchived: Bool {
+        repo.conversations.contains { $0.isArchived(me) && !$0.isCleared(me) }
     }
+    private var archived: [Conversation] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        return repo.conversations
+            .filter { $0.isArchived(me) && !$0.isCleared(me) }
+            .filter { q.isEmpty || $0.name(for: me).lowercased().contains(q) }
+            .sorted { $0.displayUpdatedAt(me) > $1.displayUpdatedAt(me) }
+    }
+
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
-                if archived.isEmpty {
+                if !hasAnyArchived {
                     ContentUnavailableView("No archived chats", systemImage: "archivebox",
                                            description: Text("Chats you archive will show here."))
                 } else {
-                    List(archived) { conv in
-                        ChatRow(conv: conv, me: me, dark: scheme == .dark)
+                    List(selection: selecting ? $selection : .constant(Set<String>())) {
+                        ForEach(archived) { conv in
+                            Button {
+                                path.append(ChatTarget(id: conv.id, name: conv.name(for: me),
+                                                       photo: conv.photoUrl(for: me)))
+                            } label: {
+                                ChatRow(conv: conv, me: me, dark: dark)
+                            }
+                            .buttonStyle(.plain)
+                            .tag(conv.id)
+                            .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
                             .swipeActions(edge: .trailing) {
                                 Button { Task { await ChatService.setArchived(conv.id, false) } } label: {
                                     Label("Unarchive", systemImage: "tray.and.arrow.up")
                                 }.tint(.indigo)
                             }
+                        }
                     }
                     .listStyle(.plain)
+                    .environment(\.editMode, .constant(selecting ? .active : .inactive))
+                    .overlay { if archived.isEmpty { ContentUnavailableView.search(text: search) } }
                 }
             }
             .navigationTitle("Archived")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: "Search archived")
+            .navigationDestination(for: ChatTarget.self) { t in
+                ThreadView(cid: t.id, title: t.name, photoUrl: t.photo).id(t.id)
+            }
+            .toolbar {
+                if selecting {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { exitSelect() } label: { Image(systemName: "xmark") }.tint(.primary)
+                    }
+                    ToolbarItem(placement: .principal) {
+                        Text(selection.isEmpty ? "Select Chats" : "\(selection.count) Selected").font(.headline)
+                    }
+                } else {
+                    if hasAnyArchived {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Select") { selecting = true }.tint(.primary)
+                        }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+                }
+            }
+            .safeAreaInset(edge: .bottom) { if selecting { selectionBar } }
+            .confirmationDialog("Delete \(selection.count) chat\(selection.count == 1 ? "" : "s")?",
+                                isPresented: $showDeleteSelected, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) { deleteSelected() }
+                Button("Cancel", role: .cancel) {}
+            }
         }
+        .onAppear { repo.start() }
+    }
+
+    // Same three actions as the main chat-list selection mode.
+    private var selectionBar: some View {
+        HStack {
+            selectButton("Unarchive", "tray.and.arrow.up") { unarchiveSelected() }
+            selectButton("Read All", "envelope.open") { markReadSelected() }
+            selectButton("Delete", "trash", destructive: true) { showDeleteSelected = true }
+        }
+        .padding(.vertical, 10).padding(.horizontal, 12)
+        .background(.bar)
+        .disabled(selection.isEmpty)
+        .opacity(selection.isEmpty ? 0.5 : 1)
+    }
+    private func selectButton(_ title: String, _ icon: String, destructive: Bool = false,
+                              _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: icon).font(.system(size: 18))
+                Text(title).font(.caption2)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .tint(destructive ? .red : .primary)
+    }
+
+    private func exitSelect() { selecting = false; selection = [] }
+    private func unarchiveSelected() {
+        let ids = selection
+        Task { for id in ids { await ChatService.setArchived(id, false) } }
+        exitSelect()
+    }
+    private func markReadSelected() {
+        let ids = selection
+        Task { for id in ids { await ChatService.resetUnread(id); await ChatService.markRead(id) } }
+        exitSelect()
+    }
+    private func deleteSelected() {
+        let ids = selection
+        Task { for id in ids { await ChatService.deleteForMe(id) } }
+        exitSelect()
     }
 }
 
@@ -761,62 +862,5 @@ struct ChatRow: View {
         .padding(.horizontal, 16)   // 16pt gutter moved inside the cell (row insets are now
                                     // zero) so the reorder drag preview matches the cell width
                                     // and stays locked to the vertical axis (no horizontal drift)
-    }
-}
-
-// Global chat search — the screen behind the detached search-circle tab (iOS 26 `.search`
-// role). Real search: filters every non-cleared conversation by contact name; tapping a
-// result opens that chat. Empty query shows guidance; no matches shows the native no-results.
-struct ChatSearchView: View {
-    private var repo = ConversationsRepository.shared
-    @Environment(\.colorScheme) private var scheme
-    @State private var query = ""
-    @State private var path = NavigationPath()
-
-    private var me: String { AuthService.shared.uid ?? "" }
-    private var dark: Bool { scheme == .dark }
-    private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
-
-    private var results: [Conversation] {
-        let q = trimmed.lowercased()
-        guard !q.isEmpty else { return [] }
-        return repo.conversations
-            .filter { !$0.isCleared(me) }
-            .filter { $0.name(for: me).lowercased().contains(q) }
-            .sorted { $0.displayUpdatedAt(me) > $1.displayUpdatedAt(me) }
-    }
-
-    var body: some View {
-        NavigationStack(path: $path) {
-            Group {
-                if trimmed.isEmpty {
-                    ContentUnavailableView("Search your chats", systemImage: "magnifyingglass",
-                                           description: Text("Find a conversation by name."))
-                } else if results.isEmpty {
-                    ContentUnavailableView.search(text: trimmed)
-                } else {
-                    List(results) { conv in
-                        Button {
-                            path.append(ChatTarget(id: conv.id, name: conv.name(for: me),
-                                                   photo: conv.photoUrl(for: me)))
-                        } label: {
-                            ChatRow(conv: conv, me: me, dark: dark)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                    }
-                    .listStyle(.plain)
-                }
-            }
-            .navigationTitle("Search")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: ChatTarget.self) { t in
-                ThreadView(cid: t.id, title: t.name, photoUrl: t.photo).id(t.id)
-            }
-        }
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
-                    prompt: "Search chats")
-        .onAppear { repo.start() }
     }
 }

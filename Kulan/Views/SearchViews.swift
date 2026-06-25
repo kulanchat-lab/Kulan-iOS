@@ -1,0 +1,309 @@
+import SwiftUI
+import FirebaseFirestore
+import FirebaseAuth
+
+// The single search-circle tab (iOS 26 `.search` role) routes to a context-specific
+// search based on which main tab the user came from:
+//   Chats    -> full message search (names + the text of every message)
+//   Calls    -> everyone you've chatted with, tap to start a call
+//   Settings -> search within Settings
+struct SearchHubView: View {
+    let context: Int            // 0 = Chats, 1 = Calls, 2 = Settings
+    var onSignOut: () -> Void = {}
+
+    var body: some View {
+        switch context {
+        case 1: ContactsSearchView()
+        case 2: SettingsSearchView(onSignOut: onSignOut)
+        default: ChatSearchView()
+        }
+    }
+}
+
+// MARK: - Chats: full message-history search
+
+// One message that matched the query, carrying its chat context for display + tap.
+struct MessageHit: Identifiable {
+    let messageId: String
+    let cid: String
+    let chatName: String
+    let photoUrl: String?
+    let text: String
+    let date: Date
+    var id: String { cid + "/" + messageId }
+}
+
+// Searches names instantly + the decrypted text of every message across all chats.
+// Message search is on-demand and bounded (most-recent page per chat) so it can't
+// run away on a long history; it's debounced so typing doesn't refire per keystroke.
+struct ChatSearchView: View {
+    private var repo = ConversationsRepository.shared
+    @Environment(\.colorScheme) private var scheme
+    @State private var query = ""
+    @State private var path = NavigationPath()
+    @State private var hits: [MessageHit] = []
+    @State private var searching = false
+    @State private var searchTask: Task<Void, Never>?
+
+    private var me: String { AuthService.shared.uid ?? "" }
+    private var dark: Bool { scheme == .dark }
+    private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
+
+    // Cheap, instant name matches (no decryption needed).
+    private var nameMatches: [Conversation] {
+        let q = trimmed.lowercased()
+        guard !q.isEmpty else { return [] }
+        return repo.conversations
+            .filter { !$0.isCleared(me) && $0.name(for: me).lowercased().contains(q) }
+            .sorted { $0.displayUpdatedAt(me) > $1.displayUpdatedAt(me) }
+    }
+
+    private var nothingFound: Bool { nameMatches.isEmpty && hits.isEmpty }
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            List {
+                if !nameMatches.isEmpty {
+                    Section("Chats") {
+                        ForEach(nameMatches) { conv in
+                            Button { open(conv.id, conv.name(for: me), conv.photoUrl(for: me)) } label: {
+                                ChatRow(conv: conv, me: me, dark: dark)
+                            }
+                            .buttonStyle(.plain)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                        }
+                    }
+                }
+                if !hits.isEmpty {
+                    Section("Messages") {
+                        ForEach(hits) { hit in
+                            Button { open(hit.cid, hit.chatName, hit.photoUrl) } label: {
+                                MessageHitRow(hit: hit)
+                            }
+                            .buttonStyle(.plain)
+                            .listRowSeparator(.hidden)
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .overlay {
+                if trimmed.isEmpty {
+                    ContentUnavailableView("Search messages", systemImage: "magnifyingglass",
+                                           description: Text("Search names and the text of every message."))
+                } else if searching && nothingFound {
+                    ProgressView()
+                } else if !searching && nothingFound {
+                    ContentUnavailableView.search(text: trimmed)
+                }
+            }
+            .navigationTitle("Search")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: ChatTarget.self) { t in
+                ThreadView(cid: t.id, title: t.name, photoUrl: t.photo).id(t.id)
+            }
+        }
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Search messages")
+        .onAppear { repo.start() }
+        .onChange(of: query) { _, _ in scheduleSearch() }
+    }
+
+    private func open(_ cid: String, _ name: String, _ photo: String?) {
+        path.append(ChatTarget(id: cid, name: name, photo: photo))
+    }
+
+    private func scheduleSearch() {
+        searchTask?.cancel()
+        let q = trimmed
+        guard !q.isEmpty else { hits = []; searching = false; return }
+        searching = true
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)   // debounce typing
+            if Task.isCancelled { return }
+            let found = await MessageSearch.run(query: q, me: me)
+            if Task.isCancelled { return }
+            await MainActor.run { hits = found; searching = false }
+        }
+    }
+}
+
+private struct MessageHitRow: View {
+    let hit: MessageHit
+    var body: some View {
+        HStack(spacing: 12) {
+            AvatarView(name: hit.chatName, photoUrl: hit.photoUrl, size: 44)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(hit.chatName).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(hit.date.formatted(date: .abbreviated, time: .omitted))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text(hit.text).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(2)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+// Runs the cross-chat message search off the main thread. Sequential per chat so
+// Crypto's caches are touched single-threaded; bounded to the most-recent page.
+enum MessageSearch {
+    private static let perChatLimit = 250
+
+    static func run(query: String, me: String) async -> [MessageHit] {
+        let q = query.lowercased()
+        let convs = await MainActor.run {
+            ConversationsRepository.shared.conversations.filter { !$0.isCleared(me) }
+        }
+        let db = Firestore.firestore()
+        var hits: [MessageHit] = []
+        for c in convs {
+            if Task.isCancelled { break }
+            _ = await Crypto.shared.preloadKey(c.otherUid(me))   // needed before decrypt
+            guard let snap = try? await db.collection("conversations").document(c.id)
+                .collection("messages")
+                .order(by: "createdAt", descending: true)
+                .limit(to: perChatLimit)
+                .getDocuments() else { continue }
+            let name = c.name(for: me), photo = c.photoUrl(for: me)
+            for doc in snap.documents {
+                let m = Message(id: doc.documentID, data: doc.data(), cid: c.id, crypto: Crypto.shared)
+                guard !m.text.isEmpty, m.text.lowercased().contains(q) else { continue }
+                hits.append(MessageHit(messageId: m.id, cid: c.id, chatName: name,
+                                       photoUrl: photo, text: m.text, date: m.createdAt))
+            }
+        }
+        return hits.sorted { $0.date > $1.date }
+    }
+}
+
+// MARK: - Calls: search anyone you've chatted with, tap to call
+
+struct ContactsSearchView: View {
+    private var repo = ConversationsRepository.shared
+    @Environment(\.colorScheme) private var scheme
+    @State private var query = ""
+
+    private var me: String { AuthService.shared.uid ?? "" }
+    private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
+
+    private var results: [Conversation] {
+        let q = trimmed.lowercased()
+        let base = repo.conversations.filter { !$0.isCleared(me) }
+        let list = q.isEmpty ? base : base.filter { $0.name(for: me).lowercased().contains(q) }
+        return list.sorted { $0.name(for: me).lowercased() < $1.name(for: me).lowercased() }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(results) { conv in
+                Button {
+                    CallService.shared.startCall(to: conv.otherUid(me),
+                                                 name: conv.name(for: me),
+                                                 photo: conv.photoUrl(for: me))
+                } label: {
+                    HStack(spacing: 12) {
+                        AvatarView(name: conv.name(for: me), photoUrl: conv.photoUrl(for: me), size: 46)
+                        Text(conv.name(for: me)).font(.system(size: 16, weight: .medium))
+                        Spacer()
+                        Image(systemName: "phone.fill").foregroundStyle(.tint)
+                    }
+                }
+                .buttonStyle(.plain)
+                .listRowSeparator(.hidden)
+            }
+            .listStyle(.plain)
+            .overlay {
+                if results.isEmpty {
+                    if trimmed.isEmpty {
+                        ContentUnavailableView("Call a contact", systemImage: "phone",
+                                               description: Text("Search anyone you've chatted with to start a call."))
+                    } else {
+                        ContentUnavailableView.search(text: trimmed)
+                    }
+                }
+            }
+            .navigationTitle("Call")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Search contacts")
+        .onAppear { repo.start() }
+    }
+}
+
+// MARK: - Settings search
+
+struct SettingsSearchView: View {
+    var onSignOut: () -> Void = {}
+    @State private var query = ""
+    private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
+
+    private struct Entry: Identifiable {
+        let id = UUID()
+        let title: String
+        let icon: String
+        let keywords: String
+        let dest: AnyView
+    }
+
+    private var entries: [Entry] {
+        [
+            Entry(title: "Account", icon: "person.crop.circle",
+                  keywords: "account name username id sign out delete",
+                  dest: AnyView(AccountSettingsView(onSignOut: onSignOut))),
+            Entry(title: "My Profile", icon: "person.text.rectangle",
+                  keywords: "profile bio photo edit stories",
+                  dest: AnyView(MyProfileView())),
+            Entry(title: "Linked Devices", icon: "laptopcomputer.and.iphone",
+                  keywords: "devices sessions linked",
+                  dest: AnyView(DevicesView())),
+            Entry(title: "Notifications", icon: "bell.badge",
+                  keywords: "notifications push sound vibrate preview",
+                  dest: AnyView(NotificationsSettingsView())),
+            Entry(title: "Appearance", icon: "paintbrush",
+                  keywords: "appearance theme dark light",
+                  dest: AnyView(AppearanceSettingsView())),
+            Entry(title: "Stories", icon: "circle.dashed",
+                  keywords: "stories status view receipts",
+                  dest: AnyView(StorySettingsView())),
+            Entry(title: "Privacy & Security", icon: "lock.shield",
+                  keywords: "privacy security read receipts typing last seen app lock screen",
+                  dest: AnyView(PrivacySettingsView())),
+            Entry(title: "Blocked Users", icon: "hand.raised",
+                  keywords: "blocked block users",
+                  dest: AnyView(BlockedUsersView())),
+            Entry(title: "Phone Number", icon: "phone",
+                  keywords: "phone number privacy",
+                  dest: AnyView(PhoneNumberPrivacyView())),
+            Entry(title: "Help & About", icon: "questionmark.circle",
+                  keywords: "help about version",
+                  dest: AnyView(AboutView())),
+        ]
+    }
+
+    private var results: [Entry] {
+        let q = trimmed.lowercased()
+        guard !q.isEmpty else { return entries }
+        return entries.filter { $0.title.lowercased().contains(q) || $0.keywords.contains(q) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(results) { e in
+                NavigationLink { e.dest } label: { Label(e.title, systemImage: e.icon) }
+            }
+            .listStyle(.insetGrouped)
+            .overlay {
+                if results.isEmpty { ContentUnavailableView.search(text: trimmed) }
+            }
+            .navigationTitle("Search Settings")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Search settings")
+    }
+}
