@@ -328,10 +328,10 @@ struct ThreadView: View {
         HStack(spacing: 8) {
             Button { dismiss() } label: {
                 Image(systemName: "chevron.backward")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: 38, height: 38)
-                    .liquidGlass(Circle())
+                    .frame(width: 32, height: 40)
+                    .contentShape(Rectangle())
             }
             NavigationLink {
                 ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
@@ -351,9 +351,8 @@ struct ThreadView: View {
             .buttonStyle(.plain)
             Spacer(minLength: 8)
             Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
-                Image(systemName: "phone.fill").font(.system(size: 16)).foregroundStyle(.primary)
+                Image(systemName: "phone.fill").font(.system(size: 17)).foregroundStyle(.primary)
                     .frame(width: 38, height: 38)
-                    .liquidGlass(Circle())
             }
         }
         .padding(.leading, 6)
