@@ -375,22 +375,24 @@ struct ThreadView: View {
     // The native back button (leading) owns the real edge-swipe-back gesture.
     @ToolbarContentBuilder private var chatToolbar: some ToolbarContent {
         // Avatar + name grouped tightly right after the back button (leading), not centered.
-        // Plain (non-button) content so iOS 26 doesn't wrap it in a glass pill — no border.
-        // Tap opens the contact profile via navigationDestination.
+        // Button with .plain style: lays the name/status out properly AND has no glass
+        // pill (border). Tap opens the contact profile.
         ToolbarItem(placement: .topBarLeading) {
-            HStack(spacing: 9) {
-                AvatarView(name: title, photoUrl: photoUrl, size: 46)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.headline).foregroundStyle(.primary).lineLimit(1)
-                    if let sub = presenceSubtitle {
-                        Text(sub).font(.caption2)
-                            .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
-                            .lineLimit(1)
+            Button { showContactInfo = true } label: {
+                HStack(spacing: 9) {
+                    AvatarView(name: title, photoUrl: photoUrl, size: 40)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                        if let sub = presenceSubtitle {
+                            Text(sub).font(.caption2)
+                                .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
+                                .lineLimit(1)
+                        }
                     }
+                    .fixedSize()
                 }
             }
-            .contentShape(Rectangle())
-            .onTapGesture { showContactInfo = true }
+            .buttonStyle(.plain)
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
@@ -676,7 +678,8 @@ struct ThreadView: View {
                 trailingControls
             }
             .frame(minHeight: 40)
-            .background(fieldFill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            // Liquid-glass field (iMessage on iOS 26 look), soft edges, no hard border.
+            .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .animation(.easeInOut(duration: 0.2), value: hasText)
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: recordingHeld)
