@@ -510,18 +510,17 @@ struct ChatsView: View {
                           .moveDisabled(true)
                           .deleteDisabled(true)
                       ForEach(visible) { conv in
-                        // Plain row + an invisible NavigationLink overlay. This removes the
-                        // default List disclosure chevron (the trailing arrow) AND makes the
-                        // drag-reorder snapshot a plain cell which, with zero row insets, no
-                        // longer drifts horizontally while reordering (locked to the Y axis).
-                        ChatRow(conv: conv, me: me, dark: dark)
-                          .contentShape(Rectangle())
-                          .overlay {
-                              NavigationLink(value: ChatTarget(id: conv.id, name: conv.name(for: me),
-                                                               photo: conv.photoUrl(for: me))) {
-                                  Color.clear
-                              }
-                          }
+                        // Full-row Button instead of a NavigationLink: a NavigationLink in a
+                        // List always draws the trailing disclosure chevron (the arrow). A
+                        // plain Button does not, and in edit mode it is auto-disabled so the
+                        // List's native multi-select still toggles via the row tag.
+                        Button {
+                            path.append(ChatTarget(id: conv.id, name: conv.name(for: me),
+                                                   photo: conv.photoUrl(for: me)))
+                        } label: {
+                            ChatRow(conv: conv, me: me, dark: dark)
+                        }
+                        .buttonStyle(.plain)
                         .tag(conv.id)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)   // clean, no row lines (like Signal)
@@ -797,16 +796,15 @@ struct ChatSearchView: View {
                     ContentUnavailableView.search(text: trimmed)
                 } else {
                     List(results) { conv in
-                        ChatRow(conv: conv, me: me, dark: dark)
-                            .contentShape(Rectangle())
-                            .overlay {
-                                NavigationLink(value: ChatTarget(id: conv.id, name: conv.name(for: me),
-                                                                 photo: conv.photoUrl(for: me))) {
-                                    Color.clear
-                                }
-                            }
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
+                        Button {
+                            path.append(ChatTarget(id: conv.id, name: conv.name(for: me),
+                                                   photo: conv.photoUrl(for: me)))
+                        } label: {
+                            ChatRow(conv: conv, me: me, dark: dark)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
                     }
                     .listStyle(.plain)
                 }
