@@ -70,6 +70,7 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .listSectionSpacing(.compact)   // tighten the dead space between blocks
+            .contentMargins(.top, 4, for: .scrollContent)   // remove the big gap above the avatar
             .preferredColorScheme(AppAppearance(rawValue: appearanceRaw)?.colorScheme ?? nil)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -96,10 +97,9 @@ struct SettingsView: View {
             if let h = profile.me?.handle, !h.isEmpty {
                 Text("@\(h)").font(.subheadline).foregroundStyle(.secondary)
             }
-            Text("Edit profile").font(.footnote).foregroundStyle(.tint)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 2).padding(.bottom, 4)
+        .padding(.bottom, 4)
     }
 }
 

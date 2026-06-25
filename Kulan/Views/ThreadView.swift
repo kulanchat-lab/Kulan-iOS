@@ -670,7 +670,8 @@ struct ThreadView: View {
                 if recordingHeld { recordingHoldRow } else { textRow }
             }
             .frame(minHeight: 40)   // spec: 40pt base height
-            .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))   // real iOS 26 Liquid Glass
+            // Native iMessage/WhatsApp field look: subtle neutral fill, not heavy glass.
+            .background(fieldFill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
             // Right side: send (when typing) or the hold-to-record mic.
             if hasText {
