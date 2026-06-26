@@ -815,14 +815,17 @@ struct ThreadView: View {
     // hint above. Drag up to lock, drag left to cancel, release to send.
     private var micButton: some View {
         Image(systemName: "mic.fill")
-            .font(.system(size: recordingHeld ? 24 : 22, weight: .medium))
+            .font(.system(size: 22, weight: .medium))
             .foregroundStyle(recordingHeld ? Theme.onAccent(dark) : Color.secondary)
-            .frame(width: recordingHeld ? 56 : 36, height: recordingHeld ? 56 : 36)   // fits the 40px bar
+            .frame(width: 36, height: 36)   // FIXED layout footprint -> the bar stays 40px
             .background {
                 if recordingHeld {
                     Circle().fill(recordCancelArmed ? Color.red : Theme.accent(dark))
                 }
             }
+            // ONLY the mic circle scales up (visual feedback) — scaleEffect overflows, so it
+            // never stretches the input bar's height. The bar stays a fixed 40px.
+            .scaleEffect(recordingHeld ? 1.5 : 1, anchor: .center)
             .offset(recordingHeld ? clampedDrag : .zero)
             .overlay(alignment: .top) { if recordingHeld { lockHint } }
             .gesture(recordGesture)
