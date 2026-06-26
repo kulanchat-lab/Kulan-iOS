@@ -195,7 +195,8 @@ struct StoryViewer: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var paused = false                 // hold-to-pause
     @State private var viewed = Set<String>()         // de-dupe view receipts
-    @State private var showSent = false               // "Sent" toast
+    @State private var showSent = false               // toast visibility
+    @State private var toastText = "Sent"             // toast text (Sent / Saved / Reported)
     @State private var keyboardHeight: CGFloat = 0     // lift the reply bar above the keyboard
     private let quickEmojis = ["❤️", "😂", "😮", "😢", "👏", "🔥"]
     private let ticker = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
@@ -246,12 +247,25 @@ struct StoryViewer: View {
                         Text(timeAgo(s.createdAt)).font(.caption).foregroundStyle(.white.opacity(0.7))
                     }
                     Spacer()
-                    if group.isMine {
-                        Button { deleteCurrentStory() } label: {
-                            Image(systemName: "trash").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                    Menu {
+                        Button { saveToGallery() } label: { Label("Save to Gallery", systemImage: "square.and.arrow.down") }
+                        if group.isMine {
+                            Button(role: .destructive) { deleteCurrentStory() } label: { Label("Delete", systemImage: "trash") }
+                        } else {
+                            Button { StoryPrefs.toggleNotify(group.authorUid) } label: {
+                                Label(StoryPrefs.isNotifying(group.authorUid) ? "Stop Notifying" : "Notify About Stories",
+                                      systemImage: StoryPrefs.isNotifying(group.authorUid) ? "bell.slash" : "bell")
+                            }
+                            Button(role: .destructive) { StoryPrefs.toggleHidden(group.authorUid); onClose() } label: {
+                                Label("Hide Stories", systemImage: "archivebox")
+                            }
+                            Button(role: .destructive) { reportStory() } label: { Label("Report", systemImage: "exclamationmark.bubble") }
                         }
-                        .padding(.trailing, 6)
+                    } label: {
+                        Image(systemName: "ellipsis").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                            .frame(width: 32, height: 32)
                     }
+                    .padding(.trailing, 2)
                     Button(action: onClose) {
                         Image(systemName: "xmark").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
                     }
@@ -270,7 +284,7 @@ struct StoryViewer: View {
             }
 
             if showSent {
-                Text("Sent").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                Text(toastText).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
                     .padding(.horizontal, 18).padding(.vertical, 10)
                     .background(.black.opacity(0.65), in: Capsule())
                     .transition(.opacity)
@@ -320,9 +334,22 @@ struct StoryViewer: View {
         .padding(.bottom, 8)
     }
 
-    private func flashSent() {
-        showSent = true
-        Task { try? await Task.sleep(nanoseconds: 1_200_000_000); await MainActor.run { showSent = false } }
+    private func toast(_ text: String) {
+        toastText = text; showSent = true
+        Task { try? await Task.sleep(nanoseconds: 1_300_000_000); await MainActor.run { showSent = false } }
+    }
+    private func flashSent() { toast("Sent") }
+
+    // Save the currently shown story image (from the cache) to the camera roll.
+    private func saveToGallery() {
+        guard let s = story, let img = StoryImageCache.shared.object(forKey: s.mediaUrl as NSString) else { toast("Save failed"); return }
+        UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
+        toast("Saved")
+    }
+    private func reportStory() {
+        guard let s = story else { return }
+        Task { await StoriesService.shared.reportStory(s) }
+        toast("Reported")
     }
 
     // Bottom bar: "Send message…" + heart (quick ❤️) + send. Replies go to the author's chat.
@@ -378,8 +405,14 @@ struct StoryComposeSheet: View {
     @State private var postError = false
     @State private var textMode = false   // text story (gradient + text)
     @State private var caption = ""       // optional caption baked onto the photo
+    @State private var expiryHours: Double = 24   // 6 / 12 / 24 / 48
     @FocusState private var captionFocused: Bool
     var onPosted: () -> Void
+
+    private var expiryLabel: String { "\(Int(expiryHours))h" }
+    private func cycleExpiry() {
+        expiryHours = expiryHours == 6 ? 12 : (expiryHours == 12 ? 24 : (expiryHours == 24 ? 48 : 6))
+    }
 
     var body: some View {
         Group {
@@ -415,15 +448,23 @@ struct StoryComposeSheet: View {
 
                         Spacer()
 
-                        // caption field
-                        TextField("Add a caption…", text: $caption, axis: .vertical)
-                            .focused($captionFocused)
-                            .foregroundStyle(.white).tint(.white)
-                            .lineLimit(1...3)
-                            .padding(.horizontal, 18).padding(.vertical, 12)
-                            .background(.black.opacity(0.4), in: Capsule())
-                            .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 1))
-                            .padding(.horizontal, 14)
+                        // caption field + expiry chip (6h / 12h / 24h / 48h)
+                        HStack(spacing: 10) {
+                            TextField("Add a caption…", text: $caption, axis: .vertical)
+                                .focused($captionFocused)
+                                .foregroundStyle(.white).tint(.white)
+                                .lineLimit(1...3)
+                                .padding(.horizontal, 18).padding(.vertical, 12)
+                                .background(.black.opacity(0.4), in: Capsule())
+                                .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 1))
+                            Button { cycleExpiry() } label: {
+                                Text(expiryLabel).font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                                    .frame(width: 46, height: 46)
+                                    .background(.black.opacity(0.4), in: Circle())
+                                    .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
+                            }
+                        }
+                        .padding(.horizontal, 14)
 
                         // send bar: "Your story" pill + circular send
                         HStack(spacing: 12) {
@@ -474,7 +515,7 @@ struct StoryComposeSheet: View {
         guard let img else { return }
         posting = true
         do {
-            try await StoriesService.shared.postStory(image: img)
+            try await StoriesService.shared.postStory(image: img, expiryHours: expiryHours)
             posting = false
             onPosted()
             dismiss()

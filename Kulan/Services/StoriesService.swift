@@ -42,7 +42,7 @@ final class StoriesService {
     private var uid: String { Auth.auth().currentUser?.uid ?? "" }
 
     // Post a photo to "My Status": everyone I've chatted with can see it for 24h.
-    func postStory(image: Data) async throws {
+    func postStory(image: Data, expiryHours: Double = 24) async throws {
         let me = uid
         guard !me.isEmpty else { return }
         let storyId = UUID().uuidString
@@ -61,7 +61,7 @@ final class StoriesService {
         try await db.collection("stories").document(storyId).setData([
             "authorUid": me,
             "createdAt": FieldValue.serverTimestamp(),
-            "expiresAt": Timestamp(date: Date().addingTimeInterval(24 * 3600)),
+            "expiresAt": Timestamp(date: Date().addingTimeInterval(expiryHours * 3600)),
             "type": "image",
             "mediaPath": path,
             "mediaUrl": url,
@@ -91,6 +91,18 @@ final class StoriesService {
 
     func deleteStory(_ id: String) async {
         try? await db.collection("stories").document(id).delete()
+    }
+
+    /// Flag a story for review (App Store 1.2 — abuse reporting).
+    func reportStory(_ story: Story) async {
+        guard !uid.isEmpty else { return }
+        try? await db.collection("reports").addDocument(data: [
+            "type": "story",
+            "storyId": story.id,
+            "authorUid": story.authorUid,
+            "reporter": uid,
+            "createdAt": FieldValue.serverTimestamp(),
+        ])
     }
 
     /// Delete EVERY story I've posted. Called on account deletion so nothing I shared
