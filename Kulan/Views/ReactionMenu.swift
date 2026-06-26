@@ -59,6 +59,7 @@ struct ReactionMenuOverlay: View {
     var onDelete: () -> Void
     var onReport: () -> Void
     var onDismiss: () -> Void
+    @State private var shown = false
 
     // Recents first, then the defaults, deduped and capped at 6.
     private var quick: [String] {
@@ -81,6 +82,10 @@ struct ReactionMenuOverlay: View {
             }
             .frame(maxWidth: .infinity, alignment: isMe ? .trailing : .leading)
             .padding(.horizontal, 20)
+            // iMessage-style pop: spring up + scale from the message's side, backdrop fades.
+            .scaleEffect(shown ? 1 : 0.86, anchor: isMe ? .topTrailing : .topLeading)
+            .opacity(shown ? 1 : 0)
+            .onAppear { withAnimation(.spring(response: 0.36, dampingFraction: 0.72)) { shown = true } }
         }
     }
 
