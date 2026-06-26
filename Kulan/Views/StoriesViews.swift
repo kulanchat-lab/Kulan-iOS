@@ -108,6 +108,11 @@ struct StoryViewer: View {
     @State private var closing = false
     @State private var replyText = ""
     @FocusState private var replyFocused: Bool
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var paused = false                 // hold-to-pause
+    @State private var viewed = Set<String>()         // de-dupe view receipts
+    @State private var showSent = false               // "Sent" toast
+    private let quickEmojis = ["❤️", "😂", "😮", "😢", "👏", "🔥"]
     private let ticker = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
     private let perStory = 5.0   // seconds per photo
 
@@ -126,11 +131,14 @@ struct StoryViewer: View {
                 .ignoresSafeArea()
             }
 
-            // Tap zones: left third = back, right two-thirds = next.
+            // Tap zones: tap left = back, tap right = next; press-and-hold = pause.
             HStack(spacing: 0) {
-                Color.clear.contentShape(Rectangle()).frame(maxWidth: .infinity).onTapGesture { back() }
-                Color.clear.contentShape(Rectangle()).frame(maxWidth: .infinity).onTapGesture { next() }
-                    .frame(maxWidth: .infinity)
+                Color.clear.contentShape(Rectangle()).frame(maxWidth: .infinity)
+                    .onTapGesture { back() }
+                    .onLongPressGesture(minimumDuration: 0.2, maximumDistance: 40, perform: {}, onPressingChanged: { paused = $0 })
+                Color.clear.contentShape(Rectangle()).frame(maxWidth: .infinity)
+                    .onTapGesture { next() }
+                    .onLongPressGesture(minimumDuration: 0.2, maximumDistance: 40, perform: {}, onPressingChanged: { paused = $0 })
             }
 
             VStack {
@@ -169,19 +177,31 @@ struct StoryViewer: View {
                 Spacer()
                 // Reply bar (Signal stories logic) — only on someone else's story that allows replies.
                 if let s = story, !group.isMine, s.allowsReplies {
+                    reactionRow(s)
                     replyBar(s)
                 }
             }
+
+            if showSent {
+                Text("Sent").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                    .padding(.horizontal, 18).padding(.vertical, 10)
+                    .background(.black.opacity(0.65), in: Capsule())
+                    .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.2), value: showSent)
         .onReceive(ticker) { _ in tick() }
-        .task(id: index) { if let s = story { await StoriesService.shared.markViewed(s) } }
-        .gesture(DragGesture().onEnded { v in if v.translation.height > 80 { onClose() } })
+        .task(id: index) {
+            if let s = story, !viewed.contains(s.id) { viewed.insert(s.id); await StoriesService.shared.markViewed(s) }
+        }
+        .gesture(DragGesture(minimumDistance: 30).onEnded { v in if v.translation.height > 80 { onClose() } })
     }
 
     private func fill(_ i: Int) -> Double { i < index ? 1 : (i == index ? progress : 0) }
 
     private func tick() {
-        guard !closing, !replyFocused, story != nil else { return }   // also pause while typing a reply
+        // Pause on: dismissing, typing a reply, finger held, or app not active.
+        guard !closing, !replyFocused, !paused, scenePhase == .active, story != nil else { return }
         progress = min(progress + 0.02 / perStory, 1)
         if progress >= 1 { next() }
     }
@@ -193,6 +213,22 @@ struct StoryViewer: View {
 
     private func back() {
         if index > 0 { index -= 1; progress = 0 } else { progress = 0 }
+    }
+
+    // Quick-emoji reaction row (Instagram/Signal) — taps send straight to the author's chat.
+    @ViewBuilder private func reactionRow(_ s: Story) -> some View {
+        HStack(spacing: 16) {
+            ForEach(quickEmojis, id: \.self) { e in
+                Button { sendToAuthor(s, e) } label: { Text(e).font(.system(size: 30)) }
+                    .buttonStyle(.plain)
+            }
+        }
+        .padding(.bottom, 8)
+    }
+
+    private func flashSent() {
+        showSent = true
+        Task { try? await Task.sleep(nanoseconds: 1_200_000_000); await MainActor.run { showSent = false } }
     }
 
     // Bottom bar: "Send message…" + heart (quick ❤️) + send. Replies go to the author's chat.
@@ -229,6 +265,7 @@ struct StoryViewer: View {
     // Send a story reply / reaction as a normal message into the author's chat (E2EE).
     private func sendToAuthor(_ s: Story, _ text: String) {
         guard !text.isEmpty, let me = AuthService.shared.uid, me != s.authorUid else { return }
+        flashSent()
         let cid = [me, s.authorUid].sorted().joined(separator: "_")
         Task { try? await ChatService.sendText(cid: cid, text: text) }
     }

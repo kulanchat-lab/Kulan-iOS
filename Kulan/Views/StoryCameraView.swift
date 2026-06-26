@@ -87,9 +87,20 @@ final class StoryCamera: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     }
 
     func capture() {
+        guard session.isRunning else { return }   // don't capture before the session is ready
         let settings = AVCapturePhotoSettings()
         if output.supportedFlashModes.contains(.on) { settings.flashMode = torchOn ? .on : .off }
+        if let conn = output.connection(with: .video), conn.isVideoRotationAngleSupported(90) {
+            conn.videoRotationAngle = 90   // lock captured photo to portrait
+        }
         output.capturePhoto(with: settings, delegate: self)
+    }
+
+    // Continuous zoom for pinch gestures (clamped to the lens range).
+    func zoomContinuous(_ factor: CGFloat) {
+        guard let dev = input?.device, (try? dev.lockForConfiguration()) != nil else { return }
+        dev.videoZoomFactor = max(1, min(factor, dev.activeFormat.videoMaxZoomFactor))
+        dev.unlockForConfiguration()
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
@@ -125,11 +136,16 @@ struct StoryCameraView: View {
     @StateObject private var cam = StoryCamera()
     @State private var libraryItem: PhotosPickerItem?
     @State private var zoom: CGFloat = 1
+    @State private var baseZoom: CGFloat = 1
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             CameraPreview(session: cam.session).ignoresSafeArea()
+                .gesture(MagnificationGesture()
+                    .onChanged { scale in cam.zoomContinuous(baseZoom * scale) }
+                    .onEnded { scale in baseZoom = max(1, baseZoom * scale) })
 
             VStack {
                 // Top: close + flash
@@ -171,6 +187,9 @@ struct StoryCameraView: View {
         }
         .onAppear { cam.onCapture = onCapture; cam.start() }
         .onDisappear { cam.stop() }
+        .onChange(of: scenePhase) { _, phase in   // free the camera when backgrounded
+            if phase == .active { cam.start() } else { cam.stop() }
+        }
         .onChange(of: libraryItem) { _, it in
             guard let it else { return }
             Task {
