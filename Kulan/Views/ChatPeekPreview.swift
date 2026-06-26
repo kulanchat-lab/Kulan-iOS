@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import FirebaseFirestore
 
 // Rich native context-menu peek for a chat row (Signal-style): a dedicated conversation
@@ -48,7 +49,7 @@ struct ChatPeekPreview: View {
             }
         }
         .padding(16)
-        .frame(width: 300)
+        .frame(width: UIScreen.main.bounds.width - 28)   // near full-width peek (small side margins)
         .background(cardBG)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .task { await loadRecent() }
