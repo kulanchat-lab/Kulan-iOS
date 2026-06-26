@@ -61,6 +61,9 @@ struct ContactInfoView: View {
         .navigationTitle("")   // name + @handle already show in the hero below
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)   // show nav bar (back + title) below the notch
+        .toolbar(.hidden, for: .tabBar)           // hide the Chats/Calls/Settings bar — match
+                                                  // the chat-opened profile (was still showing
+                                                  // when opened from the Calls tab)
         .navigationBarBackButtonHidden(false)
         .task {
             await load()
