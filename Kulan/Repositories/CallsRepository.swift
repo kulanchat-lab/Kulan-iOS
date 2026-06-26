@@ -30,6 +30,7 @@ final class CallsRepository {
     private let db = Firestore.firestore()
     var calls: [CallEntry] = []
     var loading = false
+    var hasLoaded = false   // false until the first load finishes -> drives the skeleton
 
     func load() async {
         guard let me = Auth.auth().currentUser?.uid else { return }
@@ -58,7 +59,7 @@ final class CallsRepository {
             }
         }
         all.sort { $0.date > $1.date }
-        await MainActor.run { self.calls = all; self.loading = false }
+        await MainActor.run { self.calls = all; self.loading = false; self.hasLoaded = true }
     }
 
     // Delete one call record (the underlying call message doc).

@@ -136,7 +136,9 @@ struct CallsView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if repo.calls.isEmpty {
+                if !repo.hasLoaded {
+                    CallListSkeleton()   // shimmer placeholders while the first load runs
+                } else if repo.calls.isEmpty {
                     ContentUnavailableView("No Calls Yet", systemImage: "phone",
                                            description: Text("Your call history will appear here."))
                 } else {
@@ -522,7 +524,9 @@ struct ChatsView: View {
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if visible.isEmpty {
+                if !repo.hasLoaded {
+                    ChatListSkeleton()   // shimmer placeholders on a cold load (cached = instant)
+                } else if visible.isEmpty {
                     ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.bubble.right",
                                            description: Text("Tap the compose button to start one."))
                 } else {

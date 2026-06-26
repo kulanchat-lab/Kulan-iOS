@@ -113,6 +113,13 @@ struct ThreadView: View {
             // Float the composer OVER the messages (iOS 26 native via safeAreaBar):
             // the glass dims/blurs the messages scrolling under it like iMessage;
             // the scroll content auto-insets so the last message never hides.
+            // Skeleton placeholder bubbles until the first page is ready (cold load only;
+            // a cached chat flips didInitialLoad instantly, so this never flashes).
+            .overlay {
+                if !repo.didInitialLoad {
+                    ThreadSkeleton().allowsHitTesting(false)
+                }
+            }
             .floatingBottomBar {
                 if repo.iBlocked { blockedBar } else { composerArea }
             }
