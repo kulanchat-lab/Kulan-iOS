@@ -280,7 +280,7 @@ struct ThreadView: View {
             .liquidGlass(RoundedRectangle(cornerRadius: 24, style: .continuous), interactive: true)   // one interactive glass bar
             .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .onTapGesture { if let id = msg?.id { withAnimation { proxy.scrollTo(id, anchor: .center) } } }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 16)   // match the back/call button margin from the screen edge
             .padding(.top, 6).padding(.bottom, 2)
             .transition(.move(edge: .top).combined(with: .opacity))
         }
