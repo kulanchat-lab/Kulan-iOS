@@ -250,9 +250,15 @@ struct ThreadView: View {
             let msg = repo.messages.first { $0.id == repo.pinnedMessageId }
             HStack(spacing: 10) {
                 RoundedRectangle(cornerRadius: 1.5).fill(Color.accentColor).frame(width: 3, height: 30)
+                // Real photo thumbnail for a pinned image (instead of just "📷 Photo" text).
+                if let m = msg, m.isImage, let url = m.imageUrl {
+                    SecureImageView(imageUrl: url, enc: m.enc, cid: cid)
+                        .frame(width: 34, height: 34)
+                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Pinned Message").font(.caption.weight(.semibold)).foregroundStyle(.tint)
-                    Text(msg.map { $0.isImage ? "📷 Photo" : ($0.isAudio ? "🎤 Voice message" : $0.text) } ?? "Tap to view")
+                    Text(msg.map { $0.isImage ? "Photo" : ($0.isAudio ? "🎤 Voice message" : $0.text) } ?? "Tap to view")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
@@ -260,10 +266,10 @@ struct ThreadView: View {
                     Image(systemName: "pin.slash").font(.system(size: 15)).foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 16).padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .frame(height: 48)                     // fixed 48px bar
             .frame(maxWidth: .infinity)
-            // Native full-width system bar (like a toolbar), not a floating glass capsule.
-            .background(.bar)
+            .liquidGlass(Rectangle())              // real Liquid Glass bar (matches the header)
             .overlay(alignment: .bottom) { Divider() }
             .contentShape(Rectangle())
             .onTapGesture { if let id = msg?.id { withAnimation { proxy.scrollTo(id, anchor: .center) } } }
