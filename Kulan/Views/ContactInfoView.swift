@@ -27,6 +27,7 @@ struct ContactInfoView: View {
     @State private var viewerImage: Message?
     @State private var showClear = false
     @State private var showBlock = false
+    @State private var showReport = false
     @State private var showShare = false
     @State private var showCallSoon = false
     @State private var showSearchSoon = false
@@ -83,6 +84,20 @@ struct ContactInfoView: View {
             }
         } message: {
             Text("You won't be able to send messages in this chat until you unblock. \(name) won't be told they were blocked.")
+        }
+        .alert("Report \(name)?", isPresented: $showReport) {
+            Button("Cancel", role: .cancel) {}
+            Button("Report", role: .destructive) {
+                Task { await ChatService.report(reportedUid: otherUid, cid: cid, reason: "user") }
+            }
+            Button("Report and Block", role: .destructive) {
+                Task {
+                    await ChatService.report(reportedUid: otherUid, cid: cid, reason: "user")
+                    await ChatService.setBlocked(cid, true); blocked = true
+                }
+            }
+        } message: {
+            Text("Our team will review this account within 24 hours. \(name) won't be told.")
         }
         .alert("Voice calls", isPresented: $showCallSoon) {
             Button("OK", role: .cancel) {}
@@ -182,6 +197,9 @@ struct ContactInfoView: View {
             // Clear is a normal (non-red) action; only Block is destructive/red.
             Button { showClear = true } label: {
                 Label("Clear my messages", systemImage: "trash")
+            }
+            Button(role: .destructive) { showReport = true } label: {
+                Label("Report \(name)", systemImage: "flag")
             }
             if blocked {
                 Button { Task { await ChatService.setBlocked(cid, false); blocked = false } } label: {

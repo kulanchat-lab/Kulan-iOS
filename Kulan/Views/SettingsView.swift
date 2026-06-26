@@ -406,6 +406,19 @@ struct AboutView: View {
             } footer: {
                 Text("Kulan — a Somali messenger. Made for Somalia.")
             }
+            Section {
+                Link(destination: URL(string: "https://kulan-2ef85.web.app/privacy.html")!) {
+                    Label("Privacy Policy", systemImage: "hand.raised")
+                }
+                Link(destination: URL(string: "https://kulan-2ef85.web.app/terms.html")!) {
+                    Label("Terms & Conditions", systemImage: "doc.text")
+                }
+                Link(destination: URL(string: "mailto:kulanchat@gmail.com")!) {
+                    Label("Report a Problem", systemImage: "envelope")
+                }
+            } footer: {
+                Text("Kulan has zero tolerance for objectionable content or abusive behavior. Reports are reviewed within 24 hours.")
+            }
         }
         .navigationTitle("Help & About")
         .navigationBarTitleDisplayMode(.inline)

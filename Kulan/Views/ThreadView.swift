@@ -37,6 +37,7 @@ struct ThreadView: View {
     @State private var pendingDelete: Message?
     @State private var editTarget: Message?       // edit-message sheet
     @State private var forwardTarget: Message?    // forward-to-chat picker
+    @State private var reportTarget: Message?     // abuse-report confirm (App Store 1.2)
     @FocusState private var inputFocused: Bool
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dismiss) private var dismiss
@@ -152,6 +153,7 @@ struct ThreadView: View {
                     onCopy: { dismissMenu() },
                     onEdit: { dismissMenu(); editTarget = m },
                     onDelete: { dismissMenu(); pendingDelete = m },
+                    onReport: { dismissMenu(); reportTarget = m },
                     onDismiss: { dismissMenu() }
                 )
                 .transition(.opacity)
@@ -178,6 +180,31 @@ struct ThreadView: View {
                 pendingDelete = nil
             }
             Button("Cancel", role: .cancel) { pendingDelete = nil }
+        }
+        .confirmationDialog("Report this message?",
+                            isPresented: Binding(get: { reportTarget != nil },
+                                                 set: { if !$0 { reportTarget = nil } }),
+                            titleVisibility: .visible) {
+            Button("Report", role: .destructive) {
+                if let m = reportTarget {
+                    Task { await ChatService.report(reportedUid: m.authorId, cid: cid,
+                                                     messageId: m.id, messageText: m.text, reason: "message") }
+                }
+                reportTarget = nil
+            }
+            Button("Report and Block", role: .destructive) {
+                if let m = reportTarget {
+                    Task {
+                        await ChatService.report(reportedUid: m.authorId, cid: cid,
+                                                 messageId: m.id, messageText: m.text, reason: "message")
+                        await ChatService.setBlocked(cid, true)
+                    }
+                }
+                reportTarget = nil
+            }
+            Button("Cancel", role: .cancel) { reportTarget = nil }
+        } message: {
+            Text("Our team will review this message within 24 hours. \(title) won't be told.")
         }
         .onAppear {
             repo.start()

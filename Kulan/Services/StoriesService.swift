@@ -92,6 +92,23 @@ final class StoriesService {
     func deleteStory(_ id: String) async {
         try? await db.collection("stories").document(id).delete()
     }
+
+    /// Delete EVERY story I've posted. Called on account deletion so nothing I shared
+    /// stays visible after I'm gone (App Store 5.1.1(v) — deletion must remove my data).
+    /// Removes the Storage image first (while the doc still exists, so the rules' author
+    /// check passes), then the story doc itself.
+    func deleteAllMine() async {
+        let me = uid
+        guard !me.isEmpty,
+              let snap = try? await db.collection("stories")
+                  .whereField("authorUid", isEqualTo: me).getDocuments() else { return }
+        for d in snap.documents {
+            if let path = d.data()["mediaPath"] as? String {
+                try? await Storage.storage().reference().child(path).delete()
+            }
+            try? await d.reference.delete()
+        }
+    }
 }
 
 // Loads the stories I can see (mine + others' that include me), unexpired, grouped by

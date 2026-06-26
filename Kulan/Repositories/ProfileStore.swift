@@ -48,6 +48,17 @@ final class ProfileStore {
     /// the profile doc and the Firebase auth user.
     func deleteAccount() async throws {
         guard let uid = Auth.auth().currentUser?.uid else { return }
+        // Remove the content I posted BEFORE the account goes away, so nothing of mine
+        // stays visible to others (App Store 5.1.1(v) — deletion must remove my data).
+        await StoriesService.shared.deleteAllMine()
+        try? await Storage.storage().reference().child("profiles/\(uid).jpg").delete()
+        // Clear my private sub-records (story seen-state + distribution lists) — Firestore
+        // does not cascade subcollection deletes, so wipe them before the parent doc.
+        for sub in ["storyContexts", "storyLists"] {
+            if let docs = try? await db.collection("users").document(uid).collection(sub).getDocuments() {
+                for d in docs.documents { try? await d.reference.delete() }
+            }
+        }
         try? await db.collection("users").document(uid).delete()
         try await Auth.auth().currentUser?.delete()
         me = nil

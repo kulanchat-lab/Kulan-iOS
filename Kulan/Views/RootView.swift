@@ -125,19 +125,30 @@ struct OnboardingView: View {
             .navigationTitle("Welcome to Kulan")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
-                Button {
-                    Task { await save() }
-                } label: {
-                    if saving {
-                        ProgressView().frame(maxWidth: .infinity)
-                    } else {
-                        Text("Continue").fontWeight(.semibold).frame(maxWidth: .infinity)
+                VStack(spacing: 12) {
+                    Button {
+                        Task { await save() }
+                    } label: {
+                        if saving {
+                            ProgressView().frame(maxWidth: .infinity)
+                        } else {
+                            Text("Continue").fontWeight(.semibold).frame(maxWidth: .infinity)
+                        }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(saving)
+
+                    // App Store Guideline 1.2: users must agree to the terms (which
+                    // include a zero-tolerance policy for objectionable content and
+                    // abusive users) before they can post content. Links open in Safari.
+                    Text("By tapping Continue you agree to Kulan's [Terms](https://kulan-2ef85.web.app/terms.html) and [Privacy Policy](https://kulan-2ef85.web.app/privacy.html). Kulan has zero tolerance for objectionable content or abusive behavior.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .tint(.primary)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
                 .padding()
-                .disabled(saving)
             }
         }
     }

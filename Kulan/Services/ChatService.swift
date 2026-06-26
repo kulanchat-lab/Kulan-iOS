@@ -381,6 +381,26 @@ enum ChatService {
         try? await db.collection("conversations").document(cid).setData(data, merge: true)
     }
 
+    /// File an abuse report. App Store Guideline 1.2 requires users to be able to
+    /// flag objectionable content and report abusive users. Stored server-side in
+    /// `reports` for the operator to review and act on within 24h; the reported
+    /// person is never notified. `reason` is "message" or "user".
+    static func report(reportedUid: String, cid: String,
+                       messageId: String? = nil, messageText: String? = nil,
+                       reason: String) async {
+        var data: [String: Any] = [
+            "reporterUid": uid,
+            "reportedUid": reportedUid,
+            "cid": cid,
+            "reason": reason,
+            "createdAt": Date().timeIntervalSince1970 * 1000,
+            "handled": false,
+        ]
+        if let messageId { data["messageId"] = messageId }
+        if let messageText, !messageText.isEmpty { data["messageText"] = messageText }
+        try? await db.collection("reports").addDocument(data: data)
+    }
+
     /// "Delete for me" — hides the thread until a newer message arrives (clearedAt).
     static func deleteForMe(_ cid: String) async {
         try? await db.collection("conversations").document(cid).setData([

@@ -57,6 +57,7 @@ struct ReactionMenuOverlay: View {
     var onCopy: () -> Void
     var onEdit: () -> Void
     var onDelete: () -> Void
+    var onReport: () -> Void
     var onDismiss: () -> Void
 
     // Recents first, then the defaults, deduped and capped at 6.
@@ -166,6 +167,10 @@ struct ReactionMenuOverlay: View {
             if isMe {
                 menuDivider
                 row("Delete", "trash", onDelete, destructive: true)
+            } else {
+                // You can flag another person's message for review (App Store 1.2).
+                menuDivider
+                row("Report", "flag", onReport, destructive: true)
             }
         }
         .frame(width: 250)
