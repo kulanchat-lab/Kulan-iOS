@@ -82,22 +82,32 @@ struct CallView: View {
                 }
                 .padding(.horizontal)
             }
-            .offset(y: dragY)                              // follow the finger down
-            .opacity(1 - min(0.35, dragY / 700))           // gentle fade as it slides away
         }
+        // Premium swipe-down-to-minimize (FaceTime/iMessage feel): the whole call screen
+        // shrinks, rubber-bands down, rounds its corners and fades — dissolving into the
+        // pill. fullScreenCover blocks the native swipe, so we drive it ourselves.
+        .scaleEffect(dynamicScale, anchor: .center)
+        .offset(y: dragY > 0 ? dragY * 0.8 : 0)              // rubber-banding
+        .cornerRadius(dragY > 0 ? 38 : 0)                    // round as it shrinks
+        .opacity(Double(max(0.45, 1 - dragY / 600)))         // fade out toward the pill
         .onReceive(ticker) { now = $0 }
-        // Swipe down anywhere to minimize (fullScreenCover blocks the native swipe, so we
-        // add our own) — runs alongside the control buttons, so taps still work.
+        // Runs alongside the control buttons, so taps still work.
         .simultaneousGesture(
             DragGesture(minimumDistance: 14)
                 .onChanged { v in dragY = max(0, v.translation.height) }
                 .onEnded { v in
-                    if v.translation.height > 120 {
-                        withAnimation(.easeInOut(duration: 0.25)) { call.minimized = true }
+                    // Interactive spring = responsive, organic settle.
+                    withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.75)) {
+                        if v.translation.height > 150 { call.minimized = true }  // far enough -> minimize
+                        dragY = 0                                                // else snap back
                     }
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragY = 0 }
                 }
         )
+    }
+
+    // Whole screen scales toward an 80% floor as you pull down — the premium shrink feel.
+    private var dynamicScale: CGFloat {
+        dragY > 0 ? max(0.80, 1 - dragY / 1000) : 1
     }
 
     private var background: some View {
