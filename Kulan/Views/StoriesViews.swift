@@ -242,52 +242,44 @@ struct StoryViewer: View {
 // Compose: pick a photo, preview, share to My Status. (Camera UI comes in a later stage.)
 struct StoryComposeSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var item: PhotosPickerItem?
     @State private var data: Data?
     @State private var posting = false
-    @State private var showCamera = false
     var onPosted: () -> Void
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 20) {
-                if let data, let ui = UIImage(data: data) {
-                    Image(uiImage: ui).resizable().scaledToFit()
-                        .frame(maxHeight: 420)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    Button { Task { await post() } } label: {
-                        if posting { ProgressView() }
-                        else { Text("Share to My Status").fontWeight(.semibold).frame(maxWidth: .infinity) }
+        Group {
+            if let data, let ui = UIImage(data: data) {
+                // Captured/picked -> full-screen preview + Share to My Status (retake = back).
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    Image(uiImage: ui).resizable().scaledToFill()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity).clipped().ignoresSafeArea()
+                    VStack {
+                        HStack {
+                            Button { self.data = nil } label: { camCircle("chevron.left") }   // retake
+                            Spacer()
+                            Button { dismiss() } label: { camCircle("xmark") }
+                        }
+                        .padding(.horizontal, 16).padding(.top, 8)
+                        Spacer()
+                        Button { Task { await post() } } label: {
+                            if posting { ProgressView().tint(.white).frame(maxWidth: .infinity) }
+                            else { Label("Share to My Status", systemImage: "paperplane.fill").fontWeight(.semibold).frame(maxWidth: .infinity) }
+                        }
+                        .buttonStyle(.borderedProminent).controlSize(.large).disabled(posting)
+                        .padding(.horizontal, 16).padding(.bottom, 16)
                     }
-                    .buttonStyle(.borderedProminent).controlSize(.large).disabled(posting)
-                } else {
-                    Spacer()
-                    Button { showCamera = true } label: {
-                        Label("Take Photo", systemImage: "camera.fill")
-                            .font(.headline).frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
-                    PhotosPicker(selection: $item, matching: .images) {
-                        Label("Choose from Library", systemImage: "photo.on.rectangle")
-                            .font(.headline).frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered).controlSize(.large)
-                    Text("Photo disappears after 24 hours.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    Spacer()
                 }
-            }
-            .padding()
-            .navigationTitle("New Status")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "xmark") }.tint(.primary) } }
-            .onChange(of: item) { _, it in
-                Task { if let it { data = try? await it.loadTransferable(type: Data.self) } }
-            }
-            .fullScreenCover(isPresented: $showCamera) {
-                CameraPicker { captured in data = captured }.ignoresSafeArea()
+            } else {
+                // Live story camera (capture or pick from library).
+                StoryCameraView(onCapture: { d in data = d }, onClose: { dismiss() })
             }
         }
+    }
+
+    private func camCircle(_ name: String) -> some View {
+        Image(systemName: name).font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(.white).frame(width: 42, height: 42).background(.black.opacity(0.4), in: Circle())
     }
 
     private func post() async {
