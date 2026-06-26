@@ -71,62 +71,51 @@ struct CallView: View {
 
                 // Chrome overlay (header + centre info + controls).
                 VStack(spacing: 0) {
-                    // ── Header ──
-                    HStack(spacing: 12) {
-                        // Swipe-down-to-minimize chevron.
+                    // ── Header: minimize (left) · name+status (centre) · add-person/chat/flip (right) ──
+                    HStack(alignment: .top) {
                         Button {
                             withAnimation(.easeInOut(duration: 0.25)) { call.minimized = true }
-                        } label: {
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 40, height: 40)
-                                .background(Color.black.opacity(0.4), in: Circle())
-                                .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 1))
-                        }
+                        } label: { headerCircle("chevron.down") }
                         .buttonStyle(CallControlStyle())
 
-                        // Video call: name + lock + status inline in the header.
-                        if call.isVideo {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(call.otherName)
-                                    .font(.system(size: 17, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
-                                HStack(spacing: 4) {
-                                    Image(systemName: "lock.fill").font(.system(size: 9))
-                                    Text(statusText).monospacedDigit()
-                                }
-                                .font(.system(size: 13))
-                                .foregroundStyle(.white.opacity(0.85))
+                        Spacer(minLength: 8)
+
+                        VStack(spacing: 3) {
+                            Text(call.otherName)
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundStyle(.white).lineLimit(1)
+                            HStack(spacing: 4) {
+                                Image(systemName: "lock.fill").font(.system(size: 9))
+                                Text(statusText).monospacedDigit()
+                            }
+                            .font(.system(size: 14))
+                            .foregroundStyle(.white.opacity(0.85))
+                        }
+                        .padding(.top, 2)
+
+                        Spacer(minLength: 8)
+
+                        VStack(spacing: 12) {
+                            Button { } label: { headerCircle("person.badge.plus") }
+                                .buttonStyle(CallControlStyle())
+                            Button { } label: { headerCircle("message.fill") }
+                                .buttonStyle(CallControlStyle())
+                            if call.isVideo {
+                                Button { call.switchCamera() } label: { headerCircle("arrow.triangle.2.circlepath") }
+                                    .buttonStyle(CallControlStyle())
                             }
                         }
-                        Spacer()
                     }
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, 14)
                     .padding(.top, safeTop + 4)
 
-                    // ── Centre (voice only) ──
+                    Spacer()
+
+                    // Voice: large centred avatar (the name now lives in the header, like WhatsApp).
                     if !call.isVideo {
-                        VStack(spacing: 14) {
-                            Spacer().frame(height: 20)
-                            AvatarView(name: call.otherName, photoUrl: call.otherPhotoUrl, size: 132)
-                                .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
-                                .shadow(color: .black.opacity(0.4), radius: 24, y: 8)
-                            Text(call.otherName)
-                                .font(.system(size: 30, weight: .bold))
-                                .foregroundStyle(.white)
-                            Text(statusText)
-                                .font(.headline)
-                                .foregroundStyle(.white.opacity(0.85))
-                                .monospacedDigit()
-                            Label("End-to-end encrypted", systemImage: "lock.fill")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.5))
-                            Spacer()
-                        }
-                        .padding(.horizontal)
-                    } else {
+                        AvatarView(name: call.otherName, photoUrl: call.otherPhotoUrl, size: 150)
+                            .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
+                            .shadow(color: .black.opacity(0.4), radius: 24, y: 8)
                         Spacer()
                     }
 
@@ -258,26 +247,22 @@ struct CallView: View {
         }
     }
 
-    // ── Voice controls: Mute · Speaker · End — SAME frosted capsule + sizing as video ──
+    // ── Voice controls: More · Video · Speaker · Mute · End (frosted capsule, like WhatsApp) ──
     private var voiceControls: some View {
-        HStack(spacing: 16) {
-            controlButton(
-                icon: call.isMuted ? "mic.slash.fill" : "mic.fill",
-                label: call.isMuted ? "Unmute" : "Mute",
-                highlighted: call.isMuted,
-                size: 56
-            ) { call.toggleMute() }
-
+        HStack(spacing: 10) {
+            controlButton(icon: "ellipsis", label: "More", highlighted: false, size: 54) { }
+            controlButton(icon: "video.fill", label: "Video", highlighted: false, size: 54) { }   // switch-to-video (coming soon)
             controlButton(
                 icon: call.isSpeaker ? "speaker.wave.2.fill" : "speaker.slash.fill",
-                label: "Speaker",
-                highlighted: call.isSpeaker,
-                size: 56
+                label: "Speaker", highlighted: call.isSpeaker, size: 54
             ) { call.toggleSpeaker() }
-
-            endButton(size: 56)
+            controlButton(
+                icon: call.isMuted ? "mic.slash.fill" : "mic.fill",
+                label: call.isMuted ? "Unmute" : "Mute", highlighted: call.isMuted, size: 54
+            ) { call.toggleMute() }
+            endButton(size: 54)
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background {
             Capsule()
@@ -286,46 +271,40 @@ struct CallView: View {
         }
     }
 
-    // ── Video controls: Mute · Camera · Flip · Speaker · End (in frosted pill) ──
+    // ── Video controls: More · Camera · Speaker · Mute · End (flip is in the header) ──
     private var videoControls: some View {
-        HStack(spacing: 16) {
-            controlButton(
-                icon: call.isMuted ? "mic.slash.fill" : "mic.fill",
-                label: call.isMuted ? "Unmute" : "Mute",
-                highlighted: call.isMuted,
-                size: 56
-            ) { call.toggleMute() }
-
+        HStack(spacing: 10) {
+            controlButton(icon: "ellipsis", label: "More", highlighted: false, size: 54) { }
             controlButton(
                 icon: call.cameraOn ? "video.fill" : "video.slash.fill",
-                label: call.cameraOn ? "Camera" : "No Camera",
-                highlighted: !call.cameraOn,
-                size: 56
+                label: call.cameraOn ? "Camera" : "No Camera", highlighted: !call.cameraOn, size: 54
             ) { call.toggleCamera() }
-
-            controlButton(
-                icon: "camera.rotate.fill",
-                label: "Flip",
-                highlighted: false,
-                size: 56
-            ) { call.switchCamera() }
-
             controlButton(
                 icon: call.isSpeaker ? "speaker.wave.2.fill" : "speaker.slash.fill",
-                label: "Speaker",
-                highlighted: call.isSpeaker,
-                size: 56
+                label: "Speaker", highlighted: call.isSpeaker, size: 54
             ) { call.toggleSpeaker() }
-
-            endButton(size: 56)
+            controlButton(
+                icon: call.isMuted ? "mic.slash.fill" : "mic.fill",
+                label: call.isMuted ? "Unmute" : "Mute", highlighted: call.isMuted, size: 54
+            ) { call.toggleMute() }
+            endButton(size: 54)
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background {
             Capsule()
                 .fill(.ultraThinMaterial)
                 .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
         }
+    }
+
+    // Top-bar circular action button (native ultraThinMaterial, 44pt HIG target).
+    private func headerCircle(_ icon: String) -> some View {
+        Image(systemName: icon)
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 44, height: 44)
+            .background(.ultraThinMaterial, in: Circle())
     }
 
     // A single round control button with a text label below.
