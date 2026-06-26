@@ -806,7 +806,7 @@ struct ChatRow: View {
 
     private var decodedLast: String {
         if conv.leaksBlocked(me) { return "" }   // don't leak a blocked person's message into the list
-        return Crypto.shared.decrypt(conv.lastMessageCipher, cid: conv.id)
+        return Crypto.shared.decryptCached(conv.lastMessageCipher, cid: conv.id)   // memoized: no re-decrypt per render
     }
     // Stored plaintext markers → an SF Symbol + clean label (native look, no emoji).
     private func previewBadge(_ s: String) -> (String, String)? {

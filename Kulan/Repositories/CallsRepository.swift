@@ -41,22 +41,30 @@ final class CallsRepository {
             .whereField("users", arrayContains: me).getDocuments()
         let convs = (convSnap?.documents ?? []).map { Conversation(id: $0.documentID, data: $0.data()) }
 
+        // Fetch every chat's call records CONCURRENTLY (was sequential = N round-trips in
+        // series). Each task builds its own CallEntry list off-main; results merged after.
         var all: [CallEntry] = []
-        for c in convs {
-            let other = c.otherUid(me)
-            let snap = try? await database.collection("conversations").document(c.id)
-                .collection("messages").whereField("type", isEqualTo: "call").getDocuments()
-            for d in snap?.documents ?? [] {
-                let data = d.data()
-                let ts = data["createdAt"] as? Timestamp
-                all.append(CallEntry(
-                    id: d.documentID, cid: c.id,
-                    name: c.name(for: me), photoUrl: c.photoUrl(for: me), otherUid: other,
-                    callerUid: data["callerUid"] as? String ?? "",
-                    outcome: data["callOutcome"] as? String ?? "answered",
-                    durationSec: (data["callDuration"] as? NSNumber)?.intValue ?? 0,
-                    date: ts?.dateValue() ?? Date(timeIntervalSince1970: 0)))
+        await withTaskGroup(of: [CallEntry].self) { group in
+            for c in convs {
+                group.addTask {
+                    let other = c.otherUid(me), name = c.name(for: me), photo = c.photoUrl(for: me)
+                    guard let snap = try? await database.collection("conversations").document(c.id)
+                        .collection("messages").whereField("type", isEqualTo: "call").getDocuments()
+                    else { return [] }
+                    return snap.documents.map { d in
+                        let data = d.data()
+                        let ts = data["createdAt"] as? Timestamp
+                        return CallEntry(
+                            id: d.documentID, cid: c.id,
+                            name: name, photoUrl: photo, otherUid: other,
+                            callerUid: data["callerUid"] as? String ?? "",
+                            outcome: data["callOutcome"] as? String ?? "answered",
+                            durationSec: (data["callDuration"] as? NSNumber)?.intValue ?? 0,
+                            date: ts?.dateValue() ?? Date(timeIntervalSince1970: 0))
+                    }
+                }
             }
+            for await chunk in group { all.append(contentsOf: chunk) }
         }
         all.sort { $0.date > $1.date }
         await MainActor.run { self.calls = all; self.loading = false; self.hasLoaded = true }

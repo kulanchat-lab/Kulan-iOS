@@ -213,6 +213,20 @@ final class Crypto {
         return text
     }
 
+    // Memoized decrypt for hot, repeatedly-rendered text — the chat-list last-message
+    // preview decrypts on EVERY row render/scroll. The same (cid, raw) always yields the
+    // same plaintext, so caching it avoids re-running libsodium box.open per frame (a
+    // real scroll-smoothness win, Signal-style "decrypt once, reuse"). NSCache is
+    // thread-safe and self-evicting under memory pressure.
+    private let previewCache = NSCache<NSString, NSString>()
+    func decryptCached(_ raw: String, cid: String) -> String {
+        let key = "\(cid)|\(raw)" as NSString
+        if let hit = previewCache.object(forKey: key) { return hit as String }
+        let out = decrypt(raw, cid: cid)
+        previewCache.setObject(out as NSString, forKey: key)
+        return out
+    }
+
     // MARK: - Files / images
 
     /// Encrypt raw file bytes. The file is sealed with a fresh secretbox key; that
