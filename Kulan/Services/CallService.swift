@@ -159,10 +159,10 @@ final class CallService: NSObject {
     }
     func toggleSpeaker() {
         isSpeaker.toggle()
-        let rtc = RTCAudioSession.sharedInstance()
-        rtc.lockForConfiguration()
-        try? rtc.overrideOutputAudioPort(isSpeaker ? .speaker : .none)
-        rtc.unlockForConfiguration()
+        // Use AVAudioSession directly — CallKit owns the session in manual mode and
+        // RTCAudioSession.lockForConfiguration() can deadlock when called while CallKit
+        // is also configuring the session (e.g. right after answer/connect).
+        try? AVAudioSession.sharedInstance().overrideOutputAudioPort(isSpeaker ? .speaker : .none)
     }
 
     // Ringback the CALLER hears while waiting (generated tone, looped). Ensure the
