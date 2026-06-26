@@ -552,7 +552,7 @@ struct ChatsView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())   // whole row tappable (incl. empty space)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(ChatRowPressStyle())   // grey highlight while held
                         .tag(conv.id)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)   // clean, no row lines (like Signal)
@@ -798,6 +798,15 @@ struct ArchivedChatsView: View {
         let ids = selection
         Task { for id in ids { await ChatService.deleteForMe(id) } }
         exitSelect()
+    }
+}
+
+// Grey press highlight while a chat row is held (before the context menu lifts it).
+private struct ChatRowPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed ? Color.primary.opacity(0.08) : Color.clear)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
 }
 
