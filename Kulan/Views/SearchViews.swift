@@ -153,7 +153,10 @@ struct ChatSearchView: View {
         .autoFocusSearch($searchFocused)
         .onAppear {
             repo.start()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { searchFocused = true }
+            // Focus immediately so the keyboard opens at once; retry shortly as a fallback
+            // in case the search field isn't mounted on the very first frame.
+            searchFocused = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { searchFocused = true }
             loadTask?.cancel()
             loadingCorpus = corpus.isEmpty
             loadTask = Task {
@@ -289,7 +292,7 @@ struct ContactsSearchView: View {
                     prompt: "Search contacts")
         .autoFocusSearch($searchFocused)
         .onAppear { repo.start() }
-        .task { try? await Task.sleep(nanoseconds: 350_000_000); searchFocused = true }
+        .task { searchFocused = true; try? await Task.sleep(nanoseconds: 200_000_000); searchFocused = true }
     }
 }
 
@@ -370,6 +373,6 @@ struct SettingsSearchView: View {
         .searchable(text: $query,
                     prompt: "Search settings")
         .autoFocusSearch($searchFocused)
-        .task { try? await Task.sleep(nanoseconds: 350_000_000); searchFocused = true }
+        .task { searchFocused = true; try? await Task.sleep(nanoseconds: 200_000_000); searchFocused = true }
     }
 }
