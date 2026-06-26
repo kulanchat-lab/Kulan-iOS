@@ -855,7 +855,9 @@ struct ChatRow: View {
         } else if !conv.leaksBlocked(me), decodedLast.isEmpty {
             previewRow("hand.wave.fill", "Say hello")
         } else {
-            Text(decodedLast).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(2)
+            Text(decodedLast)
+                .font(.system(size: 14, weight: unread > 0 ? .medium : .regular))
+                .foregroundStyle(unread > 0 ? Color.primary : .secondary).lineLimit(2)   // darker when unread
         }
     }
 
@@ -890,7 +892,7 @@ struct ChatRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(conv.name(for: me))
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 16, weight: unread > 0 ? .bold : .semibold))   // heavier when unread
                         .lineLimit(1)
                     if muted {
                         Image(systemName: "bell.slash.fill")
