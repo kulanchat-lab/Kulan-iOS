@@ -90,7 +90,10 @@ final class AudioRecorder {
         recorder.stop()
         let wf = waveform()
         reset()
-        guard duration >= 0.5, let data = try? Data(contentsOf: url) else { return nil }
+        guard duration >= 0.5, let data = try? Data(contentsOf: url) else {
+            try? FileManager.default.removeItem(at: url)   // don't leak temp files for tap-too-short clips
+            return nil
+        }
         return (data, duration, wf)
     }
 

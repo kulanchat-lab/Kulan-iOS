@@ -37,8 +37,14 @@ final class CallsRepository {
     // don't re-fire N concurrent Firestore queries every time the Calls tab becomes visible.
     func load(force: Bool = false) async {
         if !force, hasLoaded, let last = lastLoadedAt, Date().timeIntervalSince(last) < 30 { return }
-        guard let me = Auth.auth().currentUser?.uid else { return }
-        await MainActor.run { loading = true }
+        // Atomically claim the load so two concurrent calls can't both fan out N queries.
+        let proceed = await MainActor.run { () -> Bool in
+            if loading { return false }
+            loading = true
+            return true
+        }
+        guard proceed else { return }
+        guard let me = Auth.auth().currentUser?.uid else { await MainActor.run { loading = false }; return }
         let database = db
 
         let convSnap = try? await database.collection("conversations")
@@ -74,14 +80,17 @@ final class CallsRepository {
         await MainActor.run { self.calls = all; self.loading = false; self.hasLoaded = true; self.lastLoadedAt = Date() }
     }
 
-    // Delete one call record (the underlying call message doc).
+    // Delete one call record — remove from the UI only AFTER the server confirms, so a
+    // failed delete doesn't vanish from the list while still living on the server.
     func delete(_ entry: CallEntry) async {
-        try? await db.collection("conversations").document(entry.cid)
-            .collection("messages").document(entry.id).delete()
-        await MainActor.run { calls.removeAll { $0.id == entry.id } }
+        do {
+            try await db.collection("conversations").document(entry.cid)
+                .collection("messages").document(entry.id).delete()
+            await MainActor.run { calls.removeAll { $0.id == entry.id } }
+        } catch { /* keep it in the list; the next load reconciles */ }
     }
 
-    // Delete several selected call records — single batched write instead of N round-trips.
+    // Delete several selected call records — single batched write, UI updated only on success.
     func delete(ids: Set<String>) async {
         let targets = await MainActor.run { calls.filter { ids.contains($0.id) } }
         let batch = db.batch()
@@ -90,7 +99,9 @@ final class CallsRepository {
                 .collection("messages").document(c.id)
             batch.deleteDocument(ref)
         }
-        try? await batch.commit()
-        await MainActor.run { calls.removeAll { ids.contains($0.id) } }
+        do {
+            try await batch.commit()
+            await MainActor.run { calls.removeAll { ids.contains($0.id) } }
+        } catch { /* leave them; the batch failed */ }
     }
 }
