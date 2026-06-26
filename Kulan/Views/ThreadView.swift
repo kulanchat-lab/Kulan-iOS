@@ -321,7 +321,7 @@ struct ThreadView: View {
                     MessageBubble(
                         message: msg, isMe: msg.authorId == me, dark: dark, cid: cid,
                         nameFor: { $0 == me ? "You" : title },
-                        onReply: { withAnimation(.easeInOut(duration: 0.22)) { replyingTo = $0 } },
+                        onReply: { m in withAnimation(.easeInOut(duration: 0.22)) { replyingTo = m } },
                         onDelete: { pendingDelete = $0 },   // confirm dialog, not instant
                         onTapImage: { viewerImage = $0 },
                         onReact: { emoji in Task { await ChatService.setReaction(cid: cid, messageId: msg.id, emoji: emoji) } },
