@@ -110,6 +110,7 @@ struct ThreadView: View {
                     .transition(.scale.combined(with: .opacity))
                 }
             }
+            .animation(.spring(response: 0.32, dampingFraction: 0.72), value: isAtBottom)   // scroll button in/out
             // Float the composer OVER the messages (iOS 26 native via safeAreaBar):
             // the glass dims/blurs the messages scrolling under it like iMessage;
             // the scroll content auto-insets so the last message never hides.
