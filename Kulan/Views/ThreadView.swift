@@ -171,41 +171,8 @@ struct ThreadView: View {
         .sheet(item: $forwardTarget) { m in
             ForwardPicker(message: m, sourceCid: cid)
         }
-        .confirmationDialog("Delete this message?",
-                            isPresented: Binding(get: { pendingDelete != nil },
-                                                 set: { if !$0 { pendingDelete = nil } }),
-                            titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                if let m = pendingDelete { Task { await ChatService.deleteMessage(cid: cid, messageId: m.id) } }
-                pendingDelete = nil
-            }
-            Button("Cancel", role: .cancel) { pendingDelete = nil }
-        }
-        .confirmationDialog("Report this message?",
-                            isPresented: Binding(get: { reportTarget != nil },
-                                                 set: { if !$0 { reportTarget = nil } }),
-                            titleVisibility: .visible) {
-            Button("Report", role: .destructive) {
-                if let m = reportTarget {
-                    Task { await ChatService.report(reportedUid: m.authorId, cid: cid,
-                                                     messageId: m.id, messageText: m.text, reason: "message") }
-                }
-                reportTarget = nil
-            }
-            Button("Report and Block", role: .destructive) {
-                if let m = reportTarget {
-                    Task {
-                        await ChatService.report(reportedUid: m.authorId, cid: cid,
-                                                 messageId: m.id, messageText: m.text, reason: "message")
-                        await ChatService.setBlocked(cid, true)
-                    }
-                }
-                reportTarget = nil
-            }
-            Button("Cancel", role: .cancel) { reportTarget = nil }
-        } message: {
-            Text("Our team will review this message within 24 hours. \(title) won't be told.")
-        }
+        .modifier(MessageActionDialogs(cid: cid, title: title,
+                                       pendingDelete: $pendingDelete, reportTarget: $reportTarget))
         .onAppear {
             repo.start()
             AppRouter.shared.activeChatId = cid          // suppress this chat's own banners
@@ -1208,5 +1175,53 @@ struct EditMessageSheet: View {
             .onAppear { focused = true }
         }
         .presentationDetents([.medium])
+    }
+}
+
+// Message long-press confirmations (Delete + Report) extracted into their own modifier
+// so ThreadView's already-large body stays under the SwiftUI type-checker's limit.
+private struct MessageActionDialogs: ViewModifier {
+    let cid: String
+    let title: String
+    @Binding var pendingDelete: Message?
+    @Binding var reportTarget: Message?
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog("Delete this message?",
+                                isPresented: Binding(get: { pendingDelete != nil },
+                                                     set: { if !$0 { pendingDelete = nil } }),
+                                titleVisibility: .visible) {
+                Button("Delete", role: .destructive) {
+                    if let m = pendingDelete { Task { await ChatService.deleteMessage(cid: cid, messageId: m.id) } }
+                    pendingDelete = nil
+                }
+                Button("Cancel", role: .cancel) { pendingDelete = nil }
+            }
+            .confirmationDialog("Report this message?",
+                                isPresented: Binding(get: { reportTarget != nil },
+                                                     set: { if !$0 { reportTarget = nil } }),
+                                titleVisibility: .visible) {
+                Button("Report", role: .destructive) {
+                    if let m = reportTarget {
+                        Task { await ChatService.report(reportedUid: m.authorId, cid: cid,
+                                                         messageId: m.id, messageText: m.text, reason: "message") }
+                    }
+                    reportTarget = nil
+                }
+                Button("Report and Block", role: .destructive) {
+                    if let m = reportTarget {
+                        Task {
+                            await ChatService.report(reportedUid: m.authorId, cid: cid,
+                                                     messageId: m.id, messageText: m.text, reason: "message")
+                            await ChatService.setBlocked(cid, true)
+                        }
+                    }
+                    reportTarget = nil
+                }
+                Button("Cancel", role: .cancel) { reportTarget = nil }
+            } message: {
+                Text("Our team will review this message within 24 hours. \(title) won't be told.")
+            }
     }
 }
