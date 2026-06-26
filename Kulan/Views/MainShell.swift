@@ -514,19 +514,20 @@ struct ChatsView: View {
             Label("Delete", systemImage: "trash")
         }
     }
+    // Batch ops run the per-chat writes CONCURRENTLY (was sequential = N round-trips in series).
     private func archiveSelected() {
         let ids = selection
-        Task { for id in ids { await ChatService.setArchived(id, true) } }
+        Task { await withTaskGroup(of: Void.self) { g in for id in ids { g.addTask { await ChatService.setArchived(id, true) } } } }
         exitSelect()
     }
     private func markReadSelected() {
         let ids = selection
-        Task { for id in ids { await ChatService.resetUnread(id); await ChatService.markRead(id) } }
+        Task { await withTaskGroup(of: Void.self) { g in for id in ids { g.addTask { await ChatService.resetUnread(id); await ChatService.markRead(id) } } } }
         exitSelect()
     }
     private func deleteSelected() {
         let ids = selection
-        Task { for id in ids { await ChatService.deleteForMe(id) } }
+        Task { await withTaskGroup(of: Void.self) { g in for id in ids { g.addTask { await ChatService.deleteForMe(id) } } } }
         exitSelect()
     }
 

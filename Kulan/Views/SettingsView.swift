@@ -498,6 +498,7 @@ struct EditProfileView: View {
     @State private var handle = ""
     @State private var about = ""
     @State private var photoItem: PhotosPickerItem?
+    @State private var uploadTask: Task<Void, Never>?
     @State private var uploading = false
     @State private var saving = false
     @State private var error: String?
@@ -565,7 +566,10 @@ struct EditProfileView: View {
                 handle = profile.me?.handle ?? ""
                 about = profile.me?.about ?? ""
             }
-            .onChange(of: photoItem) { _, item in Task { await upload(item) } }
+            .onChange(of: photoItem) { _, item in
+                uploadTask?.cancel()                       // rapid re-picks don't stack concurrent uploads
+                uploadTask = Task { await upload(item) }
+            }
         }
     }
 
@@ -574,6 +578,7 @@ struct EditProfileView: View {
         uploading = true; error = nil
         do {
             guard let data = try await item.loadTransferable(type: Data.self) else { uploading = false; return }
+            if Task.isCancelled { uploading = false; return }   // a newer pick superseded this one
             try await profile.uploadPhoto(data)
         } catch {
             self.error = "Photo upload failed: \(error.localizedDescription)"
