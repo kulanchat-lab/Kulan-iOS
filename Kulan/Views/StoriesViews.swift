@@ -21,7 +21,7 @@ struct StoryImage: View {
             } else if failed {
                 ZStack { Color.black; Image(systemName: "photo").font(.largeTitle).foregroundStyle(.white.opacity(0.5)) }
             } else {
-                ZStack { Color.black; ProgressView().tint(.white) }
+                SkeletonFill()   // shimmer placeholder instead of a spinner
             }
         }
         .task(id: url) { await load() }
@@ -376,6 +376,7 @@ struct StoryComposeSheet: View {
     @State private var data: Data?
     @State private var posting = false
     @State private var postError = false
+    @State private var textMode = false   // text story (gradient + text)
     var onPosted: () -> Void
 
     var body: some View {
@@ -402,9 +403,13 @@ struct StoryComposeSheet: View {
                         .padding(.horizontal, 16).padding(.bottom, 16)
                     }
                 }
+            } else if textMode {
+                StoryTextComposer(onShare: { d in Task { await postDirect(d) } },
+                                  onClose: { textMode = false })
             } else {
-                // Live story camera (capture or pick from library).
-                StoryCameraView(onCapture: { d in data = d }, onClose: { dismiss() })
+                // Live story camera (capture / library) + Aa text-story mode.
+                StoryCameraView(onCapture: { d in data = d }, onClose: { dismiss() },
+                                onTextMode: { textMode = true })
             }
         }
         .alert("Couldn't share", isPresented: $postError) {
@@ -428,6 +433,17 @@ struct StoryComposeSheet: View {
         } catch {
             posting = false
             postError = true   // keep the preview so the user can retry, don't silently dismiss
+        }
+    }
+
+    // Post a rendered text-story image directly (no preview step).
+    private func postDirect(_ d: Data) async {
+        posting = true
+        do {
+            try await StoriesService.shared.postStory(image: d)
+            posting = false; onPosted(); dismiss()
+        } catch {
+            posting = false; textMode = false; postError = true
         }
     }
 }

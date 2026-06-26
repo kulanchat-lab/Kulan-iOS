@@ -53,7 +53,7 @@ struct NewChatView: View {
                             }
                             if results.isEmpty {
                                 if searching {
-                                    HStack { ProgressView(); Text("Searching…").foregroundStyle(.secondary) }
+                                    ChatListSkeleton()   // shimmer rows instead of a spinner
                                 } else {
                                     Text("No one found for “\(query)”").foregroundStyle(.secondary)
                                 }

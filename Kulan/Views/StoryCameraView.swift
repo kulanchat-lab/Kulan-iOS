@@ -132,6 +132,7 @@ struct CameraPreview: UIViewRepresentable {
 struct StoryCameraView: View {
     var onCapture: (Data) -> Void
     var onClose: () -> Void
+    var onTextMode: () -> Void = {}
 
     @StateObject private var cam = StoryCamera()
     @State private var libraryItem: PhotosPickerItem?
@@ -176,9 +177,14 @@ struct StoryCameraView: View {
                 .buttonStyle(.plain)
                 .padding(.top, 16).padding(.bottom, 14)
 
-                // Bottom: library + flip
+                // Bottom: library + text-story + flip
                 HStack {
                     PhotosPicker(selection: $libraryItem, matching: .images) { circleIcon("photo.on.rectangle") }
+                    Spacer()
+                    Button { onTextMode() } label: {
+                        Text("Aa").font(.system(size: 18, weight: .heavy)).foregroundStyle(.white)
+                            .frame(width: 42, height: 42).background(.black.opacity(0.4), in: Circle())
+                    }
                     Spacer()
                     Button { cam.flip() } label: { circleIcon("arrow.triangle.2.circlepath") }
                 }
