@@ -31,8 +31,12 @@ final class CallsRepository {
     var calls: [CallEntry] = []
     var loading = false
     var hasLoaded = false   // false until the first load finishes -> drives the skeleton
+    private var lastLoadedAt: Date?
 
-    func load() async {
+    // force: true bypasses the 30s TTL (pull-to-refresh). Normal tab-switch passes false so we
+    // don't re-fire N concurrent Firestore queries every time the Calls tab becomes visible.
+    func load(force: Bool = false) async {
+        if !force, hasLoaded, let last = lastLoadedAt, Date().timeIntervalSince(last) < 30 { return }
         guard let me = Auth.auth().currentUser?.uid else { return }
         await MainActor.run { loading = true }
         let database = db
@@ -67,7 +71,7 @@ final class CallsRepository {
             for await chunk in group { all.append(contentsOf: chunk) }
         }
         all.sort { $0.date > $1.date }
-        await MainActor.run { self.calls = all; self.loading = false; self.hasLoaded = true }
+        await MainActor.run { self.calls = all; self.loading = false; self.hasLoaded = true; self.lastLoadedAt = Date() }
     }
 
     // Delete one call record (the underlying call message doc).
@@ -77,13 +81,16 @@ final class CallsRepository {
         await MainActor.run { calls.removeAll { $0.id == entry.id } }
     }
 
-    // Delete several selected call records.
+    // Delete several selected call records — single batched write instead of N round-trips.
     func delete(ids: Set<String>) async {
         let targets = await MainActor.run { calls.filter { ids.contains($0.id) } }
+        let batch = db.batch()
         for c in targets {
-            try? await db.collection("conversations").document(c.cid)
-                .collection("messages").document(c.id).delete()
+            let ref = db.collection("conversations").document(c.cid)
+                .collection("messages").document(c.id)
+            batch.deleteDocument(ref)
         }
+        try? await batch.commit()
         await MainActor.run { calls.removeAll { ids.contains($0.id) } }
     }
 }

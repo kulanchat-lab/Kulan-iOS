@@ -33,8 +33,9 @@ final class ConversationsRepository {
                 // last-known chats stay visible (parity with the RN fromCache guard).
                 if snap.metadata.isFromCache && snap.documents.isEmpty { return }
 
-                var convs = snap.documents.map { Conversation(id: $0.documentID, data: $0.data()) }
-                convs.sort { $0.updatedAtMillis > $1.updatedAtMillis }
+                // No sort here — every consumer (ChatsView, SearchViews) applies its own
+                // richer comparator (pins, recency). Sorting twice was wasted CPU.
+                let convs = snap.documents.map { Conversation(id: $0.documentID, data: $0.data()) }
                 self.conversations = convs
                 self.hasLoaded = true
 

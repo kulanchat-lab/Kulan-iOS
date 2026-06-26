@@ -69,16 +69,30 @@ final class ThreadRepository {
             .addSnapshotListener { [weak self] snap, _ in
                 guard let self else { return }
                 let d = snap?.data()
+                // Typing + lastRead are hot fields (fire on every keystroke / incoming
+                // message) but never change which messages are visible — update directly,
+                // skip the O(N log N) rebuild.
                 self.otherTyping = (d?["typing"] as? [String: Any])?[other] as? Bool ?? false
-                self.iBlocked = (d?["blockedBy"] as? [String: Any])?[uid] as? Bool ?? false
-                self.myBlockedAtMillis = ((d?["blockedAt"] as? [String: Any])?[uid] as? NSNumber)?.doubleValue ?? 0
-                self.myBlockClearedAtMillis = ((d?["blockClearedAt"] as? [String: Any])?[uid] as? NSNumber)?.doubleValue ?? 0
-                self.pinnedMessageId = d?["pinnedMessageId"] as? String ?? ""
-                self.disappearSeconds = (d?["disappearSeconds"] as? NSNumber)?.intValue ?? 0
                 if let ts = (d?["lastRead"] as? [String: Any])?[other] as? Timestamp {
                     self.otherLastReadMillis = ts.dateValue().timeIntervalSince1970 * 1000
                 }
-                self.rebuild()   // re-apply the block filter when block state changes
+                // Only rebuild when a field that actually FILTERS the list changes.
+                let newBlocked   = (d?["blockedBy"]      as? [String: Any])?[uid] as? Bool ?? false
+                let newBlockedAt = ((d?["blockedAt"]      as? [String: Any])?[uid] as? NSNumber)?.doubleValue ?? 0
+                let newClearedAt = ((d?["blockClearedAt"] as? [String: Any])?[uid] as? NSNumber)?.doubleValue ?? 0
+                let newPinned    = d?["pinnedMessageId"] as? String ?? ""
+                let newDisappear = (d?["disappearSeconds"] as? NSNumber)?.intValue ?? 0
+                let needsRebuild = newBlocked   != self.iBlocked               ||
+                                   newBlockedAt != self.myBlockedAtMillis      ||
+                                   newClearedAt != self.myBlockClearedAtMillis ||
+                                   newPinned    != self.pinnedMessageId        ||
+                                   newDisappear != self.disappearSeconds
+                self.iBlocked               = newBlocked
+                self.myBlockedAtMillis      = newBlockedAt
+                self.myBlockClearedAtMillis = newClearedAt
+                self.pinnedMessageId        = newPinned
+                self.disappearSeconds       = newDisappear
+                if needsRebuild { self.rebuild() }
             }
         // The other user's presence (online / last active).
         userListener = db.collection("users").document(other)

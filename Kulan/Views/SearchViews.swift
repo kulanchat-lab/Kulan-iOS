@@ -187,6 +187,11 @@ struct ChatSearchView: View {
                 await MainActor.run { corpus = loaded; loadingCorpus = false }
             }
         }
+        .onDisappear {
+            // Cancel background work so it doesn't linger after navigating away.
+            loadTask?.cancel();   loadTask   = nil
+            handleTask?.cancel(); handleTask = nil
+        }
     }
 
     private func open(_ cid: String, _ name: String, _ photo: String?) {
@@ -260,23 +265,30 @@ enum MessageSearch {
         }
         let db = Firestore.firestore()
         var out: [SearchableMessage] = []
-        for c in convs {
-            if Task.isCancelled { break }
-            _ = await Crypto.shared.preloadKey(c.otherUid(me))   // needed before decrypt
-            guard let snap = try? await db.collection("conversations").document(c.id)
-                .collection("messages")
-                .order(by: "createdAt", descending: true)
-                .limit(to: perChatLimit)
-                .getDocuments() else { continue }
-            let name = c.name(for: me), photo = c.photoUrl(for: me)
-            for doc in snap.documents {
-                let data = doc.data()
-                let text = Crypto.shared.decrypt(data["text"] as? String ?? "", cid: c.id)
-                guard !text.isEmpty else { continue }
-                let date = (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
-                out.append(SearchableMessage(id: doc.documentID, cid: c.id, chatName: name,
-                                             photoUrl: photo, text: text, date: date))
+        // Fetch all chats CONCURRENTLY instead of sequentially — N serial round-trips
+        // become a parallel fan-out, so the search index loads much faster on big accounts.
+        await withTaskGroup(of: [SearchableMessage].self) { group in
+            for c in convs {
+                group.addTask {
+                    if Task.isCancelled { return [] }
+                    _ = await Crypto.shared.preloadKey(c.otherUid(me))
+                    guard let snap = try? await db.collection("conversations").document(c.id)
+                        .collection("messages")
+                        .order(by: "createdAt", descending: true)
+                        .limit(to: perChatLimit)
+                        .getDocuments() else { return [] }
+                    let name = c.name(for: me), photo = c.photoUrl(for: me)
+                    return snap.documents.compactMap { doc -> SearchableMessage? in
+                        let data = doc.data()
+                        let text = Crypto.shared.decrypt(data["text"] as? String ?? "", cid: c.id)
+                        guard !text.isEmpty else { return nil }
+                        let date = (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
+                        return SearchableMessage(id: doc.documentID, cid: c.id, chatName: name,
+                                                 photoUrl: photo, text: text, date: date)
+                    }
+                }
             }
+            for await chunk in group { out.append(contentsOf: chunk) }
         }
         return out
     }

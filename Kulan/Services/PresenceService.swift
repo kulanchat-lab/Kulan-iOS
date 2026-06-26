@@ -6,11 +6,11 @@ import FirebaseFirestore
 enum PresenceService {
     static func set(online: Bool) async {
         guard let uid = Auth.auth().currentUser?.uid else { return }
-        // Privacy: if last-seen sharing is off, always publish offline (never reveal activity).
+        // Privacy: if last-seen sharing is off, always publish offline AND never update
+        // lastActive (otherwise the timestamp still leaks "was just online").
         let share = UserDefaults.standard.object(forKey: "shareLastSeen") as? Bool ?? true
-        try? await Firestore.firestore().collection("users").document(uid).setData([
-            "online": share ? online : false,
-            "lastActive": FieldValue.serverTimestamp(),
-        ], merge: true)
+        var data: [String: Any] = ["online": share ? online : false]
+        if share { data["lastActive"] = FieldValue.serverTimestamp() }
+        try? await Firestore.firestore().collection("users").document(uid).setData(data, merge: true)
     }
 }
