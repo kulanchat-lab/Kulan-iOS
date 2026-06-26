@@ -153,7 +153,7 @@ enum ChatService {
 
     /// Encrypt + send a voice note. Same E2EE pipeline as photos: the m4a bytes
     /// are sealed and the ciphertext uploaded; the server never hears the audio.
-    static func sendAudio(cid: String, data: Data, duration: Double, waveform: [Int] = []) async throws {
+    static func sendAudio(cid: String, data: Data, duration: Double, waveform: [Int] = [], clientId: String? = nil) async throws {
         let (cipher, meta) = try await Crypto.shared.encryptBytes(cid, data)
         let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
         let convRef = db.collection("conversations").document(cid)
@@ -170,7 +170,7 @@ enum ChatService {
         let url = try await ref.downloadURL().absoluteString
 
         let batch = db.batch()
-        batch.setData([
+        var msg: [String: Any] = [
             "type": "audio",
             "audioUrl": url,
             "duration": duration,
@@ -179,7 +179,9 @@ enum ChatService {
             "text": "",
             "authorId": uid,
             "createdAt": FieldValue.serverTimestamp(),
-        ], forDocument: msgRef)
+        ]
+        if let clientId { msg["clientId"] = clientId }   // reconcile the optimistic bubble in place
+        batch.setData(msg, forDocument: msgRef)
         batch.updateData([
             "lastMessage": "🎤 Voice message",
             "lastSender": uid,

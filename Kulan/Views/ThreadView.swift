@@ -862,7 +862,17 @@ struct ThreadView: View {
 
     private func stopAndSendAudio() async {
         guard let (data, dur, wf) = recorder.finish() else { return }
-        try? await ChatService.sendAudio(cid: cid, data: data, duration: dur, waveform: wf)
+        // Optimistic: show the voice bubble INSTANTLY (springs in, playable from the local
+        // recording), then reconcile when the upload echoes back — no dead lag on release.
+        let clientId = UUID().uuidString
+        await MainActor.run {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                repo.addPending(Message(localAudioData: data, duration: dur, waveform: wf,
+                                        authorId: me, clientId: clientId, sendState: .sending))
+            }
+        }
+        do { try await ChatService.sendAudio(cid: cid, data: data, duration: dur, waveform: wf, clientId: clientId) }
+        catch { await MainActor.run { repo.markFailed(clientId: clientId) } }
     }
 
     private func sendCaptured(_ data: Data) async {

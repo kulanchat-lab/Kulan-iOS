@@ -61,6 +61,16 @@ struct VoiceMessageView: View {
     }
 
     private func load() async {
+        // Optimistic voice note (still uploading): play the just-recorded bytes directly.
+        if let local = message.localAudioData {
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("local-\(message.rowId).m4a")
+            try? local.write(to: tmp)
+            try? AVAudioSession.sharedInstance().setCategory(.playback)
+            try? AVAudioSession.sharedInstance().setActive(true)
+            player = try? AVAudioPlayer(contentsOf: tmp)
+            play()
+            return
+        }
         guard let urlStr = message.audioUrl, let url = URL(string: urlStr), let meta = message.enc else { return }
         loading = true
         defer { loading = false }

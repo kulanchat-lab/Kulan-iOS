@@ -48,6 +48,7 @@ struct Message: Identifiable, Equatable {
     var createdAt: Date
     var sendState: MessageSendState? = nil  // set only on local optimistic messages
     var localImageData: Data? = nil         // optimistic local photo shown before upload
+    var localAudioData: Data? = nil         // optimistic local voice note shown before upload
     var width: Double? = nil                // image pixel size -> natural aspect ratio bubble
     var height: Double? = nil
     var callerUid: String? = nil            // call record: who placed the call (viewer derives direction)
@@ -56,7 +57,7 @@ struct Message: Identifiable, Equatable {
     var edited: Bool = false                // text was edited after sending
 
     var isImage: Bool { (type == "image" && (imageUrl?.isEmpty == false)) || localImageData != nil }
-    var isAudio: Bool { type == "audio" && (audioUrl?.isEmpty == false) }
+    var isAudio: Bool { (type == "audio" && (audioUrl?.isEmpty == false)) || localAudioData != nil }
     var isCall: Bool { type == "call" }
 
     /// Stable list identity: an optimistic message and its server echo share the
@@ -76,6 +77,22 @@ struct Message: Identifiable, Equatable {
         self.localImageData = localImageData
         self.width = width
         self.height = height
+    }
+
+    /// Local optimistic VOICE note — shows the bubble (waveform + duration, playable from
+    /// the just-recorded bytes) instantly, before the encrypt + upload finishes.
+    init(localAudioData: Data, duration: Double, waveform: [Int], authorId: String, clientId: String, sendState: MessageSendState) {
+        self.id = clientId
+        self.authorId = authorId
+        self.text = ""
+        self.type = "audio"
+        self.clientId = clientId
+        self.reactions = [:]
+        self.createdAt = Date()
+        self.sendState = sendState
+        self.localAudioData = localAudioData
+        self.duration = duration
+        self.waveform = waveform
     }
 
     /// Local optimistic message shown instantly before the server confirms it.
