@@ -128,6 +128,9 @@ struct CallView: View {
         .onTapGesture { if call.isVideo { revealControls() } }                       // tap to reveal chrome
         .onChange(of: call.state) { _, s in if s == .active, call.isVideo { revealControls() } }
         .onAppear { if call.isVideo { scheduleHide() } }
+        .animation(.easeInOut(duration: 0.3), value: call.isVideo)   // smooth audio<->video layout swap
+        .animation(.easeInOut(duration: 0.25), value: call.state)    // smooth state transitions
+        .animation(.easeInOut(duration: 0.2), value: call.cameraOn)  // PiP fade
         // Runs alongside the control buttons, so taps still work.
         .simultaneousGesture(
             DragGesture(minimumDistance: 14)

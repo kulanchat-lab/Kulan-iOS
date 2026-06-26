@@ -166,6 +166,7 @@ struct StoryCameraView: View {
                     zoomButton(3, "3")
                 }
                 .padding(5).background(.black.opacity(0.4), in: Capsule())
+                .animation(.easeInOut(duration: 0.2), value: zoom)   // smooth zoom-level selection
 
                 // Shutter
                 Button { cam.capture() } label: {

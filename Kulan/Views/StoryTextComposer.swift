@@ -31,6 +31,7 @@ struct StoryTextComposer: View {
     var body: some View {
         ZStack {
             gradient(bgIndex).ignoresSafeArea()
+                .animation(.easeInOut(duration: 0.35), value: bgIndex)   // smooth background cycle
 
             ZStack {
                 if text.isEmpty {
