@@ -397,7 +397,7 @@ struct ThreadView: View {
             .tint(.primary)
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Button { showVideoSoon = true } label: {
+            Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl, video: true) } label: {
                 Image(systemName: "video.fill")
             }
             .tint(.primary)

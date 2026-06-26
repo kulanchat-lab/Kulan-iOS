@@ -45,7 +45,7 @@ struct CallView: View {
 
     var body: some View {
         ZStack {
-            background
+            if call.isVideo { videoLayer } else { background }
             VStack(spacing: 0) {
                 // Header (inside the safe area, not floating): a top-left back/minimize
                 // chevron. Tapping it minimizes the call screen — it never ends the call.
@@ -68,9 +68,11 @@ struct CallView: View {
 
                 VStack(spacing: 14) {
                     Spacer().frame(height: 24)
-                    AvatarView(name: call.otherName, photoUrl: call.otherPhotoUrl, size: 132)
-                        .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
-                        .shadow(color: .black.opacity(0.4), radius: 24, y: 8)
+                    if !call.isVideo {
+                        AvatarView(name: call.otherName, photoUrl: call.otherPhotoUrl, size: 132)
+                            .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
+                            .shadow(color: .black.opacity(0.4), radius: 24, y: 8)
+                    }
                     Text(call.otherName)
                         .font(.system(size: 30, weight: .bold)).foregroundStyle(.white)
                     Text(statusText)
@@ -123,9 +125,34 @@ struct CallView: View {
         .ignoresSafeArea()
     }
 
+    // Video mode: remote feed full-screen, local camera as a draggable-corner PiP.
+    private var videoLayer: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let remote = call.remoteVideoTrack {
+                VideoRendererView(track: remote).ignoresSafeArea()
+            } else {
+                background   // until the remote video arrives, show the blurred avatar
+            }
+            if call.cameraOn, let local = call.localVideoTrack {
+                VideoRendererView(track: local, mirror: call.usingFrontCamera)
+                    .frame(width: 112, height: 152)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.3), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.3), radius: 8, y: 3)
+                    .padding(.top, 56).padding(.trailing, 14)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            }
+        }
+    }
+
     private var controls: some View {
-        HStack(spacing: 26) {
+        HStack(spacing: call.isVideo ? 16 : 26) {
             controlButton(call.isMuted ? "mic.slash.fill" : "mic.fill", on: call.isMuted) { call.toggleMute() }
+            if call.isVideo {
+                controlButton(call.cameraOn ? "video.fill" : "video.slash.fill", on: !call.cameraOn) { call.toggleCamera() }
+                controlButton("arrow.triangle.2.circlepath.camera.fill", on: false) { call.switchCamera() }
+            }
             controlButton(call.isSpeaker ? "speaker.wave.2.fill" : "speaker.fill", on: call.isSpeaker) { call.toggleSpeaker() }
             Button {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()

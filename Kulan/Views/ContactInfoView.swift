@@ -163,7 +163,7 @@ struct ContactInfoView: View {
             if source == .calls {
                 actionTile("message", "message.fill") { openChat = true }
             }
-            actionTile("video", "video.fill") { showVideoSoon = true }
+            actionTile("video", "video.fill") { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl, video: true) }
             actionTile("voice", "phone.fill") { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl) }
             // Native menu (pops up) instead of a custom action sheet.
             Menu {
