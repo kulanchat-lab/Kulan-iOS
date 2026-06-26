@@ -398,6 +398,8 @@ struct AboutView: View {
     private var appVersion: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
     }
+    @State private var storageText = "Calculating…"
+    @State private var clearing = false
     var body: some View {
         List {
             Section {
@@ -405,6 +407,18 @@ struct AboutView: View {
                 Label("End-to-end encrypted", systemImage: "lock.fill")
             } footer: {
                 Text("Kulan — a Somali messenger. Made for Somalia.")
+            }
+            Section {
+                LabeledContent("Cached media", value: storageText)
+                Button {
+                    clearing = true
+                    Task { await clearCache(); storageText = await computeStorage(); clearing = false }
+                } label: {
+                    HStack { Label("Clear Cache", systemImage: "trash"); Spacer(); if clearing { ProgressView() } }
+                }
+                .disabled(clearing)
+            } footer: {
+                Text("Frees photos and voice notes downloaded to this device. Your messages are never deleted.")
             }
             Section {
                 Link(destination: URL(string: "https://kulan-2ef85.web.app/privacy.html")!) {
@@ -422,6 +436,33 @@ struct AboutView: View {
         }
         .navigationTitle("Help & About")
         .navigationBarTitleDisplayMode(.inline)
+        .task { storageText = await computeStorage() }
+    }
+
+    // Measure downloaded media (temp files + URL cache) off the main thread.
+    private func computeStorage() async -> String {
+        await Task.detached(priority: .utility) {
+            let fm = FileManager.default
+            var total = Int64(URLCache.shared.currentDiskUsage)
+            if let en = fm.enumerator(at: fm.temporaryDirectory, includingPropertiesForKeys: [.fileSizeKey]) {
+                for case let url as URL in en {
+                    total += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+                }
+            }
+            let f = ByteCountFormatter(); f.allowedUnits = [.useMB, .useKB]; f.countStyle = .file
+            return f.string(fromByteCount: total)
+        }.value
+    }
+
+    // Remove cached/downloaded media only — never touches messages or keys.
+    private func clearCache() async {
+        await Task.detached(priority: .utility) {
+            let fm = FileManager.default
+            if let items = try? fm.contentsOfDirectory(at: fm.temporaryDirectory, includingPropertiesForKeys: nil) {
+                for url in items { try? fm.removeItem(at: url) }
+            }
+            URLCache.shared.removeAllCachedResponses()
+        }.value
     }
 }
 
