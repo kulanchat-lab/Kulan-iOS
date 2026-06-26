@@ -235,6 +235,7 @@ private struct MessageHitRow: View {
                     Spacer(minLength: 8)
                     Text(hit.date.formatted(date: .abbreviated, time: .omitted))
                         .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).fixedSize()   // never wrap -> row can't grow vertically
                 }
                 Text(hit.text).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(2)
             }
@@ -369,7 +370,7 @@ struct SettingsSearchView: View {
     private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
 
     private struct Entry: Identifiable {
-        let id = UUID()
+        var id: String { title }   // stable identity (was UUID() -> new id each render = List flicker)
         let title: String
         let icon: String
         let keywords: String

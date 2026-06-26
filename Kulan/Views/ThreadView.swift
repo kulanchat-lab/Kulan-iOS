@@ -195,6 +195,9 @@ struct ThreadView: View {
             repo.stop()
             AppRouter.shared.activeChatId = nil
             Task { await ChatService.setTyping(cid, false) }
+            // Don't leave a half-finished recording running when you leave the chat.
+            if recorder.isRecording { recorder.cancel() }
+            recordLocked = false; recordDrag = .zero; holdStarted = false
         }
         .onChange(of: photoItem) { _, item in Task { await sendPicked(item) } }
     }
@@ -345,7 +348,7 @@ struct ThreadView: View {
                         isHighlighted: msg.id == highlightId,
                         isFirstInCluster: isFirstInCluster(at: index),
                         isLastInCluster: isLastInCluster(at: index),
-                        otherLastRead: repo.otherLastReadMillis
+                        otherLastRead: repo.iBlocked ? 0 : repo.otherLastReadMillis   // don't show read ticks to a blocked user
                     )
                     .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
                     .id(msg.id)
