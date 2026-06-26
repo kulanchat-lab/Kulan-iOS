@@ -473,6 +473,7 @@ struct StoryComposeSheet: View {
     @State private var data: Data?
     @State private var posting = false
     @State private var postError = false
+    @State private var postErrorMsg = ""   // surface the REAL failure (rules vs network)
     @State private var textMode = false
     @State private var caption = ""
     @State private var expiryHours: Double = 24
@@ -609,7 +610,8 @@ struct StoryComposeSheet: View {
         .alert("Couldn't share", isPresented: $postError) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Your status didn't upload. Check your connection and try again.")
+            Text(postErrorMsg.isEmpty ? "Your status didn't upload. Check your connection and try again."
+                                      : postErrorMsg)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             if let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
@@ -640,7 +642,9 @@ struct StoryComposeSheet: View {
             dismiss()
         } catch {
             posting = false
+            postErrorMsg = error.localizedDescription
             postError = true
+            print("[Story] upload failed: \(error)")
         }
     }
 

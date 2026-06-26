@@ -681,7 +681,9 @@ struct ThreadView: View {
     private var fieldFill: Color { dark ? Color(hex: 0x2A2A2E) : Color(hex: 0xEEEEF2) }
 
     // True while the finger is held down recording (not yet locked).
-    private var recordingHeld: Bool { recorder.isRecording && !recordLocked }
+    // Driven by holdStarted (set on touch-down) NOT recorder.isRecording, so the recording
+    // UI appears the instant you press — no waiting for the audio session to warm up.
+    private var recordingHeld: Bool { holdStarted && !recordLocked }
     // Live finger translation, clamped to up/left (the two meaningful directions).
     private var clampedDrag: CGSize {
         CGSize(width: max(-90, min(0, recordDrag.width)),
@@ -806,7 +808,7 @@ struct ThreadView: View {
             // Fade the hint as the finger slides toward the cancel threshold.
             .opacity(1.0 - min(1.0, Double(-clampedDrag.width) / 90.0) * 0.6)
         }
-        .padding(.horizontal, 14).padding(.vertical, 11)
+        .padding(.horizontal, 14).frame(height: 40)   // strict 40px during recording — no vertical distortion
     }
 
     // The hold-to-record mic: grows + tints while held, follows the finger, shows a lock
@@ -1081,7 +1083,7 @@ struct MessageBubble: View {
             VStack(alignment: isMe ? .trailing : .leading, spacing: 3) {
                 content
                     .scaleEffect(pressing ? 0.96 : 1.0)   // native-style progressive press feedback
-                    .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 40) {
+                    .onLongPressGesture(minimumDuration: 0.18, maximumDistance: 40) {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         onLongPress(message)
                     } onPressingChanged: { p in

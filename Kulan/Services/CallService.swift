@@ -24,6 +24,10 @@ final class CallService: NSObject {
     var state: State = .idle {
         didSet {
             if state == .active && connectedDate == nil { connectedDate = Date() }
+            if state == .active {
+                if isVideo { isSpeaker = true }   // video calls default to speakerphone (like FaceTime)
+                try? AVAudioSession.sharedInstance().overrideOutputAudioPort(isSpeaker ? .speaker : .none)
+            }
             if state == .idle {
                 connectedDate = nil; isMuted = false; isSpeaker = false
                 calleeRinging = false; recordWritten = false; minimized = false
