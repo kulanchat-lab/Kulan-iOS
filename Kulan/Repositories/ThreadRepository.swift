@@ -26,7 +26,8 @@ final class ThreadRepository {
     private var byId: [String: Message] = [:]
     private var rawReactions: [String: [String: String]] = [:]
     private var oldestDoc: DocumentSnapshot?   // cursor for paging older
-    private var didInitialLoad = false
+    private var lastDocs: [QueryDocumentSnapshot] = []   // last window, to re-decrypt once the key loads
+    private(set) var didInitialLoad = false
 
     var otherTyping = false
     var otherOnline = false
@@ -90,20 +91,32 @@ final class ThreadRepository {
         expiryTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             self?.sweepExpired()
         }
+        // Attach the message listener IMMEDIATELY — the thread must paint without waiting
+        // on key fetches. (Bug fixed: previously this listener was created only AFTER
+        // awaiting ensureReady() + preloadKey(), so a slow key fetch — common when opening
+        // a NEW chat — left the screen stuck on a loading spinner for many seconds.)
+        // Live listener over the most-recent page only (bounds first paint, memory, and
+        // Firestore reads regardless of how long the history is).
+        listener = db.collection("conversations").document(cid).collection("messages")
+            .order(by: "createdAt", descending: true)
+            .limit(to: pageSize)
+            .addSnapshotListener { [weak self] snap, _ in
+                guard let self, let snap else { return }
+                // Don't blank an open thread on an empty offline snapshot.
+                if snap.metadata.isFromCache && snap.documents.isEmpty && !self.messages.isEmpty { return }
+                self.applyLiveSnapshot(snap.documents)
+            }
+        // Load keys in the BACKGROUND (in parallel). Warming the recipient's key here also
+        // means the first send is instant instead of blocking on the fetch. Once the key
+        // arrives, re-decrypt the current window (existing chats may briefly show "…").
         Task {
             try? await Crypto.shared.ensureReady()
             _ = await Crypto.shared.preloadKey(other)
-            // Live listener over the most-recent page only (bounds first paint, memory,
-            // and Firestore reads regardless of how long the history is).
-            listener = db.collection("conversations").document(cid).collection("messages")
-                .order(by: "createdAt", descending: true)
-                .limit(to: pageSize)
-                .addSnapshotListener { [weak self] snap, _ in
-                    guard let self, let snap else { return }
-                    // Don't blank an open thread on an empty offline snapshot.
-                    if snap.metadata.isFromCache && snap.documents.isEmpty && !self.messages.isEmpty { return }
-                    self.applyLiveSnapshot(snap.documents)
-                }
+            await MainActor.run {
+                guard !self.lastDocs.isEmpty else { return }   // new chat: nothing to re-decrypt
+                self.byId.removeAll(); self.rawReactions.removeAll()
+                self.applyLiveSnapshot(self.lastDocs)
+            }
         }
     }
 
@@ -122,6 +135,7 @@ final class ThreadRepository {
     // Apply the live (recent-window) snapshot: refresh/insert the window's messages,
     // reconcile deletes within the window's time range, keep paged-older messages.
     private func applyLiveSnapshot(_ docs: [QueryDocumentSnapshot]) {
+        lastDocs = docs   // remember the window so we can re-decrypt once the key arrives
         var windowIds = Set<String>()
         for doc in docs { buildCached(doc); windowIds.insert(doc.documentID) }
         // A doc missing from the window but newer than its oldest edge was deleted.

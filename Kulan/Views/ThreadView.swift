@@ -287,7 +287,8 @@ struct ThreadView: View {
     private func messageList(_ proxy: ScrollViewProxy) -> some View {
         LazyVStack(spacing: 0) {
             // Scroll-to-top spinner: pages in older history, then restores the anchor.
-            if repo.canLoadOlder {
+            // Only after the first load — never as a blank-screen "loading" before it.
+            if repo.canLoadOlder && repo.didInitialLoad {
                 ProgressView()
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
