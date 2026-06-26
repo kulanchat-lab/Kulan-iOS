@@ -118,9 +118,9 @@ struct AvatarView: View {
 
     private func load() async {
         guard hasPhoto, let s = photoUrl, let url = URL(string: s) else { image = nil; return }
-        if let cached = DecryptedImageCache.shared.object(forKey: s as NSString) { image = cached; return }
+        if let cached = await DiskImageCache.shared.image(for: s) { image = cached; return }
         if let (data, _) = try? await URLSession.shared.data(from: url), let ui = UIImage(data: data) {
-            DecryptedImageCache.shared.setObject(ui, forKey: s as NSString)
+            DiskImageCache.shared.store(ui, data: data, for: s)
             image = ui
         }
     }
