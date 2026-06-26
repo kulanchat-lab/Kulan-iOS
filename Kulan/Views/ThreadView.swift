@@ -95,7 +95,7 @@ struct ThreadView: View {
                         Image(systemName: "chevron.down").font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(.primary)
                             .frame(width: 40, height: 40)
-                            .liquidGlass(Circle())
+                            .liquidGlass(Circle(), interactive: true)
                             .overlay(alignment: .top) {
                                 if newWhileAway > 0 {
                                     Text("\(newWhileAway)").font(.system(size: 11, weight: .bold))
@@ -255,35 +255,31 @@ struct ThreadView: View {
             // FLOATING glass card + separate glass pin button (like the header pills), not a
             // flat full-width bar. Grouped in a native GlassEffectContainer so the two glass
             // shapes render as one cohesive liquid-glass system.
-            composerGlassContainer {
-                HStack(spacing: 10) {
-                    HStack(spacing: 10) {
-                        if let m = msg, m.isImage, let url = m.imageUrl {
-                            SecureImageView(imageUrl: url, enc: m.enc, cid: cid)
-                                .frame(width: 32, height: 32)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        }
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(author).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
-                            Text(msg.map { $0.isImage ? "Photo" : ($0.isAudio ? "🎤 Voice message" : $0.text) } ?? "Tap to view")
-                                .font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(height: 48)
-                    .liquidGlass(RoundedRectangle(cornerRadius: 22, style: .continuous))   // floating glass card
-                    .contentShape(Rectangle())
-                    .onTapGesture { if let id = msg?.id { withAnimation { proxy.scrollTo(id, anchor: .center) } } }
-
-                    Button { Task { await ChatService.setPinnedMessage(cid, nil) } } label: {
-                        Image(systemName: "pin.fill").font(.system(size: 17)).foregroundStyle(.primary)
-                            .frame(width: 48, height: 48)
-                            .liquidGlass(Circle())                                          // floating glass pin button
-                    }
-                    .buttonStyle(.plain)
+            // ONE floating glass bar — the unpin button lives INSIDE it (not a separate shape).
+            HStack(spacing: 10) {
+                if let m = msg, m.isImage, let url = m.imageUrl {
+                    SecureImageView(imageUrl: url, enc: m.enc, cid: cid)
+                        .frame(width: 32, height: 32)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(author).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
+                    Text(msg.map { $0.isImage ? "Photo" : ($0.isAudio ? "🎤 Voice message" : $0.text) } ?? "Tap to view")
+                        .font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Button { Task { await ChatService.setPinnedMessage(cid, nil) } } label: {
+                    Image(systemName: "pin.fill").font(.system(size: 16)).foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
+            .padding(.leading, 14).padding(.trailing, 8)
+            .frame(height: 48)
+            .liquidGlass(RoundedRectangle(cornerRadius: 24, style: .continuous), interactive: true)   // one interactive glass bar
+            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .onTapGesture { if let id = msg?.id { withAnimation { proxy.scrollTo(id, anchor: .center) } } }
             .padding(.horizontal, 12)
             .padding(.top, 6).padding(.bottom, 2)
             .transition(.move(edge: .top).combined(with: .opacity))
@@ -680,7 +676,7 @@ struct ThreadView: View {
                         .font(.system(size: 20, weight: .regular))
                         .foregroundStyle(.primary)
                         .frame(width: 40, height: 40)
-                        .liquidGlass(Circle())
+                        .liquidGlass(Circle(), interactive: true)
                 }
                 .tint(.primary)
                 .transition(.scale.combined(with: .opacity))
@@ -700,7 +696,7 @@ struct ThreadView: View {
             }
             .frame(minHeight: 40)
             // Liquid-glass field (iMessage on iOS 26 look), soft edges, no hard border.
-            .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous), interactive: true)
         }
         }
         .animation(.easeInOut(duration: 0.2), value: hasText)
@@ -803,7 +799,7 @@ struct ThreadView: View {
         .font(.system(size: 13, weight: .semibold))
         .foregroundStyle(progress > 0.55 ? Theme.accent(dark) : .secondary)
         .padding(.vertical, 10).padding(.horizontal, 9)
-        .liquidGlass(Capsule())
+        .liquidGlass(Capsule(), interactive: true)
         .offset(y: -84 - clampedDrag.height * 0.3)
         .opacity(0.6 + progress * 0.4)
         .transition(.opacity)
@@ -844,7 +840,7 @@ struct ThreadView: View {
         HStack(spacing: 12) {
             Button { cancelRecording() } label: {
                 Image(systemName: "trash.fill").font(.system(size: 18)).foregroundStyle(.red)
-                    .frame(width: 40, height: 40).liquidGlass(Circle())
+                    .frame(width: 40, height: 40).liquidGlass(Circle(), interactive: true)
             }
             HStack(spacing: 8) {
                 Image(systemName: "lock.fill").font(.system(size: 12)).foregroundStyle(.secondary)
@@ -852,7 +848,7 @@ struct ThreadView: View {
                 RecordWaveform(recorder: recorder, color: Theme.accent(dark))
             }
             .padding(.horizontal, 14).frame(minHeight: 40)
-            .liquidGlass(Capsule())
+            .liquidGlass(Capsule(), interactive: true)
             Button { sendRecording() } label: {
                 Image(systemName: "arrow.up.circle.fill").font(.system(size: 38))
                     .foregroundStyle(Theme.accent(dark))

@@ -114,7 +114,12 @@ final class CallService: NSObject {
         connection.add(track, streamIds: ["stream0"])
         videoCapturer = capturer
         localVideoTrack = track
-        startCapture(front: usingFrontCamera)
+        // Explicitly ensure camera access, THEN start capture (off the main thread). Without
+        // this the capturer can silently never produce frames -> black video on both ends.
+        AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+            guard granted, let self else { return }
+            DispatchQueue.global(qos: .userInitiated).async { self.startCapture(front: self.usingFrontCamera) }
+        }
     }
 
     // Pick the camera + a ~720p format and start feeding frames into the local track.
@@ -386,12 +391,15 @@ final class CallService: NSObject {
             guard let self else { return }
             guard granted else { self.hangUp(); return }
             let ref = self.db.collection("calls").document(id)
-            self.pc = self.makePeerConnection()
             ref.getDocument(source: .server) { [weak self] snap, _ in
                 guard let self else { return }
                 guard let d = snap?.data(),
-                      let offer = d["offer"] as? [String: String], let sdp = offer["sdp"],
-                      let pc = self.pc else { self.hangUp(); return }   // bail cleanly, don't get stuck
+                      let offer = d["offer"] as? [String: String], let sdp = offer["sdp"] else { self.hangUp(); return }
+                // CRITICAL: learn whether this is a video call from the offer BEFORE building the
+                // peer connection, so the local video track is actually added on the answering side.
+                self.isVideo = (d["type"] as? String == "video")
+                self.pc = self.makePeerConnection()
+                guard let pc = self.pc else { self.hangUp(); return }
                 let remote = RTCSessionDescription(type: .offer, sdp: sdp)
                 pc.setRemoteDescription(remote) { _ in
                     let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
