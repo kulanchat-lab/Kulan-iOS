@@ -184,6 +184,7 @@ struct StoryViewer: View {
     @FocusState private var replyFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
     @State private var paused = false
+    @State private var dragDown: CGFloat = 0   // interactive swipe-down-to-dismiss
     @State private var viewed = Set<String>()
     @State private var showSent = false
     @State private var toastText = "Sent"
@@ -374,16 +375,34 @@ struct StoryViewer: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: showSent)
+            // Interactive swipe-down-to-dismiss: the card follows the finger, shrinks +
+            // rounds + fades, then dismisses past a threshold or springs back.
+            .scaleEffect(1 - min(dragDown, 400) / 2400, anchor: .center)
+            .offset(y: dragDown)
+            .cornerRadius(dragDown > 0 ? 24 : 0)
+            .opacity(1 - min(dragDown, 400) / 800)
         }
+        .background(Color.black.ignoresSafeArea())   // pinned backdrop behind the sliding card
         .ignoresSafeArea()
         .onReceive(ticker) { _ in tick() }
         .task(id: index) {
             guard !anonymous, let s = story, !viewed.contains(s.id) else { return }
             viewed.insert(s.id); await StoriesService.shared.markViewed(s)
         }
-        .gesture(DragGesture(minimumDistance: 30).onEnded { v in
-            if v.translation.height > 80 { onClose() }
-        })
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20)
+                .onChanged { v in
+                    if v.translation.height > 0 { dragDown = v.translation.height; paused = true }
+                }
+                .onEnded { v in
+                    paused = false
+                    if v.translation.height > 120 || v.predictedEndTranslation.height > 320 {
+                        onClose()
+                    } else {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) { dragDown = 0 }
+                    }
+                }
+        )
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             if let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
                 keyboardHeight = max(0, UIScreen.main.bounds.height - f.origin.y)
