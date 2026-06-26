@@ -7,8 +7,10 @@ struct RootView: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("appLockEnabled") private var lockEnabled = false
+    @AppStorage("appLockDelay") private var lockDelay = 0   // grace period (seconds) before re-locking
     @AppStorage("screenSecurity") private var screenSecurity = false
     @State private var locked = false
+    @State private var backgroundedAt: Date?
 
     var body: some View {
         ZStack {
@@ -40,8 +42,19 @@ struct RootView: View {
         .task { await route() }
         .onAppear { if lockEnabled { locked = true; authenticate() } }
         .onChange(of: scenePhase) { _, new in
-            if new == .background, lockEnabled { locked = true }   // lock when leaving
-            if new == .active, locked { authenticate() }           // prompt on return
+            if new == .background {
+                backgroundedAt = Date()
+                if lockEnabled, lockDelay == 0 { locked = true }   // immediate lock
+            }
+            if new == .active {
+                // Re-lock only if Kulan was in the background longer than the grace period.
+                if lockEnabled, !locked, let t = backgroundedAt,
+                   lockDelay > 0, Date().timeIntervalSince(t) >= Double(lockDelay) {
+                    locked = true
+                }
+                backgroundedAt = nil
+                if locked { authenticate() }
+            }
         }
     }
 

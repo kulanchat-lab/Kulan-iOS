@@ -348,6 +348,7 @@ struct PrivacySettingsView: View {
     private var me: String { AuthService.shared.uid ?? "" }
     private var blockedCount: Int { repo.conversations.filter { $0.blockedBy[me] == true }.count }
     @AppStorage("appLockEnabled") private var appLock = false
+    @AppStorage("appLockDelay") private var lockDelay = 0   // grace period (seconds) before re-locking
     @AppStorage("screenSecurity") private var screenSecurity = false
     @AppStorage("readReceipts") private var readReceipts = true
     @AppStorage("typingIndicators") private var typingIndicators = true
@@ -378,9 +379,17 @@ struct PrivacySettingsView: View {
 
             Section {
                 Toggle(isOn: $appLock) { Label("App Lock", systemImage: "faceid") }.tint(.green)
+                if appLock {
+                    Picker(selection: $lockDelay) {
+                        Text("Immediately").tag(0)
+                        Text("After 1 minute").tag(60)
+                        Text("After 5 minutes").tag(300)
+                        Text("After 1 hour").tag(3600)
+                    } label: { Label("Auto-Lock", systemImage: "clock.arrow.circlepath") }
+                }
                 Toggle(isOn: $screenSecurity) { Label("Screen Security", systemImage: "eye.slash") }.tint(.green)
             } footer: {
-                Text("App Lock requires Face ID / passcode to open Kulan. Screen Security hides the app preview in the multitasking switcher.")
+                Text("App Lock requires Face ID / passcode to open Kulan. Auto-Lock sets how long Kulan can be in the background before it locks again. Screen Security hides the app preview in the multitasking switcher.")
             }
 
             Section {
