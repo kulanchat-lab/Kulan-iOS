@@ -282,7 +282,7 @@ final class CallService: NSObject {
     // MARK: - Outgoing
 
     func startCall(to uid: String, name: String, photo: String? = nil, video: Bool = false) {
-        guard state == .idle, !uid.isEmpty else { return }
+        guard state == .idle, !uid.isEmpty, !me.isEmpty else { return }   // never start with an empty caller id
         isVideo = video
         isCaller = true
         otherUid = uid
@@ -313,7 +313,9 @@ final class CallService: NSObject {
                         "status": "ringing",
                         "offer": ["sdp": sdp.sdp, "type": "offer"],
                         "createdAt": FieldValue.serverTimestamp(),
-                    ])
+                    ]) { [weak self] err in
+                        if err != nil { self?.hangUp() }   // write failed -> don't leave the caller ringing into the void
+                    }
                 }
             }
             self.observeCallDoc(ref)
