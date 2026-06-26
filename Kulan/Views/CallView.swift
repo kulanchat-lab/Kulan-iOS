@@ -8,6 +8,7 @@ import UIKit
 struct CallView: View {
     private var call = CallService.shared
     @State private var now = Date()
+    @State private var dragY: CGFloat = 0   // live finger offset for swipe-down-to-minimize
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private var statusText: String {
@@ -54,8 +55,12 @@ struct CallView: View {
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(.white)
                             .frame(width: 40, height: 40)
-                            .background(.ultraThinMaterial, in: Circle())   // always visible on any bg
+                            // Solid contrasting fill (not translucent material) so the arrow
+                            // is reliably visible on ANY backdrop — bright photo or dark gradient.
+                            .background(Color.black.opacity(0.4), in: Circle())
+                            .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 1))
                     }
+                    .buttonStyle(CallControlStyle())
                     Spacer()
                 }
                 .padding(.horizontal, 6)
@@ -77,8 +82,22 @@ struct CallView: View {
                 }
                 .padding(.horizontal)
             }
+            .offset(y: dragY)                              // follow the finger down
+            .opacity(1 - min(0.35, dragY / 700))           // gentle fade as it slides away
         }
         .onReceive(ticker) { now = $0 }
+        // Swipe down anywhere to minimize (fullScreenCover blocks the native swipe, so we
+        // add our own) — runs alongside the control buttons, so taps still work.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 14)
+                .onChanged { v in dragY = max(0, v.translation.height) }
+                .onEnded { v in
+                    if v.translation.height > 120 {
+                        withAnimation(.easeInOut(duration: 0.25)) { call.minimized = true }
+                    }
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragY = 0 }
+                }
+        )
     }
 
     private var background: some View {
