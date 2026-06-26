@@ -165,7 +165,7 @@ struct StoryCameraView: View {
                     zoomButton(1, "1×")
                     zoomButton(3, "3")
                 }
-                .padding(5).background(.black.opacity(0.4), in: Capsule())
+                .padding(5).background(.ultraThinMaterial, in: Capsule())
                 .animation(.easeInOut(duration: 0.2), value: zoom)   // smooth zoom-level selection
 
                 // Shutter
@@ -184,7 +184,7 @@ struct StoryCameraView: View {
                     Spacer()
                     Button { onTextMode() } label: {
                         Text("Aa").font(.system(size: 18, weight: .heavy)).foregroundStyle(.white)
-                            .frame(width: 42, height: 42).background(.black.opacity(0.4), in: Circle())
+                            .frame(width: 44, height: 44).background(.ultraThinMaterial, in: Circle())
                     }
                     Spacer()
                     Button { cam.flip() } label: { circleIcon("arrow.triangle.2.circlepath") }
@@ -211,8 +211,8 @@ struct StoryCameraView: View {
         Image(systemName: name)
             .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(.white)
-            .frame(width: 42, height: 42)
-            .background(.black.opacity(0.4), in: Circle())
+            .frame(width: 44, height: 44)
+            .background(.ultraThinMaterial, in: Circle())
     }
 
     private func zoomButton(_ level: CGFloat, _ label: String) -> some View {
@@ -224,7 +224,7 @@ struct StoryCameraView: View {
                 .font(.system(size: zoom == level ? 15 : 12, weight: .semibold))
                 .foregroundStyle(zoom == level ? .yellow : .white)
                 .frame(width: zoom == level ? 38 : 30, height: zoom == level ? 38 : 30)
-                .background(.black.opacity(0.5), in: Circle())
+                .background(zoom == level ? AnyShapeStyle(.thinMaterial) : AnyShapeStyle(.ultraThinMaterial), in: Circle())
         }
         .buttonStyle(.plain)
     }

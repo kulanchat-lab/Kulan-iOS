@@ -106,6 +106,6 @@ struct StoryTextComposer: View {
             .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: 44, height: 44)
-            .background(.black.opacity(0.3), in: Circle())
+            .background(.ultraThinMaterial, in: Circle())   // native system material
     }
 }

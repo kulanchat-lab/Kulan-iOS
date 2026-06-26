@@ -539,16 +539,14 @@ struct StoryComposeSheet: View {
                                     .textFieldStyle(.plain)
                                     .lineLimit(1...3)
                                     .padding(.horizontal, 18).padding(.vertical, 12)
-                                    .background(.black.opacity(0.4), in: Capsule())
-                                    .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 1))
+                                    .background(.ultraThinMaterial, in: Capsule())   // native system material
 
                                 Button { cycleExpiry() } label: {
                                     Text(expiryLabel)
                                         .font(.system(size: 13, weight: .bold))
                                         .foregroundStyle(.white)
                                         .frame(width: 46, height: 46)
-                                        .background(.black.opacity(0.4), in: Circle())
-                                        .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
+                                        .background(.ultraThinMaterial, in: Circle())   // native system material
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -563,8 +561,7 @@ struct StoryComposeSheet: View {
                                 }
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 18).padding(.vertical, 12)
-                                .background(.white.opacity(0.18), in: Capsule())
-                                .overlay(Capsule().stroke(.white.opacity(0.35), lineWidth: 1))
+                                .background(.ultraThinMaterial, in: Capsule())   // native system material
 
                                 Spacer()
 
@@ -627,8 +624,8 @@ struct StoryComposeSheet: View {
         Image(systemName: name)
             .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(.white)
-            .frame(width: 44, height: 44)
-            .background(.black.opacity(0.45), in: Circle())
+            .frame(width: 44, height: 44)   // HIG min touch target
+            .background(.ultraThinMaterial, in: Circle())   // native system material
     }
 
     private func post() async {
