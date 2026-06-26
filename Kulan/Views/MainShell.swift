@@ -123,6 +123,7 @@ struct CallsView: View {
     @State private var showNew = false
     @State private var selecting = false
     @State private var selection = Set<String>()
+    @State private var showDeleteCalls = false
 
     private var shown: [CallEntry] {
         filter == 1 ? repo.calls.filter { $0.missed } : repo.calls
@@ -176,12 +177,11 @@ struct CallsView: View {
                     ToolbarItem(placement: .principal) {
                         Text(selection.isEmpty ? "Select Calls" : "\(selection.count) Selected").font(.headline)
                     }
-                    ToolbarItemGroup(placement: .bottomBar) {
-                        Spacer()
-                        Button(role: .destructive) { deleteSelectedCalls() } label: {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(role: .destructive) { showDeleteCalls = true } label: {
                             Image(systemName: "trash")
                         }
-                        .disabled(selection.isEmpty)
+                        .disabled(selection.isEmpty).tint(.red)
                     }
                 } else {
                     if !repo.calls.isEmpty {
@@ -204,6 +204,11 @@ struct CallsView: View {
             }
             .task { await repo.load() }
             .refreshable { await repo.load() }
+            .confirmationDialog("Delete \(selection.count) call\(selection.count == 1 ? "" : "s")?",
+                                isPresented: $showDeleteCalls, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) { deleteSelectedCalls() }
+                Button("Cancel", role: .cancel) {}
+            }
             // Tapping a row pushes the contact's profile (back chevron, native). Calling
             // back happens only via the round phone button on the row.
             .navigationDestination(item: $profileTarget) { c in

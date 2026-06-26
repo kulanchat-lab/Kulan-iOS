@@ -628,20 +628,45 @@ struct ThreadView: View {
 
     // Active-reply preview row, shown inside the input capsule above the text field.
     private func replyPreviewRow(_ r: Message) -> some View {
-        HStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 1.5).fill(Color.primary.opacity(0.6)).frame(width: 3, height: 28)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Reply to \(r.authorId == me ? "yourself" : title)")
-                    .font(.caption.weight(.semibold)).foregroundStyle(.primary)
-                Text(r.isImage ? "📷 Photo" : (r.isAudio ? "🎤 Voice message" : r.text))
-                    .font(.caption).lineLimit(1).foregroundStyle(.secondary)
+        HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 1.5).fill(Color.accentColor).frame(width: 3, height: 34)
+            // Real image thumbnail when replying to a photo (Telegram/WhatsApp-style).
+            if r.isImage, let url = r.imageUrl {
+                SecureImageView(imageUrl: url, enc: r.enc, cid: cid)
+                    .frame(width: 36, height: 36)
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             }
-            Spacer(minLength: 0)
-            Button { replyingTo = nil } label: {
-                Image(systemName: "xmark.circle.fill").font(.system(size: 18)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Reply to \(r.authorId == me ? "yourself" : title)")
+                    .font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
+                replyContentPreview(r)
+            }
+            Spacer(minLength: 8)
+            Button { withAnimation(.easeInOut(duration: 0.2)) { replyingTo = nil } } label: {
+                Image(systemName: "xmark.circle.fill").font(.system(size: 20)).foregroundStyle(.secondary)
             }
         }
-        .padding(.leading, 14).padding(.trailing, 10).padding(.top, 8).padding(.bottom, 4)
+        .padding(.leading, 14).padding(.trailing, 12).padding(.vertical, 8)
+    }
+
+    // The actual replied content: waveform for voice, "Photo" for images, the text/emoji otherwise.
+    @ViewBuilder private func replyContentPreview(_ r: Message) -> some View {
+        if r.isAudio {
+            HStack(spacing: 6) {
+                Image(systemName: "mic.fill").font(.system(size: 11)).foregroundStyle(.secondary)
+                WaveformBars(bars: r.waveform.isEmpty ? Array(repeating: 30, count: 16) : Array(r.waveform.prefix(28)),
+                             progress: 0, played: Color.secondary, unplayed: Color.secondary.opacity(0.5)) { _ in }
+                    .frame(width: 72, height: 14)
+                Text(replyVoiceDuration(r)).font(.caption2).foregroundStyle(.secondary)
+            }
+        } else if r.isImage {
+            Text("Photo").font(.caption).foregroundStyle(.secondary)
+        } else {
+            Text(r.text).font(.caption).lineLimit(1).foregroundStyle(.secondary)
+        }
+    }
+    private func replyVoiceDuration(_ r: Message) -> String {
+        let d = Int(r.duration ?? 0); return String(format: "%d:%02d", d / 60, d % 60)
     }
 
     // Subtle neutral fill (no glass, no shadow) — the iMessage field tint.
@@ -686,18 +711,19 @@ struct ThreadView: View {
 
             // Single field (Telegram/iMessage style): reply preview + text/record content on
             // the left, and the camera/mic/send controls INSIDE on the right.
-            HStack(alignment: .bottom, spacing: 4) {
-                VStack(spacing: 0) {
-                    if let r = replyingTo, !recordingHeld {
-                        replyPreviewRow(r)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                        Divider().padding(.horizontal, 12)
-                    }
-                    if recordingHeld { recordingHoldRow } else { messageField }
+            VStack(spacing: 0) {
+                // Reply preview spans the FULL field width (so the X sits at the far right).
+                if let r = replyingTo, !recordingHeld {
+                    replyPreviewRow(r)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    Divider().padding(.horizontal, 12)
                 }
-                trailingControls
+                HStack(alignment: .bottom, spacing: 4) {
+                    if recordingHeld { recordingHoldRow } else { messageField }
+                    trailingControls
+                }
+                .frame(minHeight: 40)   // input row stays 40px even in voice mode
             }
-            .frame(minHeight: 40)
             // Liquid-glass field (iMessage on iOS 26 look), soft edges, no hard border.
             .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous), interactive: true)
         }
@@ -934,6 +960,7 @@ struct MessageBubble: View {
     var otherLastRead: Double = 0
 
     @State private var dragX: CGFloat = 0
+    @State private var pressing = false   // progressive long-press scale (native feel)
     @AppStorage("readReceipts") private var readReceiptsPref = true
 
     private var myUid: String { AuthService.shared.uid ?? "" }
@@ -1045,9 +1072,12 @@ struct MessageBubble: View {
             if isMe { Spacer(minLength: 0) }
             VStack(alignment: isMe ? .trailing : .leading, spacing: 3) {
                 content
-                    .onLongPressGesture(minimumDuration: 0.35) {
+                    .scaleEffect(pressing ? 0.96 : 1.0)   // native-style progressive press feedback
+                    .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 40) {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         onLongPress(message)
+                    } onPressingChanged: { p in
+                        withAnimation(.easeOut(duration: 0.18)) { pressing = p }
                     }
                     // Double-tap to quick-react with a heart (iMessage/WhatsApp-style).
                     .highPriorityGesture(TapGesture(count: 2).onEnded {
