@@ -14,14 +14,20 @@ import FirebaseFirestore
 final class CallService: NSObject {
     static let shared = CallService()
 
-    enum State: Equatable { case idle, outgoing, incoming, active, ended }
+    // .reconnecting = the media path dropped mid-call; we're trying to recover it.
+    enum State: Equatable { case idle, outgoing, incoming, active, reconnecting, ended }
+
+    // Why a call ended — drives the end tone, the status label, and the call record.
+    enum EndReason: String { case none, hangup, declined, missed, failed, busy }
 
     var state: State = .idle {
         didSet {
             if state == .active && connectedDate == nil { connectedDate = Date() }
             if state == .idle {
                 connectedDate = nil; isMuted = false; isSpeaker = false
-                calleeRinging = false; recordWritten = false; minimized = false; stopRingback()
+                calleeRinging = false; recordWritten = false; minimized = false
+                endReason = .none; negotiationVersion = 0; appliedRemoteRestart = 0
+                stopRingback(); stopTone(); cancelTimers()
             }
         }
     }
@@ -32,12 +38,21 @@ final class CallService: NSObject {
     var minimized = false            // call screen minimized -> show the floating pill instead
     var calleeRinging = false        // caller: the other phone is actually ringing now
     var connectedDate: Date?
+    var endReason: EndReason = .none // last/in-progress end reason (UI reads it for the label)
     private var recordWritten = false
     private var ringbackPlayer: AVAudioPlayer?
+    private var tonePlayer: AVAudioPlayer?       // busy / ended one-shot tones
     private var localAudioTrack: RTCAudioTrack?
     private(set) var callId: String?
     private var otherUid: String = ""
     private var isCaller = false
+
+    // Reconnection / lifecycle timers.
+    private var noAnswerWork: DispatchWorkItem?      // outgoing: nobody answered -> Missed
+    private var iceRestartWork: DispatchWorkItem?    // delayed ICE restart after a drop
+    private var reconnectGiveUpWork: DispatchWorkItem? // hard cap: can't recover -> Failed
+    private var negotiationVersion = 0               // bumps each ICE restart (caller)
+    private var appliedRemoteRestart = 0             // last restart version we applied
 
     private let db = Firestore.firestore()
     private var pc: RTCPeerConnection?
@@ -105,6 +120,103 @@ final class CallService: NSObject {
     }
     private func stopRingback() { ringbackPlayer?.stop(); ringbackPlayer = nil }
 
+    // One-shot call-progress tone (busy/declined or ended). Same audio-session nudge
+    // as ringback so it outputs while CallKit owns the session.
+    private func playTone(_ data: Data, loops: Int) {
+        stopTone()
+        let s = RTCAudioSession.sharedInstance()
+        s.lockForConfiguration()
+        try? s.setCategory(.playAndRecord, mode: .voiceChat, options: [.mixWithOthers])
+        s.isAudioEnabled = true
+        s.unlockForConfiguration()
+        tonePlayer = try? AVAudioPlayer(data: data)
+        tonePlayer?.numberOfLoops = loops
+        tonePlayer?.prepareToPlay()
+        tonePlayer?.play()
+    }
+    private func stopTone() { tonePlayer?.stop(); tonePlayer = nil }
+
+    // Play the right tone for how a call ended (caller/receiver feedback).
+    private func playEndTone(_ reason: EndReason) {
+        stopRingback()
+        switch reason {
+        case .declined, .busy: playTone(RingbackTone.busyData(), loops: 3)   // ~4s busy signal
+        case .failed, .hangup, .missed: playTone(RingbackTone.endedData(), loops: 0)
+        case .none: break
+        }
+    }
+
+    // MARK: - Lifecycle timers
+
+    private func startNoAnswerTimeout() {
+        noAnswerWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in
+            guard let self, self.state == .outgoing else { return }   // still never connected
+            self.endReason = .missed
+            self.hangUp()
+        }
+        noAnswerWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 45, execute: w)   // ~45s, like big apps
+    }
+
+    private func cancelTimers() {
+        noAnswerWork?.cancel(); noAnswerWork = nil
+        iceRestartWork?.cancel(); iceRestartWork = nil
+        reconnectGiveUpWork?.cancel(); reconnectGiveUpWork = nil
+    }
+
+    // MARK: - Reconnection (bad / lost connection)
+
+    // Media path dropped. `disconnected` may self-heal, so we wait a few seconds before
+    // forcing an ICE restart; `failed` won't, so we restart now. Either way we show
+    // "Reconnecting…" and give up after a hard cap.
+    private func enterReconnecting(restartAfter delay: Double) {
+        guard state == .active || state == .reconnecting else { return }
+        if state == .active { state = .reconnecting }
+        // Hard cap: if we still haven't recovered, end as Failed.
+        if reconnectGiveUpWork == nil {
+            let g = DispatchWorkItem { [weak self] in
+                guard let self, self.state == .reconnecting else { return }
+                self.endReason = .failed
+                self.hangUp()
+            }
+            reconnectGiveUpWork = g
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: g)
+        }
+        // The caller drives the ICE restart (avoids glare).
+        guard isCaller else { return }
+        iceRestartWork?.cancel()
+        let r = DispatchWorkItem { [weak self] in
+            guard let self, self.state == .reconnecting else { return }
+            self.restartIce()
+        }
+        iceRestartWork = r
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: r)
+    }
+
+    private func recovered() {
+        iceRestartWork?.cancel(); iceRestartWork = nil
+        reconnectGiveUpWork?.cancel(); reconnectGiveUpWork = nil
+        if state == .reconnecting { state = .active }
+    }
+
+    // Caller-only: renegotiate ICE (new credentials + candidates), media keeps flowing
+    // on recovery. Cheaper than a full re-offer — DTLS/SRTP keys are preserved.
+    private func restartIce() {
+        guard isCaller, let pc = pc, let id = callId else { return }
+        negotiationVersion += 1
+        let v = negotiationVersion
+        let constraints = RTCMediaConstraints(mandatoryConstraints: ["IceRestart": "true"],
+                                              optionalConstraints: nil)
+        pc.offer(for: constraints) { [weak self] sdp, _ in
+            guard let self, let sdp, let pc = self.pc else { return }
+            pc.setLocalDescription(sdp) { _ in
+                self.db.collection("calls").document(id)
+                    .updateData(["restartOffer": ["sdp": sdp.sdp, "version": v]])
+            }
+        }
+    }
+
     // Callee marks the call as "ringing" so the caller can switch Calling… → Ringing….
     private func markRinging() {
         guard let id = callId else { return }
@@ -126,6 +238,8 @@ final class CallService: NSObject {
         ensureMicPermission { [weak self] granted in
             guard let self else { return }
             guard granted else { self.hangUp(); return }   // no mic -> don't start a dead call
+            self.startRingback()        // caller hears "ring… ring…" right away, like a real phone
+            self.startNoAnswerTimeout() // give up after ~45s -> Missed
             let ref = self.db.collection("calls").document()
             self.callId = ref.documentID
             self.pc = self.makePeerConnection()
@@ -241,20 +355,52 @@ final class CallService: NSObject {
     private func observeCallDoc(_ ref: DocumentReference) {
         let l = ref.addSnapshotListener { [weak self] snap, _ in
             guard let self, let d = snap?.data() else { return }
-            // Caller: the callee's device is now ringing → "Calling…" becomes "Ringing…" + ringback.
+
+            // Remote ended (hang up / decline / unreachable) — play the matching tone,
+            // then tear down. Do this first and bail.
+            if (d["status"] as? String) == "ended", self.state != .ended, self.state != .idle {
+                let reason = EndReason(rawValue: d["endReason"] as? String ?? "") ?? .hangup
+                self.remoteEnded(reason: reason)
+                return
+            }
+
+            // Caller: the callee's device is now ringing → "Calling…" becomes "Ringing…".
             if self.isCaller, d["ringingAt"] != nil, !self.calleeRinging, self.state == .outgoing {
                 self.calleeRinging = true
-                self.startRingback()
             }
-            // Caller applies the answer once it arrives.
+            // Caller applies the answer once it arrives → connected.
             if self.isCaller, let answer = d["answer"] as? [String: String], let sdp = answer["sdp"],
                self.pc?.remoteDescription == nil {
+                self.noAnswerWork?.cancel()
                 self.stopRingback()
                 self.pc?.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { _ in }
                 self.state = .active
                 CallKitManager.shared.reportConnected()
             }
-            if (d["status"] as? String) == "ended" { self.hangUp() }   // remote ended -> clear system UI
+            // Callee applies an ICE-restart OFFER (reconnection) and answers it.
+            if !self.isCaller, let ro = d["restartOffer"] as? [String: Any],
+               let sdp = ro["sdp"] as? String,
+               let v = (ro["version"] as? NSNumber)?.intValue, v > self.appliedRemoteRestart,
+               let pc = self.pc {
+                self.appliedRemoteRestart = v
+                pc.setRemoteDescription(RTCSessionDescription(type: .offer, sdp: sdp)) { _ in
+                    let c = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+                    pc.answer(for: c) { ans, _ in
+                        guard let ans else { return }
+                        pc.setLocalDescription(ans) { _ in
+                            ref.updateData(["restartAnswer": ["sdp": ans.sdp, "version": v]])
+                        }
+                    }
+                }
+            }
+            // Caller applies the ICE-restart ANSWER.
+            if self.isCaller, let ra = d["restartAnswer"] as? [String: Any],
+               let sdp = ra["sdp"] as? String,
+               let v = (ra["version"] as? NSNumber)?.intValue,
+               v == self.negotiationVersion, v > self.appliedRemoteRestart, let pc = self.pc {
+                self.appliedRemoteRestart = v
+                pc.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { _ in }
+            }
         }
         listeners.append(l)
     }
@@ -285,13 +431,23 @@ final class CallService: NSObject {
 
     // MARK: - Hang up / cleanup
 
-    // Remote hung up / ICE failed / our own UI when CallKit isn't driving — clears the system UI.
-    func hangUp() { cleanup(updateRemote: true, clearCallKit: true) }
-    // User pressed End and it already came through CallKit's CXEndCallAction — don't re-report.
-    func endFromCallKit() { cleanup(updateRemote: true, clearCallKit: false) }
+    // System-/remote-initiated end (timeout, ICE failure, remote hang up) — plays a
+    // feedback tone for this user and clears the system UI.
+    func hangUp() { finishCall(updateRemote: true, clearCallKit: true, localUser: false) }
+    // The local user pressed End via CallKit — no tone (they know), don't re-report.
+    func endFromCallKit() { finishCall(updateRemote: true, clearCallKit: false, localUser: true) }
+    // The other side ended the call — carry their reason so we play the right tone.
+    private func remoteEnded(reason: EndReason) {
+        endReason = reason
+        finishCall(updateRemote: false, clearCallKit: true, localUser: false)
+    }
 
-    private func cleanup(updateRemote: Bool, clearCallKit: Bool) {
+    private func finishCall(updateRemote: Bool, clearCallKit: Bool, localUser: Bool) {
+        cancelTimers()
         stopRingback()
+        if endReason == .none {   // infer it: connected→hang up, else caller=missed / callee=declined
+            endReason = connectedDate != nil ? .hangup : (isCaller ? .missed : .declined)
+        }
         // Write a call record into the chat (once). Each side writes its own row.
         if !recordWritten, !otherUid.isEmpty {
             recordWritten = true
@@ -304,9 +460,8 @@ final class CallService: NSObject {
             Task { await ChatService.recordCall(cid: cid, callId: cidCallId, callerUid: callerUidVal, outcome: outcome, durationSec: dur) }
         }
         if updateRemote, let id = callId {
-            db.collection("calls").document(id).updateData(["status": "ended"])
+            db.collection("calls").document(id).updateData(["status": "ended", "endReason": endReason.rawValue])
         }
-        if clearCallKit { CallKitManager.shared.reportEnded() }   // only when CallKit didn't initiate the end
         listeners.forEach { $0.remove() }
         listeners = []
         pc?.close()
@@ -314,9 +469,25 @@ final class CallService: NSObject {
         callId = nil
         otherUid = ""
         isCaller = false
+
+        // Feedback tone for the non-initiating side / system-ended calls. Keep the audio
+        // session alive until the tone finishes, THEN clear CallKit (which deactivates it).
+        let reason = endReason
+        if !localUser, reason != .none {
+            playEndTone(reason)
+            let toneDur = (reason == .declined || reason == .busy) ? 1.8 : 0.6
+            DispatchQueue.main.asyncAfter(deadline: .now() + toneDur) {
+                self.stopTone()
+                if clearCallKit { CallKitManager.shared.reportEnded() }
+            }
+        } else if clearCallKit {
+            CallKitManager.shared.reportEnded()
+        }
+
         state = .ended
-        // Drop back to idle shortly so the UI can dismiss.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+        // Keep the final state visible briefly (longer for the busy tone) before idle.
+        let idleDelay = (!localUser && (reason == .declined || reason == .busy)) ? 2.0 : 1.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + idleDelay) {
             if self.state == .ended { self.state = .idle }
         }
     }
@@ -333,8 +504,21 @@ extension CallService: RTCPeerConnectionDelegate {
         ])
     }
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
-        if newState == .disconnected || newState == .failed || newState == .closed {
-            DispatchQueue.main.async { if self.state == .active { self.hangUp() } }
+        DispatchQueue.main.async {
+            switch newState {
+            case .connected, .completed:
+                self.recovered()                          // back to a healthy media path
+            case .disconnected:
+                self.enterReconnecting(restartAfter: 3)   // may self-heal; force a restart in 3s
+            case .failed:
+                self.enterReconnecting(restartAfter: 0)   // won't self-heal; restart now
+            case .closed:
+                if self.state == .active || self.state == .reconnecting {
+                    self.endReason = .failed; self.hangUp()
+                }
+            default:
+                break
+            }
         }
     }
     // Unused delegate methods (required by protocol).

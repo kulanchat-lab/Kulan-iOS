@@ -1,8 +1,11 @@
 import Foundation
 
-// Generates a US-style ringback tone (440+480 Hz, 2s on / 4s off) as in-memory WAV
-// data — so the caller hears "ring… ring…" while waiting, with no bundled asset.
+// Generates standard call-progress tones as in-memory WAV data — no bundled assets.
+// Ringback: what the caller hears while waiting ("ring… ring…"). Busy: declined /
+// unavailable. Ended: a short descending two-beep when a connected call hangs up.
+// These mirror the call-state sounds big apps (WhatsApp/Signal) play.
 enum RingbackTone {
+    // US-style ringback (440+480 Hz, 2s on / 4s off), looped by the player.
     static func wavData(sampleRate: Int = 8000) -> Data {
         let total = sampleRate * 6   // one 6s cadence cycle, looped by the player
         var samples = [Int16](repeating: 0, count: total)
@@ -13,6 +16,40 @@ enum RingbackTone {
                 let v = (sin(2 * .pi * 440 * t) + sin(2 * .pi * 480 * t)) / 2
                 samples[i] = Int16(max(-1, min(1, v)) * 11000)
             }
+        }
+        return wav(samples, sampleRate: sampleRate)
+    }
+
+    // US-style busy / "declined" tone (480+620 Hz, 0.5s on / 0.5s off), one cycle —
+    // the player loops it a few times. Tells the caller the other side rejected /
+    // couldn't be reached.
+    static func busyData(sampleRate: Int = 8000) -> Data {
+        let total = sampleRate                      // 1s = one on/off cycle
+        var samples = [Int16](repeating: 0, count: total)
+        for i in 0..<total {
+            let t = Double(i) / Double(sampleRate)
+            if t.truncatingRemainder(dividingBy: 1.0) < 0.5 {   // 0.5 on, 0.5 off
+                let v = (sin(2 * .pi * 480 * t) + sin(2 * .pi * 620 * t)) / 2
+                samples[i] = Int16(max(-1, min(1, v)) * 10000)
+            }
+        }
+        return wav(samples, sampleRate: sampleRate)
+    }
+
+    // Short descending two-beep played once when a connected call ends — so both
+    // sides actually hear that it's over (no PSTN standard; matches app convention).
+    static func endedData(sampleRate: Int = 8000) -> Data {
+        let beep = 0.16, gap = 0.05
+        let total = Int(Double(sampleRate) * (beep * 2 + gap))
+        var samples = [Int16](repeating: 0, count: total)
+        for i in 0..<total {
+            let t = Double(i) / Double(sampleRate)
+            var v = 0.0
+            if t < beep { v = sin(2 * .pi * 520 * t) }                       // first beep
+            else if t > beep + gap { v = sin(2 * .pi * 410 * t) }            // lower beep
+            // gentle fade so the tone doesn't click
+            let env = 1.0 - min(1.0, abs((t.truncatingRemainder(dividingBy: beep + gap)) - beep / 2) / (beep))
+            samples[i] = Int16(max(-1, min(1, v)) * 9000 * max(0.2, env))
         }
         return wav(samples, sampleRate: sampleRate)
     }

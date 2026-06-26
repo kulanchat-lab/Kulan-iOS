@@ -12,11 +12,22 @@ struct CallView: View {
 
     private var statusText: String {
         switch call.state {
-        case .outgoing: return call.calleeRinging ? "Ringing…" : "Calling…"
-        case .incoming: return "Incoming call…"
-        case .active:   return durationText
-        case .ended:    return "Call ended"
-        default:        return ""
+        case .outgoing:     return call.calleeRinging ? "Ringing…" : "Calling…"
+        case .incoming:     return "Incoming call…"
+        case .active:       return durationText
+        case .reconnecting: return "Reconnecting…"
+        case .ended:        return endedText
+        default:            return ""
+        }
+    }
+
+    // Final label, by why the call ended.
+    private var endedText: String {
+        switch call.endReason {
+        case .declined, .busy: return "Declined"
+        case .failed:          return "Call failed"
+        case .missed:          return "No answer"
+        default:               return "Call ended"
         }
     }
 
@@ -122,7 +133,13 @@ struct CallView: View {
 struct CallContainer<Content: View>: View {
     @ViewBuilder var content: Content
     private var call: CallService { CallService.shared }
-    private var isActive: Bool { call.state == .outgoing || call.state == .active }
+    // Keep the call screen up through reconnection and the brief end state.
+    private var isActive: Bool {
+        switch call.state {
+        case .outgoing, .active, .reconnecting, .ended: return true
+        default: return false
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -164,6 +181,10 @@ struct MiniCallBar: View {
             return "Connected"
         case .outgoing:
             return call.calleeRinging ? "Ringing…" : "Calling…"
+        case .reconnecting:
+            return "Reconnecting…"
+        case .ended:
+            return "Call ended"
         default:
             return ""
         }
