@@ -356,25 +356,21 @@ struct ThreadView: View {
     // Chats list. Avatar + name (+ presence) centered; voice + video as trailing glass items.
     // The native back button (leading) owns the real edge-swipe-back gesture.
     @ToolbarContentBuilder private var chatToolbar: some ToolbarContent {
-        // Avatar + name grouped tightly right after the back button (leading), not centered.
-        // Button with .plain style: lays the name/status out properly AND has no glass
-        // pill (border). Tap opens the contact profile.
-        ToolbarItem(placement: .topBarLeading) {
-            Button { showContactInfo = true } label: {
-                HStack(spacing: 9) {
-                    AvatarView(name: title, photoUrl: photoUrl, size: 40)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(title).font(.headline).foregroundStyle(.primary).lineLimit(1)
-                        if let sub = presenceSubtitle {
-                            Text(sub).font(.caption2)
-                                .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    .fixedSize()
-                }
+        // Avatar + name (leading), tap opens the contact profile. iOS 26 auto-wraps EVERY
+        // toolbar item in a Liquid-Glass pill — but the avatar/name must NOT have that pill
+        // (only the back button + call/video buttons should). `.buttonStyle(.plain)` alone
+        // does NOT remove it; `.sharedBackgroundVisibility(.hidden)` does.
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { showContactInfo = true } label: { headerLabel }
+                    .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { showContactInfo = true } label: { headerLabel }
+                    .buttonStyle(.plain)
+            }
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
@@ -387,6 +383,22 @@ struct ThreadView: View {
                 Image(systemName: "video.fill")
             }
             .tint(.primary)
+        }
+    }
+
+    // Avatar + name + presence shown in the chat header (kept glass-free — see chatToolbar).
+    private var headerLabel: some View {
+        HStack(spacing: 9) {
+            AvatarView(name: title, photoUrl: photoUrl, size: 40)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                if let sub = presenceSubtitle {
+                    Text(sub).font(.caption2)
+                        .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .fixedSize()
         }
     }
 

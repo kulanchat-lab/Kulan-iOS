@@ -142,7 +142,7 @@ struct CallsView: View {
                     ContentUnavailableView("No Calls Yet", systemImage: "phone",
                                            description: Text("Your call history will appear here."))
                 } else {
-                    List(selection: selecting ? $selection : .constant(Set<String>())) {
+                    List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row (not select)
                         ForEach(shown) { call in
                             CallHistoryRow(
                                 call: call,
@@ -530,7 +530,7 @@ struct ChatsView: View {
                     ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.bubble.right",
                                            description: Text("Tap the compose button to start one."))
                 } else {
-                    List(selection: selecting ? $selection : .constant(Set<String>())) {
+                    List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row (not select)
                       // Stories row on top of Chats (My Status + friends' rings).
                       StoriesRow(meName: profile.me?.name ?? "You", mePhoto: profile.me?.photoUrl,
                                  onCompose: { showCompose = true },
@@ -710,7 +710,7 @@ struct ArchivedChatsView: View {
                     ContentUnavailableView("No archived chats", systemImage: "archivebox",
                                            description: Text("Chats you archive will show here."))
                 } else {
-                    List(selection: selecting ? $selection : .constant(Set<String>())) {
+                    List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row (not select)
                         ForEach(archived) { conv in
                             Button {
                                 path.append(ChatTarget(id: conv.id, name: conv.name(for: me),
