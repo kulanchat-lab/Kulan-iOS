@@ -342,6 +342,15 @@ struct ChatsView: View {
     @State private var showDeleteSelected = false
     @State private var showCompose = false
     @State private var viewerGroup: StoryGroup?
+    @State private var viewerAnonymous = false
+    @State private var profileGroup: StoryGroup?
+
+    private func storyCid(_ other: String) -> String {
+        [AuthService.shared.uid ?? "", other].sorted().joined(separator: "_")
+    }
+    private func openStoryChat(_ g: StoryGroup) {
+        path.append(ChatTarget(id: storyCid(g.authorUid), name: g.name, photo: g.photoUrl))
+    }
     // WhatsApp-style header fade: hide the nav-bar icons while a chat is pushed so they
     // don't float statically over the screen during the interactive swipe-back. Driven by
     // navigation depth — a non-empty path (which holds through the ENTIRE drag) keeps them
@@ -534,7 +543,10 @@ struct ChatsView: View {
                       // Stories row on top of Chats (My Status + friends' rings).
                       StoriesRow(meName: profile.me?.name ?? "You", mePhoto: profile.me?.photoUrl,
                                  onCompose: { showCompose = true },
-                                 onOpen: { g in viewerGroup = g })
+                                 onOpen: { g in viewerAnonymous = false; viewerGroup = g },
+                                 onMessage: { g in openStoryChat(g) },
+                                 onProfile: { g in profileGroup = g },
+                                 onOpenAnon: { g in viewerAnonymous = true; viewerGroup = g })
                           .listRowInsets(EdgeInsets())
                           .listRowSeparator(.hidden)
                           .moveDisabled(true)
@@ -612,9 +624,14 @@ struct ChatsView: View {
                 StoryComposeSheet { Task { await StoriesRepository.shared.load() } }
             }
             .fullScreenCover(item: $viewerGroup) { g in
-                StoryViewer(group: g) {
+                StoryViewer(group: g, anonymous: viewerAnonymous) {
                     viewerGroup = nil
                     Task { await StoriesRepository.shared.load() }   // refresh seen rings
+                }
+            }
+            .sheet(item: $profileGroup) { g in
+                NavigationStack {
+                    ContactInfoView(cid: storyCid(g.authorUid), name: g.name, photoUrl: g.photoUrl)
                 }
             }
             // ONE destination type for every chat (list taps AND search results),

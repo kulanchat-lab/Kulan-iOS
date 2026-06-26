@@ -38,6 +38,25 @@ struct StoryImage: View {
     }
 }
 
+// Local per-author story prefs: hide a person's stories from the row, toggle "notify".
+// Persisted in UserDefaults (space-joined uid sets), like the reaction recents.
+enum StoryPrefs {
+    private static func set(_ key: String) -> Set<String> {
+        Set((UserDefaults.standard.string(forKey: key) ?? "").split(separator: " ").map(String.init))
+    }
+    private static func save(_ key: String, _ s: Set<String>) {
+        UserDefaults.standard.set(s.joined(separator: " "), forKey: key)
+    }
+    static func isHidden(_ uid: String) -> Bool { set("hiddenStories").contains(uid) }
+    static func toggleHidden(_ uid: String) {
+        var s = set("hiddenStories"); if s.contains(uid) { s.remove(uid) } else { s.insert(uid) }; save("hiddenStories", s)
+    }
+    static func isNotifying(_ uid: String) -> Bool { set("notifyStories").contains(uid) }
+    static func toggleNotify(_ uid: String) {
+        var s = set("notifyStories"); if s.contains(uid) { s.remove(uid) } else { s.insert(uid) }; save("notifyStories", s)
+    }
+}
+
 // Horizontal Stories row for the top of the Chats screen: "My Status" cell (tap to add
 // or view your own) + friends' rings (unseen = accent ring, seen = grey). Loads on appear.
 struct StoriesRow: View {
@@ -46,6 +65,10 @@ struct StoriesRow: View {
     var mePhoto: String?
     var onCompose: () -> Void
     var onOpen: (StoryGroup) -> Void
+    var onMessage: (StoryGroup) -> Void = { _ in }
+    var onProfile: (StoryGroup) -> Void = { _ in }
+    var onOpenAnon: (StoryGroup) -> Void = { _ in }
+    @State private var prefsTick = 0   // re-render after hide/notify toggles
 
     private let storySpacing: CGFloat = 10
     private let storyHPad: CGFloat = 12
@@ -59,10 +82,22 @@ struct StoriesRow: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: storySpacing) {
                 myCard
-                ForEach(repo.others) { g in
+                ForEach(repo.others.filter { !StoryPrefs.isHidden($0.authorUid) }) { g in
                     card(cover: g.stories.last?.mediaUrl,
                          name: g.name.isEmpty ? "User" : g.name,
                          avatar: g.photoUrl, unseen: g.hasUnseen) { onOpen(g) }
+                        .contextMenu {
+                            Button { onMessage(g) } label: { Label("Send Message", systemImage: "message") }
+                            Button { onProfile(g) } label: { Label("Open Profile", systemImage: "person") }
+                            Button { StoryPrefs.toggleNotify(g.authorUid); prefsTick += 1 } label: {
+                                Label(StoryPrefs.isNotifying(g.authorUid) ? "Stop Notifying" : "Notify About Stories",
+                                      systemImage: StoryPrefs.isNotifying(g.authorUid) ? "bell.slash" : "bell")
+                            }
+                            Button { onOpenAnon(g) } label: { Label("View Anonymously", systemImage: "eye.slash") }
+                            Button(role: .destructive) { StoryPrefs.toggleHidden(g.authorUid); prefsTick += 1 } label: {
+                                Label("Hide Stories", systemImage: "archivebox")
+                            }
+                        }
                 }
             }
             .padding(.horizontal, storyHPad)
@@ -134,6 +169,7 @@ struct StoriesRow: View {
 // auto-advance, swipe-down to close. Marks each shown story viewed.
 struct StoryViewer: View {
     let group: StoryGroup
+    var anonymous: Bool = false   // "View Anonymously" -> don't send a view receipt
     var onClose: () -> Void
 
     @State private var index = 0
@@ -222,7 +258,8 @@ struct StoryViewer: View {
         .animation(.easeInOut(duration: 0.2), value: showSent)
         .onReceive(ticker) { _ in tick() }
         .task(id: index) {
-            if let s = story, !viewed.contains(s.id) { viewed.insert(s.id); await StoriesService.shared.markViewed(s) }
+            guard !anonymous, let s = story, !viewed.contains(s.id) else { return }
+            viewed.insert(s.id); await StoriesService.shared.markViewed(s)
         }
         .gesture(DragGesture(minimumDistance: 30).onEnded { v in if v.translation.height > 80 { onClose() } })
     }
