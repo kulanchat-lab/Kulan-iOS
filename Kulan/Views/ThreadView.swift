@@ -154,7 +154,7 @@ struct ThreadView: View {
                     message: m, cid: cid, dark: dark, isMe: m.authorId == me, myReaction: m.reactions[me],
                     onPick: { emoji in react(m, emoji); dismissMenu() },
                     onMore: { dismissMenu(); morePickerTarget = m },
-                    onReply: { replyingTo = m; dismissMenu() },
+                    onReply: { withAnimation(.easeInOut(duration: 0.22)) { replyingTo = m }; dismissMenu() },
                     onForward: { dismissMenu(); forwardTarget = m },
                     onPin: { Task { await ChatService.setPinnedMessage(cid, m.id) }; dismissMenu() },
                     onCopy: { dismissMenu() },
@@ -413,6 +413,7 @@ struct ThreadView: View {
                     Text(sub).font(.caption2)
                         .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)
                         .lineLimit(1)
+                        .animation(.easeInOut(duration: 0.2), value: repo.otherTyping)
                 }
             }
             .fixedSize()
@@ -675,6 +676,7 @@ struct ThreadView: View {
                     Image(systemName: sendingPhoto ? "ellipsis" : "plus")
                         .font(.system(size: 20, weight: .regular))
                         .foregroundStyle(.primary)
+                        .contentTransition(.symbolEffect(.replace))   // smooth +/… swap
                         .frame(width: 40, height: 40)
                         .liquidGlass(Circle(), interactive: true)
                 }
@@ -688,6 +690,7 @@ struct ThreadView: View {
                 VStack(spacing: 0) {
                     if let r = replyingTo, !recordingHeld {
                         replyPreviewRow(r)
+                            .transition(.move(edge: .top).combined(with: .opacity))
                         Divider().padding(.horizontal, 12)
                     }
                     if recordingHeld { recordingHoldRow } else { messageField }
@@ -765,6 +768,7 @@ struct ThreadView: View {
                 Text("slide to cancel").font(.system(size: 14))
             }
             .foregroundStyle(recordCancelArmed ? Color.red : Color.secondary)
+            .animation(.easeInOut(duration: 0.15), value: recordCancelArmed)
             // Fade the hint as the finger slides toward the cancel threshold.
             .opacity(1.0 - min(1.0, Double(-clampedDrag.width) / 90.0) * 0.6)
         }

@@ -171,7 +171,7 @@ struct CallsView: View {
             .toolbar {
                 if selecting {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button { selecting = false; selection = [] } label: { Image(systemName: "xmark") }.tint(.primary)
+                        Button { withAnimation(.easeInOut(duration: 0.3)) { selecting = false; selection = [] } } label: { Image(systemName: "xmark") }.tint(.primary)
                     }
                     ToolbarItem(placement: .principal) {
                         Text(selection.isEmpty ? "Select Calls" : "\(selection.count) Selected").font(.headline)
@@ -186,7 +186,7 @@ struct CallsView: View {
                 } else {
                     if !repo.calls.isEmpty {
                         ToolbarItem(placement: .topBarLeading) {
-                            Button("Edit") { selecting = true }.tint(.primary)
+                            Button("Edit") { withAnimation(.easeInOut(duration: 0.3)) { selecting = true } }.tint(.primary)
                         }
                     }
                     ToolbarItem(placement: .principal) {
@@ -394,7 +394,7 @@ struct ChatsView: View {
     // Avatar dropdown menu: Select Chats / Settings / Archive (Telegram-style).
     // Left: Edit (multi-select). Settings moved to its own tab, so no avatar here anymore.
     private var editButton: some View {
-        Button("Edit") { selecting = true }.tint(.primary)
+        Button("Edit") { withAnimation(.easeInOut(duration: 0.3)) { selecting = true } }.tint(.primary)
     }
     // Right: filter the list (All / Unread) + reach Archived.
     private var filterMenu: some View {
@@ -483,7 +483,7 @@ struct ChatsView: View {
         Task { await ChatService.setPinOrder(moved.id, newRank) }
     }
 
-    private func exitSelect() { selecting = false; selection = [] }
+    private func exitSelect() { withAnimation(.easeInOut(duration: 0.3)) { selecting = false; selection = [] } }
     private func selectAll() { selection = Set(visible.map { $0.id }) }
 
     // System action list for a chat row's context menu (HIG order + SF Symbols).
@@ -789,7 +789,7 @@ struct ArchivedChatsView: View {
                 } else {
                     if hasAnyArchived {
                         ToolbarItem(placement: .topBarLeading) {
-                            Button("Select") { selecting = true }.tint(.primary)
+                            Button("Select") { withAnimation(.easeInOut(duration: 0.3)) { selecting = true } }.tint(.primary)
                         }
                     }
                     ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
@@ -804,7 +804,7 @@ struct ArchivedChatsView: View {
         .onAppear { repo.start() }
     }
 
-    private func exitSelect() { selecting = false; selection = [] }
+    private func exitSelect() { withAnimation(.easeInOut(duration: 0.3)) { selecting = false; selection = [] } }
     private func unarchiveSelected() {
         let ids = selection
         Task { for id in ids { await ChatService.setArchived(id, false) } }
@@ -945,6 +945,7 @@ struct ChatRow: View {
         .frame(minHeight: 76)
         .animation(.easeInOut(duration: 0.22), value: unread)   // smooth bold/color/badge changes
         .animation(.easeInOut(duration: 0.22), value: muted)
+        .animation(.easeInOut(duration: 0.22), value: conv.isPinned(me))   // pin icon fade
         .padding(.vertical, 2)
         .padding(.horizontal, 16)   // 16pt gutter moved inside the cell (row insets are now
                                     // zero) so the reorder drag preview matches the cell width
