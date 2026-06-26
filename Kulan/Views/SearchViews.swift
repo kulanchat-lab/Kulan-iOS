@@ -74,6 +74,8 @@ struct ChatSearchView: View {
     @State private var corpus: [SearchableMessage] = []   // loaded once; filtered in memory
     @State private var loadingCorpus = false
     @State private var loadTask: Task<Void, Never>?
+    @State private var foundByHandle: UserProfile?         // exact @username match (global — start a new chat)
+    @State private var handleTask: Task<Void, Never>?
     @FocusState private var searchFocused: Bool
 
     private var me: String { AuthService.shared.uid ?? "" }
@@ -101,11 +103,29 @@ struct ChatSearchView: View {
                               photoUrl: $0.photoUrl, text: $0.text, date: $0.date) }
     }
 
-    private var nothingFound: Bool { nameMatches.isEmpty && hits.isEmpty }
+    private var nothingFound: Bool { nameMatches.isEmpty && hits.isEmpty && foundByHandle == nil }
 
     var body: some View {
         NavigationStack(path: $path) {
             List {
+                // Exact @username match — find anyone globally to start a NEW chat.
+                if let u = foundByHandle {
+                    Section("People") {
+                        Button { openUser(u) } label: {
+                            HStack(spacing: 12) {
+                                AvatarView(name: u.name.isEmpty ? u.handle : u.name, photoUrl: u.photoUrl, size: 44)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(u.name.isEmpty ? u.handle : u.name).font(.system(size: 15, weight: .semibold))
+                                    Text("@\(u.handle)").font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "message").foregroundStyle(.tint)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .listRowSeparator(.hidden)
+                    }
+                }
                 if !nameMatches.isEmpty {
                     Section("Chats") {
                         ForEach(nameMatches) { conv in
@@ -151,6 +171,7 @@ struct ChatSearchView: View {
         .searchable(text: $query,
                     prompt: "Search messages")
         .autoFocusSearch($searchFocused)
+        .onChange(of: query) { _, _ in lookupHandle() }   // username (@handle) lookup
         .onAppear {
             repo.start()
             // Focus immediately so the keyboard opens at once; retry shortly as a fallback
@@ -169,6 +190,31 @@ struct ChatSearchView: View {
 
     private func open(_ cid: String, _ name: String, _ photo: String?) {
         path.append(ChatTarget(id: cid, name: name, photo: photo))
+    }
+
+    // Debounced exact @username lookup across ALL users (not just existing chats), so
+    // global search finds people by username. Hidden if they're already in the chat list.
+    private func lookupHandle() {
+        handleTask?.cancel()
+        let q = trimmed
+        guard q.count >= 2 else { foundByHandle = nil; return }
+        handleTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if Task.isCancelled { return }
+            let u = await ChatService.findByHandle(q)
+            await MainActor.run {
+                if let u, !nameMatches.contains(where: { $0.otherUid(me) == u.id }) { foundByHandle = u }
+                else { foundByHandle = nil }
+            }
+        }
+    }
+
+    // Open (or start) a chat with a user found by @username.
+    private func openUser(_ u: UserProfile) {
+        Task {
+            guard let cid = try? await ChatService.openConversation(other: u) else { return }
+            await MainActor.run { open(cid, u.name.isEmpty ? u.handle : u.name, u.photoUrl) }
+        }
     }
 }
 
