@@ -377,32 +377,79 @@ struct StoryComposeSheet: View {
     @State private var posting = false
     @State private var postError = false
     @State private var textMode = false   // text story (gradient + text)
+    @State private var caption = ""       // optional caption baked onto the photo
+    @FocusState private var captionFocused: Bool
     var onPosted: () -> Void
 
     var body: some View {
         Group {
             if let data, let ui = UIImage(data: data) {
-                // Captured/picked -> full-screen preview + Share to My Status (retake = back).
+                // Instagram-style preview: full-bleed photo, caption bar, "Your story" + send.
                 ZStack {
                     Color.black.ignoresSafeArea()
                     Image(uiImage: ui).resizable().scaledToFill()
                         .frame(maxWidth: .infinity, maxHeight: .infinity).clipped().ignoresSafeArea()
-                    VStack {
-                        HStack {
-                            Button { self.data = nil } label: { camCircle("chevron.left") }   // retake
+
+                    // Caption preview baked near the bottom (only when typing/has text).
+                    if !caption.isEmpty {
+                        VStack {
                             Spacer()
-                            Button { dismiss() } label: { camCircle("xmark") }
+                            Text(caption)
+                                .font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 18).padding(.vertical, 10)
+                                .frame(maxWidth: .infinity)
+                                .background(.black.opacity(0.32))
+                            Spacer().frame(height: 150)
                         }
-                        .padding(.horizontal, 16).padding(.top, 8)
+                        .allowsHitTesting(false)
+                    }
+
+                    VStack {
+                        // top: close (also discards the photo -> back to camera)
+                        HStack {
+                            Button { self.data = nil; caption = "" } label: { camCircle("xmark") }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 14).padding(.top, 8)
+
                         Spacer()
-                        Button { Task { await post() } } label: {
-                            if posting { ProgressView().tint(.white).frame(maxWidth: .infinity) }
-                            else { Label("Share to My Status", systemImage: "paperplane.fill").fontWeight(.semibold).frame(maxWidth: .infinity) }
+
+                        // caption field
+                        TextField("Add a caption…", text: $caption, axis: .vertical)
+                            .focused($captionFocused)
+                            .foregroundStyle(.white).tint(.white)
+                            .lineLimit(1...3)
+                            .padding(.horizontal, 18).padding(.vertical, 12)
+                            .background(.black.opacity(0.4), in: Capsule())
+                            .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 1))
+                            .padding(.horizontal, 14)
+
+                        // send bar: "Your story" pill + circular send
+                        HStack(spacing: 12) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "person.crop.circle.fill")
+                                Text("Your story").fontWeight(.semibold)
+                            }
+                            .font(.subheadline).foregroundStyle(.white)
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                            .background(.white.opacity(0.18), in: Capsule())
+                            Spacer()
+                            Button { Task { await post() } } label: {
+                                Group {
+                                    if posting { ProgressView().tint(.white) }
+                                    else { Image(systemName: "arrow.right").font(.system(size: 22, weight: .bold)).foregroundStyle(.white) }
+                                }
+                                .frame(width: 54, height: 54)
+                                .background(Color.accentColor, in: Circle())
+                            }
+                            .disabled(posting)
                         }
-                        .buttonStyle(.borderedProminent).controlSize(.large).disabled(posting)
-                        .padding(.horizontal, 16).padding(.bottom, 16)
+                        .padding(.horizontal, 14).padding(.top, 10)
+                        .padding(.bottom, captionFocused ? 8 : 16)
                     }
                 }
+                .animation(.easeOut(duration: 0.2), value: captionFocused)
             } else if textMode {
                 StoryTextComposer(onShare: { d in Task { await postDirect(d) } },
                                   onClose: { textMode = false })
@@ -423,10 +470,11 @@ struct StoryComposeSheet: View {
     }
 
     private func post() async {
-        guard let data else { return }
+        let img = await MainActor.run { bakedImageData() }
+        guard let img else { return }
         posting = true
         do {
-            try await StoriesService.shared.postStory(image: data)
+            try await StoriesService.shared.postStory(image: img)
             posting = false
             onPosted()
             dismiss()
@@ -434,6 +482,29 @@ struct StoryComposeSheet: View {
             posting = false
             postError = true   // keep the preview so the user can retry, don't silently dismiss
         }
+    }
+
+    // Bake the caption onto the photo (so recipients see it) — else post the raw photo.
+    @MainActor private func bakedImageData() -> Data? {
+        guard let raw = data else { return nil }
+        let cap = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cap.isEmpty, let ui = UIImage(data: raw) else { return raw }
+        let w = ui.size.width, h = ui.size.height
+        let composed = ZStack {
+            Image(uiImage: ui).resizable().scaledToFill()
+            VStack {
+                Spacer()
+                Text(cap)
+                    .font(.system(size: max(28, w * 0.045), weight: .semibold))
+                    .foregroundStyle(.white).multilineTextAlignment(.center)
+                    .padding(.horizontal, w * 0.05).padding(.vertical, h * 0.012)
+                    .frame(maxWidth: .infinity).background(.black.opacity(0.32))
+                Spacer().frame(height: h * 0.08)
+            }
+        }
+        .frame(width: w, height: h)
+        let r = ImageRenderer(content: composed); r.scale = 1
+        return r.uiImage?.jpegData(compressionQuality: 0.9) ?? raw
     }
 
     // Post a rendered text-story image directly (no preview step).
