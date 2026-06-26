@@ -248,31 +248,41 @@ struct ThreadView: View {
     @ViewBuilder private func pinnedBar(_ proxy: ScrollViewProxy) -> some View {
         if !repo.pinnedMessageId.isEmpty {
             let msg = repo.messages.first { $0.id == repo.pinnedMessageId }
-            HStack(spacing: 10) {
-                RoundedRectangle(cornerRadius: 1.5).fill(Color.accentColor).frame(width: 3, height: 30)
-                // Real photo thumbnail for a pinned image (instead of just "📷 Photo" text).
-                if let m = msg, m.isImage, let url = m.imageUrl {
-                    SecureImageView(imageUrl: url, enc: m.enc, cid: cid)
-                        .frame(width: 34, height: 34)
-                        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Pinned Message").font(.caption.weight(.semibold)).foregroundStyle(.tint)
-                    Text(msg.map { $0.isImage ? "Photo" : ($0.isAudio ? "🎤 Voice message" : $0.text) } ?? "Tap to view")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-                Spacer()
-                Button { Task { await ChatService.setPinnedMessage(cid, nil) } } label: {
-                    Image(systemName: "pin.slash").font(.system(size: 15)).foregroundStyle(.secondary)
+            let author = msg.map { $0.authorId == me ? "You" : title } ?? "Pinned Message"
+            // FLOATING glass card + separate glass pin button (like the header pills), not a
+            // flat full-width bar. Grouped in a native GlassEffectContainer so the two glass
+            // shapes render as one cohesive liquid-glass system.
+            composerGlassContainer {
+                HStack(spacing: 10) {
+                    HStack(spacing: 10) {
+                        if let m = msg, m.isImage, let url = m.imageUrl {
+                            SecureImageView(imageUrl: url, enc: m.enc, cid: cid)
+                                .frame(width: 32, height: 32)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(author).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
+                            Text(msg.map { $0.isImage ? "Photo" : ($0.isAudio ? "🎤 Voice message" : $0.text) } ?? "Tap to view")
+                                .font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(height: 48)
+                    .liquidGlass(RoundedRectangle(cornerRadius: 22, style: .continuous))   // floating glass card
+                    .contentShape(Rectangle())
+                    .onTapGesture { if let id = msg?.id { withAnimation { proxy.scrollTo(id, anchor: .center) } } }
+
+                    Button { Task { await ChatService.setPinnedMessage(cid, nil) } } label: {
+                        Image(systemName: "pin.fill").font(.system(size: 17)).foregroundStyle(.primary)
+                            .frame(width: 48, height: 48)
+                            .liquidGlass(Circle())                                          // floating glass pin button
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16)
-            .frame(height: 48)                     // fixed 48px bar
-            .frame(maxWidth: .infinity)
-            .liquidGlass(Rectangle())              // real Liquid Glass bar (matches the header)
-            .overlay(alignment: .bottom) { Divider() }
-            .contentShape(Rectangle())
-            .onTapGesture { if let id = msg?.id { withAnimation { proxy.scrollTo(id, anchor: .center) } } }
+            .padding(.horizontal, 12)
+            .padding(.top, 6).padding(.bottom, 2)
             .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
