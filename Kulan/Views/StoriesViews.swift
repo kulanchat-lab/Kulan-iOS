@@ -196,6 +196,10 @@ struct StoryViewer: View {
 
     private var story: Story? { group.stories.indices.contains(index) ? group.stories[index] : nil }
 
+    // Swipe-down transform (typed to avoid CGFloat/Double inference ambiguity).
+    private var dismissScale: CGFloat { 1 - min(dragDown, 400) / 2400 }
+    private var dismissOpacity: Double { Double(1 - min(dragDown, 400) / 800) }
+
     var body: some View {
         GeometryReader { geo in
             let safeTop = geo.safeAreaInsets.top
@@ -377,10 +381,10 @@ struct StoryViewer: View {
             .animation(.easeInOut(duration: 0.2), value: showSent)
             // Interactive swipe-down-to-dismiss: the card follows the finger, shrinks +
             // rounds + fades, then dismisses past a threshold or springs back.
-            .scaleEffect(1 - min(dragDown, 400) / 2400, anchor: .center)
+            .scaleEffect(dismissScale, anchor: .center)
             .offset(y: dragDown)
             .cornerRadius(dragDown > 0 ? 24 : 0)
-            .opacity(1 - min(dragDown, 400) / 800)
+            .opacity(dismissOpacity)
         }
         .background(Color.black.ignoresSafeArea())   // pinned backdrop behind the sliding card
         .ignoresSafeArea()
