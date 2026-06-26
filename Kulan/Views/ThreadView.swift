@@ -31,7 +31,6 @@ struct ThreadView: View {
     @State private var unreadOnOpen = 0
     @State private var firstUnreadId: String?
     @State private var didAnchorUnread = false
-    @State private var menuTarget: Message?       // long-press reaction/actions menu
     @State private var morePickerTarget: Message? // any-emoji picker
     @State private var reactorsTarget: Message?   // "who reacted" sheet
     @State private var pendingDelete: Message?
@@ -155,24 +154,6 @@ struct ThreadView: View {
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker { data in Task { await sendCaptured(data) } }
                 .ignoresSafeArea()
-        }
-        .overlay {
-            if let m = menuTarget {
-                ReactionMenuOverlay(
-                    message: m, cid: cid, dark: dark, isMe: m.authorId == me, myReaction: m.reactions[me],
-                    onPick: { emoji in react(m, emoji); dismissMenu() },
-                    onMore: { dismissMenu(); morePickerTarget = m },
-                    onReply: { withAnimation(.easeInOut(duration: 0.22)) { replyingTo = m }; dismissMenu() },
-                    onForward: { dismissMenu(); forwardTarget = m },
-                    onPin: { Task { await ChatService.setPinnedMessage(cid, m.id) }; dismissMenu() },
-                    onCopy: { dismissMenu() },
-                    onEdit: { dismissMenu(); editTarget = m },
-                    onDelete: { dismissMenu(); pendingDelete = m },
-                    onReport: { dismissMenu(); reportTarget = m },
-                    onDismiss: { dismissMenu() }
-                )
-                .transition(.opacity)
-            }
         }
         .sheet(item: $morePickerTarget) { m in EmojiMorePicker { emoji in react(m, emoji) } }
         .sheet(item: $reactorsTarget) { m in
@@ -340,13 +321,16 @@ struct ThreadView: View {
                     MessageBubble(
                         message: msg, isMe: msg.authorId == me, dark: dark, cid: cid,
                         nameFor: { $0 == me ? "You" : title },
-                        onReply: { replyingTo = $0 },
-                        onDelete: { m in Task { await ChatService.deleteMessage(cid: cid, messageId: m.id) } },
+                        onReply: { withAnimation(.easeInOut(duration: 0.22)) { replyingTo = $0 } },
+                        onDelete: { pendingDelete = $0 },   // confirm dialog, not instant
                         onTapImage: { viewerImage = $0 },
                         onReact: { emoji in Task { await ChatService.setReaction(cid: cid, messageId: msg.id, emoji: emoji) } },
                         onPin: { m in Task { await ChatService.setPinnedMessage(cid, m.id) } },
+                        onForward: { forwardTarget = $0 },
+                        onEdit: { editTarget = $0 },
+                        onReport: { reportTarget = $0 },
+                        onReactMore: { morePickerTarget = $0 },
                         onTapReactions: { reactorsTarget = msg },
-                        onLongPress: { m in withAnimation(.easeOut(duration: 0.15)) { menuTarget = m } },
                         onResend: { m in resend(m) },
                         onJumpTo: { id in jump(to: id, proxy) },
                         isHighlighted: msg.id == highlightId,
@@ -587,7 +571,6 @@ struct ThreadView: View {
         Task { await ChatService.setReaction(cid: cid, messageId: m.id, emoji: new) }
     }
 
-    private func dismissMenu() { withAnimation(.easeOut(duration: 0.15)) { menuTarget = nil } }
 
     // Page in older history and keep the user's position (anchor the current top
     // message to the top after the older page prepends, so the list doesn't jump).
@@ -963,6 +946,10 @@ struct MessageBubble: View {
     var onTapImage: (Message) -> Void = { _ in }
     var onReact: (String?) -> Void = { _ in }
     var onPin: (Message) -> Void = { _ in }
+    var onForward: (Message) -> Void = { _ in }
+    var onEdit: (Message) -> Void = { _ in }
+    var onReport: (Message) -> Void = { _ in }
+    var onReactMore: (Message) -> Void = { _ in }
     var onTapReactions: () -> Void = {}
     var onLongPress: (Message) -> Void = { _ in }
     var onResend: (Message) -> Void = { _ in }
@@ -973,7 +960,6 @@ struct MessageBubble: View {
     var otherLastRead: Double = 0
 
     @State private var dragX: CGFloat = 0
-    @State private var pressing = false   // progressive long-press scale (native feel)
     @AppStorage("readReceipts") private var readReceiptsPref = true
 
     private var myUid: String { AuthService.shared.uid ?? "" }
@@ -1085,12 +1071,27 @@ struct MessageBubble: View {
             if isMe { Spacer(minLength: 0) }
             VStack(alignment: isMe ? .trailing : .leading, spacing: 3) {
                 content
-                    .scaleEffect(pressing ? 0.96 : 1.0)   // native-style progressive press feedback
-                    .onLongPressGesture(minimumDuration: 0.18, maximumDistance: 40) {
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        onLongPress(message)
-                    } onPressingChanged: { p in
-                        withAnimation(.easeOut(duration: 0.18)) { pressing = p }
+                    // REAL native context menu (same as the chat list) — iOS handles the
+                    // lift + blur + spring. No custom overlay.
+                    .contextMenu {
+                        Button { onReply(message) } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+                        if !message.isCall {
+                            Button { onForward(message) } label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
+                        }
+                        if !message.isImage && !message.text.isEmpty {
+                            Button { UIPasteboard.general.string = message.text } label: { Label("Copy", systemImage: "doc.on.doc") }
+                        }
+                        Button { onReactMore(message) } label: { Label("React…", systemImage: "face.smiling") }
+                        Button { onPin(message) } label: { Label("Pin", systemImage: "pin") }
+                        if isMe && !message.isImage && !message.isAudio && !message.isCall && message.sendState == nil {
+                            Button { onEdit(message) } label: { Label("Edit", systemImage: "pencil") }
+                        }
+                        Divider()
+                        if isMe {
+                            Button(role: .destructive) { onDelete(message) } label: { Label("Delete", systemImage: "trash") }
+                        } else {
+                            Button(role: .destructive) { onReport(message) } label: { Label("Report", systemImage: "flag") }
+                        }
                     }
                     // Double-tap to quick-react with a heart (iMessage/WhatsApp-style).
                     .highPriorityGesture(TapGesture(count: 2).onEnded {
@@ -1135,7 +1136,8 @@ struct MessageBubble: View {
                         onReply(message)
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { dragX = 0 }
+                    // Smooth, gentle glide back (not a fast snap).
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.86)) { dragX = 0 }
                 }
         )
     }
