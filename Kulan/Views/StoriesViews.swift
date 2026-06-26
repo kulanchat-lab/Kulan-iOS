@@ -173,10 +173,26 @@ struct StoriesRow: View {
 // Full-screen story viewer: thin progress bars at top, Instagram-style header and
 // bottom reply bar, tap-right = next / tap-left = back, hold = pause, swipe-down = close.
 struct StoryViewer: View {
-    let group: StoryGroup
-    var anonymous: Bool = false
+    let groups: [StoryGroup]
+    var anonymous: Bool
     var onClose: () -> Void
 
+    // Single-group entry (e.g. My Story) — no cross-person swipe.
+    init(group: StoryGroup, anonymous: Bool = false, onClose: @escaping () -> Void) {
+        self.init(groups: [group], startIndex: 0, anonymous: anonymous, onClose: onClose)
+    }
+    // Full entry: swipe/advance between people across the ordered list.
+    init(groups: [StoryGroup], startIndex: Int = 0, anonymous: Bool = false, onClose: @escaping () -> Void) {
+        self.groups = groups
+        self.anonymous = anonymous
+        self.onClose = onClose
+        self._groupIndex = State(initialValue: max(0, min(startIndex, max(0, groups.count - 1))))
+    }
+
+    // The person whose stories are currently showing.
+    private var group: StoryGroup { groups[min(groupIndex, max(0, groups.count - 1))] }
+
+    @State private var groupIndex: Int
     @State private var index = 0
     @State private var progress = 0.0
     @State private var closing = false
@@ -184,6 +200,7 @@ struct StoryViewer: View {
     @FocusState private var replyFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
     @State private var paused = false
+    @State private var menuOpen = false        // "…" action sheet open -> pause the story
     @State private var dragDown: CGFloat = 0   // interactive swipe-down-to-dismiss
     @State private var viewed = Set<String>()
     @State private var showSent = false
@@ -256,35 +273,14 @@ struct StoryViewer: View {
                             }
                         }
                         Spacer()
-                        Menu {
-                            Button { saveToGallery() } label: {
-                                Label("Save to Gallery", systemImage: "square.and.arrow.down")
-                            }
-                            if group.isMine {
-                                Button(role: .destructive) { deleteCurrentStory() } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            } else {
-                                Button { StoryPrefs.toggleNotify(group.authorUid) } label: {
-                                    Label(StoryPrefs.isNotifying(group.authorUid) ? "Stop Notifying" : "Notify About Stories",
-                                          systemImage: StoryPrefs.isNotifying(group.authorUid) ? "bell.slash" : "bell")
-                                }
-                                Button(role: .destructive) {
-                                    StoryPrefs.toggleHidden(group.authorUid); onClose()
-                                } label: {
-                                    Label("Hide Stories", systemImage: "archivebox")
-                                }
-                                Button(role: .destructive) { reportStory() } label: {
-                                    Label("Report", systemImage: "exclamationmark.bubble")
-                                }
-                            }
-                        } label: {
+                        Button { menuOpen = true } label: {   // pauses the story while open
                             Image(systemName: "ellipsis")
                                 .font(.system(size: 20, weight: .semibold))
                                 .foregroundStyle(.white)
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                         Button(action: onClose) {
                             Image(systemName: "xmark")
                                 .font(.system(size: 18, weight: .semibold))
@@ -389,23 +385,44 @@ struct StoryViewer: View {
         .background(Color.black.ignoresSafeArea())   // pinned backdrop behind the sliding card
         .ignoresSafeArea()
         .onReceive(ticker) { _ in tick() }
-        .task(id: index) {
+        .confirmationDialog("", isPresented: $menuOpen, titleVisibility: .hidden) {
+            Button("Save to Gallery") { saveToGallery() }
+            if group.isMine {
+                Button("Delete", role: .destructive) { deleteCurrentStory() }
+            } else {
+                Button(StoryPrefs.isNotifying(group.authorUid) ? "Stop Notifying" : "Notify About Stories") {
+                    StoryPrefs.toggleNotify(group.authorUid)
+                }
+                Button("Hide Stories", role: .destructive) { StoryPrefs.toggleHidden(group.authorUid); onClose() }
+                Button("Report", role: .destructive) { reportStory() }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .task(id: story?.id) {   // keyed by story id so it fires across people too
             guard !anonymous, let s = story, !viewed.contains(s.id) else { return }
             viewed.insert(s.id); await StoriesService.shared.markViewed(s)
         }
         .simultaneousGesture(
             DragGesture(minimumDistance: 20)
                 .onChanged { v in
-                    // With the reply keyboard up, a downward swipe should just lower the
-                    // keyboard — not tear down the viewer.
                     if replyFocused { return }
-                    dragDown = max(0, v.translation.height)   // never sticks if the finger goes back up
-                    if dragDown > 0 { paused = true }
+                    // Only drive the dismiss transform for downward-dominant drags; leave
+                    // horizontal drags for person-to-person swiping (resolved on release).
+                    if v.translation.height > abs(v.translation.width) {
+                        dragDown = max(0, v.translation.height)   // never sticks if the finger goes back up
+                        if dragDown > 0 { paused = true }
+                    }
                 }
                 .onEnded { v in
                     if replyFocused { replyFocused = false; return }
                     paused = false
-                    let dy = v.translation.height
+                    let dy = v.translation.height, dx = v.translation.width
+                    // Horizontal swipe → jump to the next/previous person's stories.
+                    if abs(dx) > abs(dy), abs(dx) > 60 {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) { dragDown = 0 }
+                        if dx < 0 { nextGroup() } else { prevGroup() }
+                        return
+                    }
                     // Require real vertical travel before honouring the velocity branch, so a
                     // quick horizontal/diagonal flick can't accidentally dismiss.
                     if dy > 120 || (dy > 60 && v.predictedEndTranslation.height > 320) {
@@ -428,18 +445,38 @@ struct StoryViewer: View {
     private func fill(_ i: Int) -> Double { i < index ? 1 : (i == index ? progress : 0) }
 
     private func tick() {
-        guard !closing, !replyFocused, !paused, scenePhase == .active, story != nil else { return }
+        guard !closing, !replyFocused, !paused, !menuOpen, scenePhase == .active, story != nil else { return }
         progress = min(progress + 0.02 / perStory, 1)
         if progress >= 1 { next() }
     }
 
     private func next() {
         if index < group.stories.count - 1 { index += 1; progress = 0 }
-        else { closing = true; onClose() }
+        else { nextGroup() }   // end of this person -> advance to the next person
     }
 
     private func back() {
-        if index > 0 { index -= 1; progress = 0 } else { progress = 0 }
+        if index > 0 { index -= 1; progress = 0 }
+        else if groupIndex > 0 {
+            groupIndex -= 1
+            index = max(0, group.stories.count - 1)   // land on the previous person's last story
+            progress = 0
+        } else { progress = 0 }
+    }
+
+    // Advance to the next person's stories; close at the very end of the list.
+    private func nextGroup() {
+        if groupIndex < groups.count - 1 {
+            groupIndex += 1; index = 0; progress = 0
+        } else {
+            closing = true; onClose()
+        }
+    }
+
+    // Jump to the previous person's first story (horizontal swipe-right).
+    private func prevGroup() {
+        guard groupIndex > 0 else { progress = 0; return }
+        groupIndex -= 1; index = 0; progress = 0
     }
 
     private func toast(_ text: String) {

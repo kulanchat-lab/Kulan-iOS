@@ -633,9 +633,17 @@ struct ChatsView: View {
                 StoryComposeSheet { Task { await StoriesRepository.shared.load() } }
             }
             .fullScreenCover(item: $viewerGroup) { g in
-                StoryViewer(group: g, anonymous: viewerAnonymous) {
+                let others = StoriesRepository.shared.others
+                let close: () -> Void = {
                     viewerGroup = nil
                     Task { await StoriesRepository.shared.load() }   // refresh seen rings
+                }
+                // A friend's story opens the whole ordered list (swipe person to person);
+                // My Story (not in `others`) opens on its own.
+                if let idx = others.firstIndex(where: { $0.id == g.id }) {
+                    StoryViewer(groups: others, startIndex: idx, anonymous: viewerAnonymous, onClose: close)
+                } else {
+                    StoryViewer(group: g, anonymous: viewerAnonymous, onClose: close)
                 }
             }
             .sheet(item: $profileGroup) { g in
