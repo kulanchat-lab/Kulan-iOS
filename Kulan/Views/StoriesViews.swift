@@ -142,6 +142,7 @@ struct StoriesRow: View {
                     AvatarView(name: name, photoUrl: avatar, size: 32)
                         // Status ring ONLY here: accent when unseen, gone once viewed.
                         .overlay(Circle().stroke(Color.accentColor, lineWidth: unseen ? 2.5 : 0))
+                        .animation(.easeInOut(duration: 0.3), value: unseen)   // fade the ring on view
                         .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
                         .padding(8)
                 }
@@ -195,6 +196,7 @@ struct StoryViewer: View {
     @State private var paused = false                 // hold-to-pause
     @State private var viewed = Set<String>()         // de-dupe view receipts
     @State private var showSent = false               // "Sent" toast
+    @State private var keyboardHeight: CGFloat = 0     // lift the reply bar above the keyboard
     private let quickEmojis = ["❤️", "😂", "😮", "😢", "👏", "🔥"]
     private let ticker = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
     private let perStory = 5.0   // seconds per photo
@@ -229,6 +231,7 @@ struct StoryViewer: View {
                                 .overlay(alignment: .leading) {
                                     Capsule().fill(.white)
                                         .frame(width: geo.size.width * fill(i))
+                                        .animation(.linear(duration: 0.05), value: progress)   // smooth fill, no stepping
                                 }
                         }
                         .frame(height: 2.5)
@@ -257,8 +260,12 @@ struct StoryViewer: View {
                 Spacer()
                 // Reply bar (Signal stories logic) — only on someone else's story that allows replies.
                 if let s = story, !group.isMine, s.allowsReplies {
-                    reactionRow(s)
-                    replyBar(s)
+                    VStack(spacing: 0) {
+                        reactionRow(s)
+                        replyBar(s)
+                    }
+                    .padding(.bottom, keyboardHeight)   // rise above the keyboard when typing
+                    .animation(.easeOut(duration: 0.25), value: keyboardHeight)
                 }
             }
 
@@ -276,6 +283,12 @@ struct StoryViewer: View {
             viewed.insert(s.id); await StoriesService.shared.markViewed(s)
         }
         .gesture(DragGesture(minimumDistance: 30).onEnded { v in if v.translation.height > 80 { onClose() } })
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            if let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                keyboardHeight = max(0, UIScreen.main.bounds.height - f.origin.y)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardHeight = 0 }
     }
 
     private func fill(_ i: Int) -> Double { i < index ? 1 : (i == index ? progress : 0) }

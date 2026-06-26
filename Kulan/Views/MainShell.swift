@@ -46,6 +46,7 @@ struct MainShell: View {
                 Image(uiImage: ui).renderingMode(.original)
             } else {
                 Image(systemName: tab == 2 ? "person.crop.circle.fill" : "person.crop.circle")
+                    .contentTransition(.symbolEffect(.replace))   // smooth fill<->outline swap
             }
         }
     }
@@ -252,6 +253,8 @@ struct CallHistoryRow: View {
                     .foregroundStyle(.tint)
                     .frame(width: 38, height: 38)
                     .background(Color.primary.opacity(0.07), in: Circle())
+                    .frame(width: 44, height: 44)        // 44pt hit target (HIG min) without enlarging the visual
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
@@ -940,6 +943,8 @@ struct ChatRow: View {
             }
         }
         .frame(minHeight: 76)
+        .animation(.easeInOut(duration: 0.22), value: unread)   // smooth bold/color/badge changes
+        .animation(.easeInOut(duration: 0.22), value: muted)
         .padding(.vertical, 2)
         .padding(.horizontal, 16)   // 16pt gutter moved inside the cell (row insets are now
                                     // zero) so the reorder drag preview matches the cell width

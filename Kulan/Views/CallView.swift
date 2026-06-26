@@ -13,7 +13,7 @@ struct CallView: View {
     @State private var hideWork: DispatchWorkItem?
     @State private var pipOffset = CGSize.zero      // draggable local-camera PiP
     @State private var pipBase = CGSize.zero
-    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     // Auto-hide the controls a few seconds after they appear (video calls only).
     private func scheduleHide() {
@@ -24,7 +24,7 @@ struct CallView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
     }
     private func revealControls() {
-        withAnimation(.easeInOut(duration: 0.25)) { controlsShown = true }
+        withAnimation(.easeInOut(duration: 0.3)) { controlsShown = true }   // match the scrim fade
         scheduleHide()
     }
 
@@ -121,6 +121,7 @@ struct CallView: View {
         // pill. fullScreenCover blocks the native swipe, so we drive it ourselves.
         .scaleEffect(dynamicScale, anchor: .center)
         .offset(y: dragY > 0 ? dragY * 0.8 : 0)              // rubber-banding
+        .clipped()                                            // keep video content inside the rounding
         .cornerRadius(dragY > 0 ? 38 : 0)                    // round as it shrinks
         .opacity(Double(max(0.45, 1 - dragY / 600)))         // fade out toward the pill
         .onReceive(ticker) { now = $0 }
@@ -190,8 +191,14 @@ struct CallView: View {
                     .offset(pipOffset)
                     .gesture(
                         DragGesture()
-                            .onChanged { pipOffset = CGSize(width: pipBase.width + $0.translation.width,
-                                                            height: pipBase.height + $0.translation.height) }
+                            .onChanged { v in
+                                let w = pipBase.width + v.translation.width
+                                let h = pipBase.height + v.translation.height
+                                let maxLeft = -(UIScreen.main.bounds.width - 134)   // slide to the left edge, no further
+                                let maxDown = UIScreen.main.bounds.height - 330      // slide down, leave room for controls
+                                pipOffset = CGSize(width: min(20, max(maxLeft, w)),
+                                                   height: min(maxDown, max(-20, h)))
+                            }
                             .onEnded { _ in pipBase = pipOffset }
                     )
                     .padding(.top, 56).padding(.trailing, 14)
@@ -288,7 +295,7 @@ struct CallContainer<Content: View>: View {
 struct MiniCallBar: View {
     private var call: CallService { CallService.shared }
     @State private var now = Date()
-    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private var statusText: String {
         switch call.state {
