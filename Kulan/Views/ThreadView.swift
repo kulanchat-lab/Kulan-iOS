@@ -333,9 +333,13 @@ struct ThreadView: View {
                     )
                     .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
                     .id(msg.id)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))   // Signal-style slide-in
                 }
             }
-            if repo.otherTyping && !repo.iBlocked && typingPref { TypingBubble(dark: dark).padding(.top, 6).id("TYPING") }
+            if repo.otherTyping && !repo.iBlocked && typingPref {
+                TypingBubble(dark: dark).padding(.top, 6).id("TYPING")
+                    .transition(.scale(scale: 0.85, anchor: .bottomLeading).combined(with: .opacity))
+            }
             // Bottom sentinel: drives "am I at the bottom?" for the scroll button.
             Color.clear.frame(height: 1).id("BOTTOM")
                 .onAppear { isAtBottom = true; newWhileAway = 0 }
@@ -343,6 +347,9 @@ struct ThreadView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        // Animate ONLY the typing indicator appearing/disappearing (scoped value — never
+        // touches scroll or pagination). Sent-message spring lives at the send() call site.
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: repo.otherTyping)
     }
 
     // Native toolbar header (real Liquid Glass + native back/swipe), same approach as the
@@ -394,8 +401,11 @@ struct ThreadView: View {
         replyingTo = nil
         typingSent = false
         // Show the bubble INSTANTLY (optimistic), then reconcile when the server echoes it.
+        // Spring it in (Signal-style) — the bubble slides up + fades via its row transition.
         let clientId = UUID().uuidString
-        repo.addPending(Message(localText: text, authorId: me, clientId: clientId, replyTo: reply, sendState: .sending))
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            repo.addPending(Message(localText: text, authorId: me, clientId: clientId, replyTo: reply, sendState: .sending))
+        }
         Task {
             await ChatService.setTyping(cid, false)
             await deliver(text: text, reply: reply, clientId: clientId)
@@ -426,8 +436,10 @@ struct ThreadView: View {
         let size = UIImage(data: preview)?.size ?? CGSize(width: 1, height: 1)
         let clientId = UUID().uuidString
         await MainActor.run {
-            repo.addPending(Message(localImageData: preview, width: Double(size.width), height: Double(size.height),
-                                    authorId: me, clientId: clientId, sendState: .sending))
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                repo.addPending(Message(localImageData: preview, width: Double(size.width), height: Double(size.height),
+                                        authorId: me, clientId: clientId, sendState: .sending))
+            }
         }
         do { try await ChatService.sendImage(cid: cid, data: data, clientId: clientId) }
         catch { await MainActor.run { repo.markFailed(clientId: clientId) } }
