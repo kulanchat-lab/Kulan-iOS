@@ -22,12 +22,12 @@ struct StoryImage: View {
             } else if failed {
                 ZStack { Color.black; Image(systemName: "photo").font(.largeTitle).foregroundStyle(.white.opacity(0.5)) }
             } else {
-                SkeletonFill()   // shimmer placeholder instead of a spinner
+                SkeletonFill()
             }
         }
         .task(id: url) { await load() }
     }
-    @MainActor private func load() async {   // mutate @State only on the main actor
+    @MainActor private func load() async {
         failed = false
         if let cached = StoryImageCache.shared.object(forKey: url as NSString) { image = cached; return }
         guard let u = URL(string: url) else { failed = true; return }
@@ -39,8 +39,7 @@ struct StoryImage: View {
     }
 }
 
-// Local per-author story prefs: hide a person's stories from the row, toggle "notify".
-// Persisted in UserDefaults (space-joined uid sets), like the reaction recents.
+// Local per-author story prefs.
 enum StoryPrefs {
     private static func set(_ key: String) -> Set<String> {
         Set((UserDefaults.standard.string(forKey: key) ?? "").split(separator: " ").map(String.init))
@@ -58,8 +57,7 @@ enum StoryPrefs {
     }
 }
 
-// Horizontal Stories row for the top of the Chats screen: "My Status" cell (tap to add
-// or view your own) + friends' rings (unseen = accent ring, seen = grey). Loads on appear.
+// Horizontal Stories row for the top of the Chats screen.
 struct StoriesRow: View {
     @State private var repo = StoriesRepository.shared
     var meName: String
@@ -69,15 +67,14 @@ struct StoriesRow: View {
     var onMessage: (StoryGroup) -> Void = { _ in }
     var onProfile: (StoryGroup) -> Void = { _ in }
     var onOpenAnon: (StoryGroup) -> Void = { _ in }
-    @State private var prefsTick = 0   // re-render after hide/notify toggles
+    @State private var prefsTick = 0
 
     private let storySpacing: CGFloat = 10
     private let storyHPad: CGFloat = 12
-    // Size cards so EXACTLY 4 fit the screen width with even gaps — no half card at the edge.
     private var cardW: CGFloat {
         (UIScreen.main.bounds.width - storyHPad * 2 - storySpacing * 3) / 4
     }
-    private var cardH: CGFloat { cardW * 1.46 }   // "people"-card proportions
+    private var cardH: CGFloat { cardW * 1.46 }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -99,7 +96,7 @@ struct StoriesRow: View {
                                 Label("Hide Stories", systemImage: "archivebox")
                             }
                         } preview: {
-                            storyMenuPreview(g)   // lift ONLY the held story card, not the whole row
+                            storyMenuPreview(g)
                         }
                 }
             }
@@ -109,7 +106,6 @@ struct StoriesRow: View {
         .task { await repo.load() }
     }
 
-    // My Status: my latest story photo (or my avatar) as the cover, a + badge to add.
     private var myCard: some View {
         card(cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
              name: "My Story", avatar: mePhoto,
@@ -118,8 +114,6 @@ struct StoriesRow: View {
         }
     }
 
-    // A cover card: rounded photo, accent border when unseen, small corner avatar (or a +
-    // badge for My Story), name underneath.
     private func card(cover: String?, name: String, avatar: String?, unseen: Bool,
                       onBadge: (() -> Void)? = nil, tap: @escaping () -> Void) -> some View {
         VStack(spacing: 6) {
@@ -127,23 +121,18 @@ struct StoriesRow: View {
                 coverImage(cover, name: name, avatar: avatar)
                     .frame(width: cardW, height: cardH)
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                    // No border/frame on the card itself — the viewed/unviewed ring lives
-                    // only on the avatar badge below.
                 if let onBadge {
                     Button(action: onBadge) {
                         Image(systemName: "plus.circle.fill")
                             .font(.system(size: 26)).symbolRenderingMode(.palette)
-                            // plus glyph = page bg, circle = primary -> always contrasts in
-                            // both modes (accent is white in dark, so the old version was all white).
                             .foregroundStyle(Color(.systemBackground), .primary)
                             .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
                     }
                     .buttonStyle(.plain).padding(8)
                 } else {
                     AvatarView(name: name, photoUrl: avatar, size: 32)
-                        // Status ring ONLY here: accent when unseen, gone once viewed.
                         .overlay(Circle().stroke(Color.accentColor, lineWidth: unseen ? 2.5 : 0))
-                        .animation(.easeInOut(duration: 0.3), value: unseen)   // fade the ring on view
+                        .animation(.easeInOut(duration: 0.3), value: unseen)
                         .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
                         .padding(8)
                 }
@@ -157,7 +146,7 @@ struct StoriesRow: View {
 
     @ViewBuilder private func coverImage(_ cover: String?, name: String, avatar: String?) -> some View {
         if let cover, !cover.isEmpty {
-            StoryImage(url: cover)   // cached -> the row stops re-downloading covers on every scroll
+            StoryImage(url: cover)
         } else {
             ZStack {
                 Color.secondary.opacity(0.2)
@@ -166,7 +155,6 @@ struct StoriesRow: View {
         }
     }
 
-    // Single-card preview for the long-press menu — only the held story lifts (not the row).
     @ViewBuilder private func storyMenuPreview(_ g: StoryGroup) -> some View {
         Group {
             if let cover = g.stories.last?.mediaUrl, !cover.isEmpty {
@@ -181,11 +169,13 @@ struct StoriesRow: View {
     func reload() { Task { await repo.load() } }
 }
 
-// Full-screen story viewer: top progress bars, tap-right = next / tap-left = back,
-// auto-advance, swipe-down to close. Marks each shown story viewed.
+// MARK: - Story Viewer (Instagram-style)
+
+// Full-screen story viewer: thin progress bars at top, Instagram-style header and
+// bottom reply bar, tap-right = next / tap-left = back, hold = pause, swipe-down = close.
 struct StoryViewer: View {
     let group: StoryGroup
-    var anonymous: Bool = false   // "View Anonymously" -> don't send a view receipt
+    var anonymous: Bool = false
     var onClose: () -> Void
 
     @State private var index = 0
@@ -194,123 +184,220 @@ struct StoryViewer: View {
     @State private var replyText = ""
     @FocusState private var replyFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
-    @State private var paused = false                 // hold-to-pause
-    @State private var viewed = Set<String>()         // de-dupe view receipts
-    @State private var showSent = false               // toast visibility
-    @State private var toastText = "Sent"             // toast text (Sent / Saved / Reported)
-    @State private var toastTask: Task<Void, Never>?  // cancellable so it can't fire after dismiss
-    @State private var keyboardHeight: CGFloat = 0     // lift the reply bar above the keyboard
+    @State private var paused = false
+    @State private var viewed = Set<String>()
+    @State private var showSent = false
+    @State private var toastText = "Sent"
+    @State private var toastTask: Task<Void, Never>?
+    @State private var keyboardHeight: CGFloat = 0
     private let quickEmojis = ["❤️", "😂", "😮", "😢", "👏", "🔥"]
     private let ticker = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
-    private let perStory = 5.0   // seconds per photo
+    private let perStory = 5.0
 
     private var story: Story? { group.stories.indices.contains(index) ? group.stories[index] : nil }
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            if let s = story {
-                StoryImage(url: s.mediaUrl)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
-                    .ignoresSafeArea()
-            }
+        GeometryReader { geo in
+            let safeTop = geo.safeAreaInsets.top
+            let safeBottom = geo.safeAreaInsets.bottom
 
-            // Tap zones: tap left = back, tap right = next; press-and-hold = pause.
-            HStack(spacing: 0) {
-                Color.clear.contentShape(Rectangle()).frame(maxWidth: .infinity)
-                    .onTapGesture { back() }
-                    .onLongPressGesture(minimumDuration: 0.2, maximumDistance: 40, perform: {}, onPressingChanged: { paused = $0 })
-                Color.clear.contentShape(Rectangle()).frame(maxWidth: .infinity)
-                    .onTapGesture { next() }
-                    .onLongPressGesture(minimumDuration: 0.2, maximumDistance: 40, perform: {}, onPressingChanged: { paused = $0 })
-            }
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-            VStack {
-                HStack(spacing: 4) {
-                    ForEach(group.stories.indices, id: \.self) { i in
-                        GeometryReader { geo in
-                            Capsule().fill(.white.opacity(0.3))
-                                .overlay(alignment: .leading) {
-                                    Capsule().fill(.white)
-                                        .frame(width: geo.size.width * fill(i))
-                                        .animation(.linear(duration: 0.05), value: progress)   // smooth fill, no stepping
+                if let s = story {
+                    StoryImage(url: s.mediaUrl)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipped()
+                        .ignoresSafeArea()
+                }
+
+                HStack(spacing: 0) {
+                    Color.clear.contentShape(Rectangle()).frame(maxWidth: .infinity)
+                        .onTapGesture { back() }
+                        .onLongPressGesture(minimumDuration: 0.2, maximumDistance: 40, perform: {},
+                                            onPressingChanged: { paused = $0 })
+                    Color.clear.contentShape(Rectangle()).frame(maxWidth: .infinity)
+                        .onTapGesture { next() }
+                        .onLongPressGesture(minimumDuration: 0.2, maximumDistance: 40, perform: {},
+                                            onPressingChanged: { paused = $0 })
+                }
+
+                VStack(spacing: 0) {
+                    HStack(spacing: 4) {
+                        ForEach(group.stories.indices, id: \.self) { i in
+                            GeometryReader { bar in
+                                Capsule().fill(.white.opacity(0.35))
+                                    .overlay(alignment: .leading) {
+                                        Capsule().fill(.white)
+                                            .frame(width: bar.size.width * fill(i))
+                                            .animation(.linear(duration: 0.02), value: progress)
+                                    }
+                            }
+                            .frame(height: 2)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, safeTop + 6)
+
+                    HStack(spacing: 10) {
+                        AvatarView(name: group.name, photoUrl: group.photoUrl, size: 34)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(group.name)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.white)
+                            if let s = story {
+                                Text(timeAgo(s.createdAt))
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.white.opacity(0.75))
+                            }
+                        }
+                        Spacer()
+                        Menu {
+                            Button { saveToGallery() } label: {
+                                Label("Save to Gallery", systemImage: "square.and.arrow.down")
+                            }
+                            if group.isMine {
+                                Button(role: .destructive) { deleteCurrentStory() } label: {
+                                    Label("Delete", systemImage: "trash")
                                 }
+                            } else {
+                                Button { StoryPrefs.toggleNotify(group.authorUid) } label: {
+                                    Label(StoryPrefs.isNotifying(group.authorUid) ? "Stop Notifying" : "Notify About Stories",
+                                          systemImage: StoryPrefs.isNotifying(group.authorUid) ? "bell.slash" : "bell")
+                                }
+                                Button(role: .destructive) {
+                                    StoryPrefs.toggleHidden(group.authorUid); onClose()
+                                } label: {
+                                    Label("Hide Stories", systemImage: "archivebox")
+                                }
+                                Button(role: .destructive) { reportStory() } label: {
+                                    Label("Report", systemImage: "exclamationmark.bubble")
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
-                        .frame(height: 2.5)
+                        Button(action: onClose) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
-                }
-                .padding(.horizontal, 10).padding(.top, 8)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
 
-                HStack(spacing: 10) {
-                    AvatarView(name: group.name, photoUrl: group.photoUrl, size: 32)
-                    Text(group.name).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
-                    if let s = story {
-                        Text(timeAgo(s.createdAt)).font(.caption).foregroundStyle(.white.opacity(0.7))
-                    }
                     Spacer()
-                    Menu {
-                        Button { saveToGallery() } label: { Label("Save to Gallery", systemImage: "square.and.arrow.down") }
-                        if group.isMine {
-                            Button(role: .destructive) { deleteCurrentStory() } label: { Label("Delete", systemImage: "trash") }
-                        } else {
-                            Button { StoryPrefs.toggleNotify(group.authorUid) } label: {
-                                Label(StoryPrefs.isNotifying(group.authorUid) ? "Stop Notifying" : "Notify About Stories",
-                                      systemImage: StoryPrefs.isNotifying(group.authorUid) ? "bell.slash" : "bell")
-                            }
-                            Button(role: .destructive) { StoryPrefs.toggleHidden(group.authorUid); onClose() } label: {
-                                Label("Hide Stories", systemImage: "archivebox")
-                            }
-                            Button(role: .destructive) { reportStory() } label: { Label("Report", systemImage: "exclamationmark.bubble") }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                            .frame(width: 32, height: 32)
-                    }
-                    .padding(.trailing, 2)
-                    Button(action: onClose) {
-                        Image(systemName: "xmark").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                    }
-                }
-                .padding(.horizontal, 14).padding(.top, 8)
-                Spacer()
-                // Reply bar (Signal stories logic) — only on someone else's story that allows replies.
-                if let s = story, !group.isMine, s.allowsReplies {
-                    VStack(spacing: 0) {
-                        reactionRow(s)
-                        replyBar(s)
-                    }
-                    .padding(.bottom, keyboardHeight)   // rise above the keyboard when typing
-                    .animation(.easeOut(duration: 0.25), value: keyboardHeight)
-                }
-            }
 
-            if showSent {
-                Text(toastText).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
-                    .padding(.horizontal, 18).padding(.vertical, 10)
-                    .background(.black.opacity(0.65), in: Capsule())
-                    .transition(.opacity)
+                    if let s = story, !group.isMine, s.allowsReplies {
+                        VStack(spacing: 10) {
+                            HStack(spacing: 0) {
+                                ForEach(quickEmojis, id: \.self) { e in
+                                    Button {
+                                        sendToAuthor(s, e)
+                                    } label: {
+                                        Text(e).font(.system(size: 32))
+                                            .frame(maxWidth: .infinity)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 8)
+
+                            HStack(spacing: 10) {
+                                HStack {
+                                    TextField("Send message…", text: $replyText)
+                                        .focused($replyFocused)
+                                        .foregroundStyle(.white)
+                                        .tint(.white)
+                                        .textFieldStyle(.plain)
+                                        .submitLabel(.send)
+                                        .onSubmit {
+                                            let t = replyText.trimmingCharacters(in: .whitespaces)
+                                            guard !t.isEmpty else { return }
+                                            replyText = ""; replyFocused = false
+                                            sendToAuthor(s, t)
+                                        }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(Capsule().stroke(.white.opacity(0.5), lineWidth: 1.5))
+
+                                Button {
+                                    sendToAuthor(s, "❤️")
+                                } label: {
+                                    Image(systemName: "heart")
+                                        .font(.system(size: 26))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 44, height: 44)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+
+                                Button {
+                                    let t = replyText.trimmingCharacters(in: .whitespaces)
+                                    guard !t.isEmpty else { return }
+                                    replyText = ""; replyFocused = false
+                                    sendToAuthor(s, t)
+                                } label: {
+                                    Image(systemName: "paperplane.fill")
+                                        .font(.system(size: 22))
+                                        .foregroundStyle(replyText.trimmingCharacters(in: .whitespaces).isEmpty
+                                                         ? .white.opacity(0.4) : .white)
+                                        .frame(width: 44, height: 44)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(replyText.trimmingCharacters(in: .whitespaces).isEmpty)
+                            }
+                            .padding(.horizontal, 12)
+                        }
+                        .padding(.bottom, keyboardHeight > 0 ? keyboardHeight + 8 : safeBottom + 12)
+                        .animation(.easeOut(duration: 0.25), value: keyboardHeight)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+                if showSent {
+                    Text(toastText)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18).padding(.vertical, 10)
+                        .background(.black.opacity(0.65), in: Capsule())
+                        .transition(.opacity)
+                }
             }
+            .animation(.easeInOut(duration: 0.2), value: showSent)
         }
-        .animation(.easeInOut(duration: 0.2), value: showSent)
+        .ignoresSafeArea()
         .onReceive(ticker) { _ in tick() }
         .task(id: index) {
             guard !anonymous, let s = story, !viewed.contains(s.id) else { return }
             viewed.insert(s.id); await StoriesService.shared.markViewed(s)
         }
-        .gesture(DragGesture(minimumDistance: 30).onEnded { v in if v.translation.height > 80 { onClose() } })
+        .gesture(DragGesture(minimumDistance: 30).onEnded { v in
+            if v.translation.height > 80 { onClose() }
+        })
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             if let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
                 keyboardHeight = max(0, UIScreen.main.bounds.height - f.origin.y)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardHeight = 0 }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardHeight = 0
+        }
     }
 
     private func fill(_ i: Int) -> Double { i < index ? 1 : (i == index ? progress : 0) }
 
     private func tick() {
-        // Pause on: dismissing, typing a reply, finger held, or app not active.
         guard !closing, !replyFocused, !paused, scenePhase == .active, story != nil else { return }
         progress = min(progress + 0.02 / perStory, 1)
         if progress >= 1 { next() }
@@ -318,35 +405,26 @@ struct StoryViewer: View {
 
     private func next() {
         if index < group.stories.count - 1 { index += 1; progress = 0 }
-        else { closing = true; onClose() }   // last story: close once
+        else { closing = true; onClose() }
     }
 
     private func back() {
         if index > 0 { index -= 1; progress = 0 } else { progress = 0 }
     }
 
-    // Quick-emoji reaction row (Instagram/Signal) — taps send straight to the author's chat.
-    @ViewBuilder private func reactionRow(_ s: Story) -> some View {
-        HStack(spacing: 16) {
-            ForEach(quickEmojis, id: \.self) { e in
-                Button { sendToAuthor(s, e) } label: { Text(e).font(.system(size: 30)) }
-                    .buttonStyle(.plain)
-            }
-        }
-        .padding(.bottom, 8)
-    }
-
     private func toast(_ text: String) {
         toastTask?.cancel()
         toastText = text; showSent = true
-        toastTask = Task { @MainActor in try? await Task.sleep(nanoseconds: 1_300_000_000); showSent = false }
+        toastTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_300_000_000)
+            showSent = false
+        }
     }
-    private func flashSent() { toast("Sent") }
 
-    // Save the currently shown story image to the camera roll — with a real permission
-    // check + completion, so the toast reflects what actually happened.
     private func saveToGallery() {
-        guard let s = story, let img = StoryImageCache.shared.object(forKey: s.mediaUrl as NSString) else { toast("Save failed"); return }
+        guard let s = story, let img = StoryImageCache.shared.object(forKey: s.mediaUrl as NSString) else {
+            toast("Save failed"); return
+        }
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             Task { @MainActor in
                 guard status == .authorized || status == .limited else { toast("Photo access denied"); return }
@@ -358,34 +436,10 @@ struct StoryViewer: View {
             }
         }
     }
+
     private func reportStory() {
         guard let s = story else { return }
         Task { await StoriesService.shared.reportStory(s); await MainActor.run { toast("Reported") } }
-    }
-
-    // Bottom bar: "Send message…" + heart (quick ❤️) + send. Replies go to the author's chat.
-    @ViewBuilder private func replyBar(_ s: Story) -> some View {
-        HStack(spacing: 14) {
-            TextField("Send message…", text: $replyText)
-                .focused($replyFocused)
-                .foregroundStyle(.white)
-                .tint(.white)
-                .padding(.horizontal, 18).padding(.vertical, 12)
-                .overlay(Capsule().stroke(.white.opacity(0.45), lineWidth: 1.5))
-            Button { sendToAuthor(s, "❤️") } label: {
-                Image(systemName: "heart").font(.system(size: 25)).foregroundStyle(.white)
-            }
-            Button {
-                let t = replyText.trimmingCharacters(in: .whitespaces)
-                replyText = ""; replyFocused = false
-                sendToAuthor(s, t)
-            } label: {
-                Image(systemName: "paperplane").font(.system(size: 23)).foregroundStyle(.white)
-            }
-            .disabled(replyText.trimmingCharacters(in: .whitespaces).isEmpty)
-            .opacity(replyText.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
-        }
-        .padding(.horizontal, 16).padding(.bottom, 10)
     }
 
     private func deleteCurrentStory() {
@@ -394,10 +448,9 @@ struct StoryViewer: View {
         next()
     }
 
-    // Send a story reply / reaction as a normal message into the author's chat (E2EE).
     private func sendToAuthor(_ s: Story, _ text: String) {
         guard !text.isEmpty, let me = AuthService.shared.uid, me != s.authorUid else { return }
-        flashSent()
+        toast("Sent")
         let cid = [me, s.authorUid].sorted().joined(separator: "_")
         Task { try? await ChatService.sendText(cid: cid, text: text) }
     }
@@ -408,16 +461,17 @@ struct StoryViewer: View {
     }
 }
 
-// Compose: pick a photo, preview, share to My Status. (Camera UI comes in a later stage.)
+// MARK: - Story Compose Sheet (photo preview + post)
+
 struct StoryComposeSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var data: Data?
     @State private var posting = false
     @State private var postError = false
-    @State private var textMode = false   // text story (gradient + text)
-    @State private var caption = ""       // optional caption baked onto the photo
-    @State private var expiryHours: Double = 24   // 6 / 12 / 24 / 48
-    @State private var kbHeight: CGFloat = 0      // lift the caption/send bar above the keyboard
+    @State private var textMode = false
+    @State private var caption = ""
+    @State private var expiryHours: Double = 24
+    @State private var kbHeight: CGFloat = 0
     @FocusState private var captionFocused: Bool
     var onPosted: () -> Void
 
@@ -427,106 +481,147 @@ struct StoryComposeSheet: View {
     }
 
     var body: some View {
-        Group {
-            if let data, let ui = UIImage(data: data) {
-                // Instagram-style preview: full-bleed photo, caption bar, "Your story" + send.
-                ZStack {
-                    Color.black.ignoresSafeArea()
-                    Image(uiImage: ui).resizable().scaledToFill()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity).clipped().ignoresSafeArea()
+        GeometryReader { geo in
+            let safeTop = geo.safeAreaInsets.top
+            let safeBottom = geo.safeAreaInsets.bottom
 
-                    // Caption preview baked near the bottom (only when typing/has text).
-                    if !caption.isEmpty {
-                        VStack {
-                            Spacer()
-                            Text(caption)
-                                .font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 18).padding(.vertical, 10)
-                                .frame(maxWidth: .infinity)
-                                .background(.black.opacity(0.32))
-                            Spacer().frame(height: 150)
-                        }
-                        .allowsHitTesting(false)
-                    }
+            Group {
+                if let data, let ui = UIImage(data: data) {
+                    ZStack {
+                        Color.black.ignoresSafeArea()
+                        Image(uiImage: ui)
+                            .resizable().scaledToFill()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .clipped()
+                            .ignoresSafeArea()
 
-                    VStack {
-                        // top: close (also discards the photo -> back to camera)
-                        HStack {
-                            Button { self.data = nil; caption = "" } label: { camCircle("xmark") }
-                            Spacer()
-                        }
-                        .padding(.horizontal, 14).padding(.top, 8)
-
-                        Spacer()
-
-                        // caption field + expiry chip (6h / 12h / 24h / 48h)
-                        HStack(spacing: 10) {
-                            TextField("Add a caption…", text: $caption, axis: .vertical)
-                                .focused($captionFocused)
-                                .foregroundStyle(.white).tint(.white)
-                                .lineLimit(1...3)
-                                .padding(.horizontal, 18).padding(.vertical, 12)
-                                .background(.black.opacity(0.4), in: Capsule())
-                                .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 1))
-                            Button { cycleExpiry() } label: {
-                                Text(expiryLabel).font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
-                                    .frame(width: 46, height: 46)
-                                    .background(.black.opacity(0.4), in: Circle())
-                                    .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
+                        if !caption.isEmpty {
+                            VStack {
+                                Spacer()
+                                Text(caption)
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 18).padding(.vertical, 10)
+                                    .frame(maxWidth: .infinity)
+                                    .background(.black.opacity(0.32))
+                                Spacer().frame(height: 160)
                             }
+                            .allowsHitTesting(false)
                         }
-                        .padding(.horizontal, 14)
 
-                        // send bar: "Your story" pill + circular send
-                        HStack(spacing: 12) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "person.crop.circle.fill")
-                                Text("Your story").fontWeight(.semibold)
-                            }
-                            .font(.subheadline).foregroundStyle(.white)
-                            .padding(.horizontal, 16).padding(.vertical, 12)
-                            .background(.white.opacity(0.18), in: Capsule())
-                            Spacer()
-                            Button { Task { await post() } } label: {
-                                Group {
-                                    if posting { ProgressView().tint(.white) }
-                                    else { Image(systemName: "arrow.right").font(.system(size: 22, weight: .bold)).foregroundStyle(.white) }
+                        VStack(spacing: 0) {
+                            HStack {
+                                Button {
+                                    self.data = nil; caption = ""
+                                } label: {
+                                    camCircle("xmark")
                                 }
-                                .frame(width: 54, height: 54)
-                                .background(Color.accentColor, in: Circle())
+                                .buttonStyle(.plain)
+                                Spacer()
                             }
-                            .disabled(posting)
+                            .padding(.horizontal, 14)
+                            .padding(.top, safeTop + 8)
+
+                            Spacer()
+
+                            HStack(spacing: 10) {
+                                TextField("Add a caption…", text: $caption, axis: .vertical)
+                                    .focused($captionFocused)
+                                    .foregroundStyle(.white)
+                                    .tint(.white)
+                                    .textFieldStyle(.plain)
+                                    .lineLimit(1...3)
+                                    .padding(.horizontal, 18).padding(.vertical, 12)
+                                    .background(.black.opacity(0.4), in: Capsule())
+                                    .overlay(Capsule().stroke(.white.opacity(0.25), lineWidth: 1))
+
+                                Button { cycleExpiry() } label: {
+                                    Text(expiryLabel)
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 46, height: 46)
+                                        .background(.black.opacity(0.4), in: Circle())
+                                        .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.horizontal, 14)
+
+                            HStack(spacing: 12) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "person.crop.circle.fill")
+                                        .font(.system(size: 17))
+                                    Text("Your story")
+                                        .font(.system(size: 15, weight: .semibold))
+                                }
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 18).padding(.vertical, 12)
+                                .background(.white.opacity(0.18), in: Capsule())
+                                .overlay(Capsule().stroke(.white.opacity(0.35), lineWidth: 1))
+
+                                Spacer()
+
+                                Button {
+                                    Task { await post() }
+                                } label: {
+                                    ZStack {
+                                        if posting {
+                                            ProgressView().tint(.white)
+                                        } else {
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 22, weight: .bold))
+                                                .foregroundStyle(.white)
+                                        }
+                                    }
+                                    .frame(width: 56, height: 56)
+                                    .background(Color.accentColor, in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(posting)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.top, 12)
+                            .padding(.bottom, kbHeight > 0 ? kbHeight + 8 : safeBottom + 16)
                         }
-                        .padding(.horizontal, 14).padding(.top, 10)
-                        .padding(.bottom, kbHeight > 0 ? kbHeight + 8 : 16)   // rise above the keyboard
+                        .animation(.easeOut(duration: 0.25), value: kbHeight)
                     }
-                    .animation(.easeOut(duration: 0.25), value: kbHeight)
+                } else if textMode {
+                    StoryTextComposer(
+                        onShare: { d in Task { await postDirect(d) } },
+                        onClose: { textMode = false }
+                    )
+                } else {
+                    StoryCameraView(
+                        onCapture: { d in data = d },
+                        onClose: { dismiss() },
+                        onTextMode: { textMode = true }
+                    )
                 }
-                .animation(.easeOut(duration: 0.2), value: captionFocused)
-            } else if textMode {
-                StoryTextComposer(onShare: { d in Task { await postDirect(d) } },
-                                  onClose: { textMode = false })
-            } else {
-                // Live story camera (capture / library) + Aa text-story mode.
-                StoryCameraView(onCapture: { d in data = d }, onClose: { dismiss() },
-                                onTextMode: { textMode = true })
             }
         }
+        .ignoresSafeArea()
         .alert("Couldn't share", isPresented: $postError) {
             Button("OK", role: .cancel) {}
-        } message: { Text("Your status didn't upload. Check your connection and try again.") }
+        } message: {
+            Text("Your status didn't upload. Check your connection and try again.")
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             if let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
                 kbHeight = max(0, UIScreen.main.bounds.height - f.origin.y)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in kbHeight = 0 }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            kbHeight = 0
+        }
     }
 
     private func camCircle(_ name: String) -> some View {
-        Image(systemName: name).font(.system(size: 17, weight: .semibold))
-            .foregroundStyle(.white).frame(width: 42, height: 42).background(.black.opacity(0.4), in: Circle())
+        Image(systemName: name)
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 44, height: 44)
+            .background(.black.opacity(0.45), in: Circle())
     }
 
     private func post() async {
@@ -540,11 +635,10 @@ struct StoryComposeSheet: View {
             dismiss()
         } catch {
             posting = false
-            postError = true   // keep the preview so the user can retry, don't silently dismiss
+            postError = true
         }
     }
 
-    // Bake the caption onto the photo (so recipients see it) — else post the raw photo.
     @MainActor private func bakedImageData() -> Data? {
         guard let raw = data else { return nil }
         let cap = caption.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -567,7 +661,6 @@ struct StoryComposeSheet: View {
         return r.uiImage?.jpegData(compressionQuality: 0.9) ?? raw
     }
 
-    // Post a rendered text-story image directly (no preview step).
     private func postDirect(_ d: Data) async {
         posting = true
         do {
