@@ -406,6 +406,7 @@ struct StoryComposeSheet: View {
     @State private var textMode = false   // text story (gradient + text)
     @State private var caption = ""       // optional caption baked onto the photo
     @State private var expiryHours: Double = 24   // 6 / 12 / 24 / 48
+    @State private var kbHeight: CGFloat = 0      // lift the caption/send bar above the keyboard
     @FocusState private var captionFocused: Bool
     var onPosted: () -> Void
 
@@ -487,8 +488,9 @@ struct StoryComposeSheet: View {
                             .disabled(posting)
                         }
                         .padding(.horizontal, 14).padding(.top, 10)
-                        .padding(.bottom, captionFocused ? 8 : 16)
+                        .padding(.bottom, kbHeight > 0 ? kbHeight + 8 : 16)   // rise above the keyboard
                     }
+                    .animation(.easeOut(duration: 0.25), value: kbHeight)
                 }
                 .animation(.easeOut(duration: 0.2), value: captionFocused)
             } else if textMode {
@@ -503,6 +505,12 @@ struct StoryComposeSheet: View {
         .alert("Couldn't share", isPresented: $postError) {
             Button("OK", role: .cancel) {}
         } message: { Text("Your status didn't upload. Check your connection and try again.") }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            if let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                kbHeight = max(0, UIScreen.main.bounds.height - f.origin.y)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in kbHeight = 0 }
     }
 
     private func camCircle(_ name: String) -> some View {
