@@ -549,6 +549,8 @@ struct ChatsView: View {
                                                    photo: conv.photoUrl(for: me)))
                         } label: {
                             ChatRow(conv: conv, me: me, dark: dark)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())   // whole row tappable (incl. empty space)
                         }
                         .buttonStyle(.plain)
                         .tag(conv.id)
