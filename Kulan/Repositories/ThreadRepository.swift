@@ -136,8 +136,35 @@ final class ThreadRepository {
     // reconcile deletes within the window's time range, keep paged-older messages.
     private func applyLiveSnapshot(_ docs: [QueryDocumentSnapshot]) {
         lastDocs = docs   // remember the window so we can re-decrypt once the key arrives
-        var windowIds = Set<String>()
-        for doc in docs { buildCached(doc); windowIds.insert(doc.documentID) }
+        // Decrypt OFF the main thread. Opening a chat that already has cached history fires
+        // this listener INSTANTLY with up to a full page; decrypting it all on the main
+        // thread froze the UI during the navigation transition (the tester's "tap → gray →
+        // hang"). Only NEW or reaction-changed docs are decrypted; the rest are reused.
+        // (box.open is a thread-safe pure op, and my keys are set before any chat can open.)
+        let needBuild = docs.filter { doc in
+            let raw = (doc.data()["reactions"] as? [String: String]) ?? [:]
+            return byId[doc.documentID] == nil || rawReactions[doc.documentID] != raw
+        }
+        guard !needBuild.isEmpty else { commitSnapshot(docs); return }
+        let cidLocal = cid
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let built: [(String, [String: String], Message)] = needBuild.map { doc in
+                let raw = (doc.data()["reactions"] as? [String: String]) ?? [:]
+                return (doc.documentID, raw,
+                        Message(id: doc.documentID, data: doc.data(), cid: cidLocal, crypto: Crypto.shared))
+            }
+            await MainActor.run {
+                guard let self else { return }
+                for (id, raw, m) in built { self.byId[id] = m; self.rawReactions[id] = raw }
+                self.commitSnapshot(docs)
+            }
+        }
+    }
+
+    // Reconcile the window (deletes, paging cursor, first-load flag) and republish — runs
+    // on the main thread AFTER the (off-main) decryption merges its results into the cache.
+    private func commitSnapshot(_ docs: [QueryDocumentSnapshot]) {
+        let windowIds = Set(docs.map { $0.documentID })
         // A doc missing from the window but newer than its oldest edge was deleted.
         if let oldest = docs.last, let cutoff = (oldest.data()["createdAt"] as? Timestamp)?.dateValue() {
             for (id, m) in byId where m.createdAt >= cutoff && !windowIds.contains(id) {
