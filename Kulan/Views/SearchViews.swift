@@ -136,7 +136,7 @@ struct ChatSearchView: View {
                     ContentUnavailableView("Search messages", systemImage: "magnifyingglass",
                                            description: Text("Search names and the text of every message."))
                 } else if loadingCorpus && nothingFound {
-                    ProgressView()
+                    ChatListSkeleton()   // skeleton rows instead of a spinner while indexing
                 } else if !loadingCorpus && nothingFound {
                     ContentUnavailableView.search(text: trimmed)
                 }

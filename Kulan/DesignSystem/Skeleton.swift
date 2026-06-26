@@ -5,7 +5,9 @@ import SwiftUI
 // loads — the Signal "always-stable, never-blank" feel. Design-neutral: each skeleton
 // mirrors the real row's shape so nothing jumps when the real content arrives.
 
-private struct ShimmerFill: View {
+// Shimmering gray that fills its frame — the building block for every skeleton, and
+// usable on its own (e.g. as an image placeholder instead of a spinner).
+struct SkeletonFill: View {
     @Environment(\.colorScheme) private var scheme
     @State private var phase: CGFloat = -1
 
@@ -31,7 +33,7 @@ struct SkeletonBlock: View {
     var height: CGFloat = 12
     var radius: CGFloat = 6
     var body: some View {
-        ShimmerFill()
+        SkeletonFill()
             .frame(width: width, height: height)
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
@@ -40,7 +42,7 @@ struct SkeletonBlock: View {
 struct SkeletonCircle: View {
     var size: CGFloat
     var body: some View {
-        ShimmerFill().frame(width: size, height: size).clipShape(Circle())
+        SkeletonFill().frame(width: size, height: size).clipShape(Circle())
     }
 }
 

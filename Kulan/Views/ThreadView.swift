@@ -360,16 +360,24 @@ struct ThreadView: View {
         // toolbar item in a Liquid-Glass pill — but the avatar/name must NOT have that pill
         // (only the back button + call/video buttons should). `.buttonStyle(.plain)` alone
         // does NOT remove it; `.sharedBackgroundVisibility(.hidden)` does.
+        // .principal (NOT .topBarLeading): the principal slot is the only one that slides
+        // 1:1 with the page during the edge-swipe-back — so the avatar+name follows the page
+        // like the messages do. A trailing Spacer keeps it LEFT-aligned (same spot, not
+        // centered). The back button + call buttons stay put (untouched).
         if #available(iOS 26.0, *) {
-            ToolbarItem(placement: .topBarLeading) {
-                Button { showContactInfo = true } label: { headerLabel }
-                    .buttonStyle(.plain)
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 0) {
+                    Button { showContactInfo = true } label: { headerLabel }.buttonStyle(.plain)
+                    Spacer(minLength: 0)
+                }
             }
             .sharedBackgroundVisibility(.hidden)
         } else {
-            ToolbarItem(placement: .topBarLeading) {
-                Button { showContactInfo = true } label: { headerLabel }
-                    .buttonStyle(.plain)
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 0) {
+                    Button { showContactInfo = true } label: { headerLabel }.buttonStyle(.plain)
+                    Spacer(minLength: 0)
+                }
             }
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -692,7 +700,7 @@ struct ThreadView: View {
             .lineLimit(1...6)
             .focused($inputFocused)
             .padding(.leading, 14)
-            .padding(.vertical, 10)
+            .padding(.vertical, 9)   // single-line field height ~40 to match the + button
             .onChange(of: input) { _, v in
                 let now = !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if now != typingSent {
@@ -720,7 +728,7 @@ struct ThreadView: View {
                 .frame(width: recordingHeld ? 0 : nil)   // collapse camera while recording
                 micButton
             }
-            .padding(.trailing, 12).padding(.bottom, 7)
+            .padding(.trailing, 12).padding(.bottom, 2)   // keep the bar at ~40px
         }
     }
 
@@ -747,7 +755,7 @@ struct ThreadView: View {
         Image(systemName: "mic.fill")
             .font(.system(size: recordingHeld ? 24 : 22, weight: .medium))
             .foregroundStyle(recordingHeld ? Theme.onAccent(dark) : Color.secondary)
-            .frame(width: recordingHeld ? 56 : 40, height: recordingHeld ? 56 : 40)
+            .frame(width: recordingHeld ? 56 : 36, height: recordingHeld ? 56 : 36)   // fits the 40px bar
             .background {
                 if recordingHeld {
                     Circle().fill(recordCancelArmed ? Color.red : Theme.accent(dark))

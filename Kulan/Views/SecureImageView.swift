@@ -29,12 +29,11 @@ struct SecureImageView: View {
                 } else {
                     Image(uiImage: image).resizable().scaledToFit()
                 }
-            } else {
+            } else if failed {
                 Rectangle().fill(Color.gray.opacity(0.18))
-                    .overlay {
-                        if failed { Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary) }
-                        else { ProgressView() }
-                    }
+                    .overlay { Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary) }
+            } else {
+                SkeletonFill()   // shimmer skeleton while loading (replaces the spinner)
             }
         }
         .task(id: imageUrl) { await load() }
