@@ -376,24 +376,18 @@ struct ThreadView: View {
         // toolbar item in a Liquid-Glass pill — but the avatar/name must NOT have that pill
         // (only the back button + call/video buttons should). `.buttonStyle(.plain)` alone
         // does NOT remove it; `.sharedBackgroundVisibility(.hidden)` does.
-        // .principal (NOT .topBarLeading): the principal slot is the only one that slides
-        // 1:1 with the page during the edge-swipe-back — so the avatar+name follows the page
-        // like the messages do. A trailing Spacer keeps it LEFT-aligned (same spot, not
-        // centered). The back button + call buttons stay put (untouched).
+        // .topBarLeading: place the avatar+name LEFT, right after the back button (in the
+        // empty space) — not centered. `.sharedBackgroundVisibility(.hidden)` keeps it
+        // glass-free. (Trade-off: a leading item doesn't slide with the page on swipe-back;
+        // left position was the explicit ask.)
         if #available(iOS 26.0, *) {
-            ToolbarItem(placement: .principal) {
-                HStack(spacing: 0) {
-                    Button { showContactInfo = true } label: { headerLabel }.buttonStyle(.plain)
-                    Spacer(minLength: 0)
-                }
+            ToolbarItem(placement: .topBarLeading) {
+                Button { showContactInfo = true } label: { headerLabel }.buttonStyle(.plain)
             }
             .sharedBackgroundVisibility(.hidden)
         } else {
-            ToolbarItem(placement: .principal) {
-                HStack(spacing: 0) {
-                    Button { showContactInfo = true } label: { headerLabel }.buttonStyle(.plain)
-                    Spacer(minLength: 0)
-                }
+            ToolbarItem(placement: .topBarLeading) {
+                Button { showContactInfo = true } label: { headerLabel }.buttonStyle(.plain)
             }
         }
         ToolbarItem(placement: .topBarTrailing) {
