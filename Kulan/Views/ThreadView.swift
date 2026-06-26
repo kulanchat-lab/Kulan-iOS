@@ -121,7 +121,14 @@ struct ThreadView: View {
                 }
             }
             .floatingBottomBar {
-                if repo.iBlocked { blockedBar } else { composerArea }
+                Group {
+                    if repo.iBlocked {
+                        blockedBar.transition(.opacity.combined(with: .move(edge: .bottom)))
+                    } else {
+                        composerArea.transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.25), value: repo.iBlocked)
             }
             }
         }
