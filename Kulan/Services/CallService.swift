@@ -512,6 +512,7 @@ final class CallService: NSObject {
     }
 
     private func finishCall(updateRemote: Bool, clearCallKit: Bool, localUser: Bool) {
+        guard state != .ended, state != .idle else { return }   // re-entry guard: only finish once
         cancelTimers()
         stopRingback()
         if endReason == .none {   // infer it: connected→hang up, else caller=missed / callee=declined

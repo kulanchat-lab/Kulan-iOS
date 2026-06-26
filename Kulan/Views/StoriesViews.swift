@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import Photos
 import UIKit
 
 // Cached story image: loads once, caches by URL, so swiping back/forward and replays
@@ -26,7 +27,7 @@ struct StoryImage: View {
         }
         .task(id: url) { await load() }
     }
-    private func load() async {
+    @MainActor private func load() async {   // mutate @State only on the main actor
         failed = false
         if let cached = StoryImageCache.shared.object(forKey: url as NSString) { image = cached; return }
         guard let u = URL(string: url) else { failed = true; return }
@@ -197,6 +198,7 @@ struct StoryViewer: View {
     @State private var viewed = Set<String>()         // de-dupe view receipts
     @State private var showSent = false               // toast visibility
     @State private var toastText = "Sent"             // toast text (Sent / Saved / Reported)
+    @State private var toastTask: Task<Void, Never>?  // cancellable so it can't fire after dismiss
     @State private var keyboardHeight: CGFloat = 0     // lift the reply bar above the keyboard
     private let quickEmojis = ["❤️", "😂", "😮", "😢", "👏", "🔥"]
     private let ticker = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
@@ -335,21 +337,30 @@ struct StoryViewer: View {
     }
 
     private func toast(_ text: String) {
+        toastTask?.cancel()
         toastText = text; showSent = true
-        Task { try? await Task.sleep(nanoseconds: 1_300_000_000); await MainActor.run { showSent = false } }
+        toastTask = Task { @MainActor in try? await Task.sleep(nanoseconds: 1_300_000_000); showSent = false }
     }
     private func flashSent() { toast("Sent") }
 
-    // Save the currently shown story image (from the cache) to the camera roll.
+    // Save the currently shown story image to the camera roll — with a real permission
+    // check + completion, so the toast reflects what actually happened.
     private func saveToGallery() {
         guard let s = story, let img = StoryImageCache.shared.object(forKey: s.mediaUrl as NSString) else { toast("Save failed"); return }
-        UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
-        toast("Saved")
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            Task { @MainActor in
+                guard status == .authorized || status == .limited else { toast("Photo access denied"); return }
+                PHPhotoLibrary.shared().performChanges {
+                    PHAssetChangeRequest.creationRequestForAsset(from: img)
+                } completionHandler: { ok, _ in
+                    Task { @MainActor in toast(ok ? "Saved" : "Save failed") }
+                }
+            }
+        }
     }
     private func reportStory() {
         guard let s = story else { return }
-        Task { await StoriesService.shared.reportStory(s) }
-        toast("Reported")
+        Task { await StoriesService.shared.reportStory(s); await MainActor.run { toast("Reported") } }
     }
 
     // Bottom bar: "Send message…" + heart (quick ❤️) + send. Replies go to the author's chat.
