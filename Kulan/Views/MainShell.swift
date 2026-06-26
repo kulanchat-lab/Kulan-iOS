@@ -608,7 +608,7 @@ struct ChatsView: View {
             // Hide the header icons whenever a chat is on the stack (incl. the swipe-back
             // drag); reveal them only when we're fully back at the root list.
             .onChange(of: path.count) { showHeaderIcons = path.isEmpty }
-            .sheet(isPresented: $showCompose) {
+            .fullScreenCover(isPresented: $showCompose) {   // full-screen camera, never a half-sheet
                 StoryComposeSheet { Task { await StoriesRepository.shared.load() } }
             }
             .fullScreenCover(item: $viewerGroup) { g in

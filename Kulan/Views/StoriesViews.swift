@@ -2,6 +2,42 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
+// Cached story image: loads once, caches by URL, so swiping back/forward and replays
+// never re-download (kills the flashing/lag). Falls back gracefully if a URL is broken.
+private final class StoryImageCache {
+    static let shared: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>(); c.countLimit = 60; return c
+    }()
+}
+
+struct StoryImage: View {
+    let url: String
+    @State private var image: UIImage?
+    @State private var failed = false
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else if failed {
+                ZStack { Color.black; Image(systemName: "photo").font(.largeTitle).foregroundStyle(.white.opacity(0.5)) }
+            } else {
+                ZStack { Color.black; ProgressView().tint(.white) }
+            }
+        }
+        .task(id: url) { await load() }
+    }
+    private func load() async {
+        failed = false
+        if let cached = StoryImageCache.shared.object(forKey: url as NSString) { image = cached; return }
+        guard let u = URL(string: url) else { failed = true; return }
+        guard let (data, _) = try? await URLSession.shared.data(from: u), let img = UIImage(data: data) else {
+            failed = true; return
+        }
+        StoryImageCache.shared.setObject(img, forKey: url as NSString)
+        image = img
+    }
+}
+
 // Horizontal Stories row for the top of the Chats screen: "My Status" cell (tap to add
 // or view your own) + friends' rings (unseen = accent ring, seen = grey). Loads on appear.
 struct StoriesRow: View {
@@ -81,11 +117,8 @@ struct StoriesRow: View {
     }
 
     @ViewBuilder private func coverImage(_ cover: String?, name: String, avatar: String?) -> some View {
-        if let cover, let url = URL(string: cover) {
-            AsyncImage(url: url) { p in
-                if let img = p.image { img.resizable().scaledToFill() }
-                else { Color.secondary.opacity(0.25) }
-            }
+        if let cover, !cover.isEmpty {
+            StoryImage(url: cover)   // cached -> the row stops re-downloading covers on every scroll
         } else {
             ZStack {
                 Color.secondary.opacity(0.2)
@@ -122,13 +155,10 @@ struct StoryViewer: View {
         ZStack {
             Color.black.ignoresSafeArea()
             if let s = story {
-                AsyncImage(url: URL(string: s.mediaUrl)) { phase in
-                    if let img = phase.image { img.resizable().scaledToFill() }
-                    else { ProgressView().tint(.white) }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                .ignoresSafeArea()
+                StoryImage(url: s.mediaUrl)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                    .ignoresSafeArea()
             }
 
             // Tap zones: tap left = back, tap right = next; press-and-hold = pause.
@@ -281,6 +311,7 @@ struct StoryComposeSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var data: Data?
     @State private var posting = false
+    @State private var postError = false
     var onPosted: () -> Void
 
     var body: some View {
@@ -312,6 +343,9 @@ struct StoryComposeSheet: View {
                 StoryCameraView(onCapture: { d in data = d }, onClose: { dismiss() })
             }
         }
+        .alert("Couldn't share", isPresented: $postError) {
+            Button("OK", role: .cancel) {}
+        } message: { Text("Your status didn't upload. Check your connection and try again.") }
     }
 
     private func camCircle(_ name: String) -> some View {
@@ -322,9 +356,14 @@ struct StoryComposeSheet: View {
     private func post() async {
         guard let data else { return }
         posting = true
-        try? await StoriesService.shared.postStory(image: data)
-        posting = false
-        onPosted()
-        dismiss()
+        do {
+            try await StoriesService.shared.postStory(image: data)
+            posting = false
+            onPosted()
+            dismiss()
+        } catch {
+            posting = false
+            postError = true   // keep the preview so the user can retry, don't silently dismiss
+        }
     }
 }
