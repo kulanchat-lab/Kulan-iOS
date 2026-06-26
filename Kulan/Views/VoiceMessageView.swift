@@ -14,6 +14,13 @@ struct VoiceMessageView: View {
     @State private var loading = false
     @State private var progress: Double = 0
     @State private var timer: Timer?
+    @State private var rate: Float = 1.0   // playback speed (1× / 1.5× / 2×), like Signal/WhatsApp
+
+    private var rateLabel: String { rate == 1 ? "1×" : (rate == 1.5 ? "1.5×" : "2×") }
+    private func cycleRate() {
+        rate = rate == 1 ? 1.5 : (rate == 1.5 ? 2 : 1)
+        if playing { player?.rate = rate }
+    }
 
     private var tint: Color { isMe ? Theme.onAccent(dark) : (dark ? .white : .black) }
     private var durationText: String {
@@ -38,7 +45,18 @@ struct VoiceMessageView: View {
                 WaveformBars(bars: displayBars, progress: progress,
                              played: tint, unplayed: tint.opacity(0.3)) { pct in seek(pct) }
                     .frame(width: 158, height: 26)
-                Text(durationText).font(.caption2).foregroundStyle(tint.opacity(0.8))
+                HStack(spacing: 8) {
+                    Text(durationText).font(.caption2).foregroundStyle(tint.opacity(0.8))
+                    // Speed toggle (1× / 1.5× / 2×) — appears once the note is loaded, like Signal.
+                    if player != nil {
+                        Button { cycleRate() } label: {
+                            Text(rateLabel).font(.system(size: 11, weight: .bold)).foregroundStyle(tint)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(tint.opacity(0.16), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
         }
         .onDisappear { stop() }
@@ -86,6 +104,8 @@ struct VoiceMessageView: View {
 
     private func play() {
         guard player != nil else { return }
+        player?.enableRate = true
+        player?.rate = rate
         player?.play()
         playing = true
         timer?.invalidate()
