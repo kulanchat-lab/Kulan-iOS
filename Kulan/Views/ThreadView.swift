@@ -1046,7 +1046,13 @@ struct MessageBubble: View {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         onLongPress(message)
                     }
+                    // Double-tap to quick-react with a heart (iMessage/WhatsApp-style).
+                    .highPriorityGesture(TapGesture(count: 2).onEnded {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        onReact(myReaction == "❤️" ? nil : "❤️")
+                    })
                 reactionBadges
+                    .animation(.spring(response: 0.35, dampingFraction: 0.6), value: message.reactions)   // pop in/out
                 if isMe && message.sendState == .failed {
                     Button { onResend(message) } label: {
                         Label("Not delivered. Tap to retry", systemImage: "arrow.clockwise")

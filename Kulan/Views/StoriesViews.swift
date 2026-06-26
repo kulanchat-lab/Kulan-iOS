@@ -106,6 +106,8 @@ struct StoryViewer: View {
     @State private var index = 0
     @State private var progress = 0.0
     @State private var closing = false
+    @State private var replyText = ""
+    @FocusState private var replyFocused: Bool
     private let ticker = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
     private let perStory = 5.0   // seconds per photo
 
@@ -116,9 +118,11 @@ struct StoryViewer: View {
             Color.black.ignoresSafeArea()
             if let s = story {
                 AsyncImage(url: URL(string: s.mediaUrl)) { phase in
-                    if let img = phase.image { img.resizable().scaledToFit() }
+                    if let img = phase.image { img.resizable().scaledToFill() }
                     else { ProgressView().tint(.white) }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
                 .ignoresSafeArea()
             }
 
@@ -147,13 +151,26 @@ struct StoryViewer: View {
                 HStack(spacing: 10) {
                     AvatarView(name: group.name, photoUrl: group.photoUrl, size: 32)
                     Text(group.name).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                    if let s = story {
+                        Text(timeAgo(s.createdAt)).font(.caption).foregroundStyle(.white.opacity(0.7))
+                    }
                     Spacer()
+                    if group.isMine {
+                        Button { deleteCurrentStory() } label: {
+                            Image(systemName: "trash").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                        }
+                        .padding(.trailing, 6)
+                    }
                     Button(action: onClose) {
                         Image(systemName: "xmark").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
                     }
                 }
                 .padding(.horizontal, 14).padding(.top, 8)
                 Spacer()
+                // Reply bar (Signal stories logic) — only on someone else's story that allows replies.
+                if let s = story, !group.isMine, s.allowsReplies {
+                    replyBar(s)
+                }
             }
         }
         .onReceive(ticker) { _ in tick() }
@@ -164,7 +181,7 @@ struct StoryViewer: View {
     private func fill(_ i: Int) -> Double { i < index ? 1 : (i == index ? progress : 0) }
 
     private func tick() {
-        guard !closing, story != nil else { return }   // stop advancing once we're dismissing
+        guard !closing, !replyFocused, story != nil else { return }   // also pause while typing a reply
         progress = min(progress + 0.02 / perStory, 1)
         if progress >= 1 { next() }
     }
@@ -176,6 +193,49 @@ struct StoryViewer: View {
 
     private func back() {
         if index > 0 { index -= 1; progress = 0 } else { progress = 0 }
+    }
+
+    // Bottom bar: "Send message…" + heart (quick ❤️) + send. Replies go to the author's chat.
+    @ViewBuilder private func replyBar(_ s: Story) -> some View {
+        HStack(spacing: 14) {
+            TextField("Send message…", text: $replyText)
+                .focused($replyFocused)
+                .foregroundStyle(.white)
+                .tint(.white)
+                .padding(.horizontal, 18).padding(.vertical, 12)
+                .overlay(Capsule().stroke(.white.opacity(0.45), lineWidth: 1.5))
+            Button { sendToAuthor(s, "❤️") } label: {
+                Image(systemName: "heart").font(.system(size: 25)).foregroundStyle(.white)
+            }
+            Button {
+                let t = replyText.trimmingCharacters(in: .whitespaces)
+                replyText = ""; replyFocused = false
+                sendToAuthor(s, t)
+            } label: {
+                Image(systemName: "paperplane").font(.system(size: 23)).foregroundStyle(.white)
+            }
+            .disabled(replyText.trimmingCharacters(in: .whitespaces).isEmpty)
+            .opacity(replyText.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
+        }
+        .padding(.horizontal, 16).padding(.bottom, 10)
+    }
+
+    private func deleteCurrentStory() {
+        guard let s = story else { return }
+        Task { await StoriesService.shared.deleteStory(s.id) }
+        next()
+    }
+
+    // Send a story reply / reaction as a normal message into the author's chat (E2EE).
+    private func sendToAuthor(_ s: Story, _ text: String) {
+        guard !text.isEmpty, let me = AuthService.shared.uid, me != s.authorUid else { return }
+        let cid = [me, s.authorUid].sorted().joined(separator: "_")
+        Task { try? await ChatService.sendText(cid: cid, text: text) }
+    }
+
+    private func timeAgo(_ d: Date) -> String {
+        let f = RelativeDateTimeFormatter(); f.unitsStyle = .abbreviated
+        return f.localizedString(for: d, relativeTo: Date())
     }
 }
 
