@@ -174,7 +174,7 @@ struct ReactionMenuOverlay: View {
             }
         }
         .frame(width: 250)
-        .liquidGlass(RoundedRectangle(cornerRadius: 14, style: .continuous))   // real Liquid Glass
+        .liquidGlass(RoundedRectangle(cornerRadius: 22, style: .continuous))   // rounder, Apple-style
         .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
     }
 
