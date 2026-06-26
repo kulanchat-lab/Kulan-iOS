@@ -662,6 +662,7 @@ struct ThreadView: View {
     }
 
     private var inputRow: some View {
+        composerGlassContainer {
         HStack(alignment: .bottom, spacing: 8) {   // "+" outside-left, everything else in the field
             if !recordingHeld {
                 Menu {
@@ -694,8 +695,20 @@ struct ThreadView: View {
             // Liquid-glass field (iMessage on iOS 26 look), soft edges, no hard border.
             .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
+        }
         .animation(.easeInOut(duration: 0.2), value: hasText)
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: recordingHeld)
+    }
+
+    // Native iOS 26: group the composer's glass shapes (the + and the field) so they
+    // render as ONE cohesive liquid-glass system, the way Apple's own bars do — instead
+    // of two disconnected glass blobs. No-op layout-wise; pure native glass rendering.
+    @ViewBuilder private func composerGlassContainer<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: 8) { content() }
+        } else {
+            content()
+        }
     }
 
     // Just the text field — trailing buttons are stable siblings (so the mic view never
