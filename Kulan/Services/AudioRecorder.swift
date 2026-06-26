@@ -18,7 +18,10 @@ final class AudioRecorder {
     func requestAndStart() {
         AVAudioApplication.requestRecordPermission { [weak self] granted in
             guard granted else { return }
-            DispatchQueue.main.async { self?.start() }
+            // Audio-session activation + recorder setup OFF the main thread, so the first
+            // touch records instantly (no main-thread hitch / input delay). The observable
+            // UI state and the metering timer are then published back on the main thread.
+            DispatchQueue.global(qos: .userInitiated).async { self?.start() }
         }
     }
 
@@ -34,23 +37,26 @@ final class AudioRecorder {
             AVNumberOfChannelsKey: 1,
             AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
         ]
-        recorder = try? AVAudioRecorder(url: url, settings: settings)
-        guard recorder != nil else { return }
-        recorder?.isMeteringEnabled = true
-        recorder?.record()
-        fileURL = url
-        isRecording = true
-        elapsed = 0
-        levels = []
-        allLevels = []
-        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            guard let self, let r = self.recorder else { return }
-            self.elapsed = r.currentTime
-            r.updateMeters()
-            let level = self.normalize(r.averagePower(forChannel: 0))
-            self.allLevels.append(level)
-            self.levels.append(level)
-            if self.levels.count > 48 { self.levels.removeFirst(self.levels.count - 48) }
+        guard let r = try? AVAudioRecorder(url: url, settings: settings) else { return }
+        r.isMeteringEnabled = true
+        r.record()   // starts immediately on this background queue
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.recorder = r
+            self.fileURL = url
+            self.isRecording = true
+            self.elapsed = 0
+            self.levels = []
+            self.allLevels = []
+            self.timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+                guard let self, let r = self.recorder else { return }
+                self.elapsed = r.currentTime
+                r.updateMeters()
+                let level = self.normalize(r.averagePower(forChannel: 0))
+                self.allLevels.append(level)
+                self.levels.append(level)
+                if self.levels.count > 48 { self.levels.removeFirst(self.levels.count - 48) }
+            }
         }
     }
 

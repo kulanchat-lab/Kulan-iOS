@@ -759,7 +759,7 @@ struct ThreadView: View {
     private var recordingHoldRow: some View {
         HStack(spacing: 10) {
             Circle().fill(.red).frame(width: 9, height: 9)
-            Text(timeString(recorder.elapsed)).font(.subheadline.monospacedDigit())
+            RecordTimerText(recorder: recorder)
             Spacer(minLength: 8)
             HStack(spacing: 3) {
                 Image(systemName: "chevron.left").font(.system(size: 12, weight: .semibold))
@@ -845,9 +845,8 @@ struct ThreadView: View {
             }
             HStack(spacing: 8) {
                 Image(systemName: "lock.fill").font(.system(size: 12)).foregroundStyle(.secondary)
-                Text(timeString(recorder.elapsed)).font(.subheadline.monospacedDigit())
-                LiveWaveform(levels: recorder.levels, color: Theme.accent(dark))
-                    .frame(maxWidth: .infinity, maxHeight: 22)
+                RecordTimerText(recorder: recorder)
+                RecordWaveform(recorder: recorder, color: Theme.accent(dark))
             }
             .padding(.horizontal, 14).frame(minHeight: 40)
             .liquidGlass(Capsule())
@@ -1296,5 +1295,27 @@ private struct MessageActionDialogs: ViewModifier {
             } message: {
                 Text("Our team will review this message within 24 hours. \(title) won't be told.")
             }
+    }
+}
+
+// Recording timer + waveform isolated into their OWN views, so the AudioRecorder's 20Hz
+// updates re-render only these tiny views — never ThreadView's body (which would re-render
+// the whole message list on every tick: the cause of voice-recording stutter/frame drops).
+private struct RecordTimerText: View {
+    var recorder: AudioRecorder
+    var body: some View {
+        Text(format(recorder.elapsed)).font(.subheadline.monospacedDigit())
+    }
+    private func format(_ t: TimeInterval) -> String {
+        let s = Int(t); return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+private struct RecordWaveform: View {
+    var recorder: AudioRecorder
+    var color: Color
+    var body: some View {
+        LiveWaveform(levels: recorder.levels, color: color)
+            .frame(maxWidth: .infinity, maxHeight: 22)
     }
 }
