@@ -141,9 +141,13 @@ struct ContactInfoView: View {
         VStack(spacing: 6) {
             AvatarView(name: name, photoUrl: photoUrl, size: 88)
             Text(name).font(.title.weight(.bold))
-            if !handle.isEmpty {
-                Text("@\(handle)").font(.subheadline).foregroundStyle(.secondary)
-            }
+            // Always reserve the @handle line (a space when it hasn't loaded yet) so the
+            // async profile fetch fills it in WITHOUT pushing the action tiles down — that
+            // height change was the up/down "jump" when opening a profile from Calls (cold
+            // data) vs from a chat (warm). Reserving the row makes both equally smooth.
+            Text(handle.isEmpty ? " " : "@\(handle)")
+                .font(.subheadline).foregroundStyle(.secondary)
+                .frame(minHeight: 20)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
