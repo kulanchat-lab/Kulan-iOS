@@ -591,6 +591,10 @@ struct ChatsView: View {
                       }
                     }
                     .listStyle(.plain)
+                    // Signal-style: when a new message bumps a chat to the top, the rows
+                    // slide to their new order instead of popping. Scoped to the order/
+                    // membership only, so it won't animate unrelated content changes.
+                    .animation(.spring(response: 0.38, dampingFraction: 0.86), value: visible.map(\.id))
                     .environment(\.editMode, .constant(selecting ? .active : .inactive))
                 }
             }
