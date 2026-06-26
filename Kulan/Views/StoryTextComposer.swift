@@ -12,7 +12,6 @@ struct StoryTextComposer: View {
     @State private var kbHeight: CGFloat = 0
     @FocusState private var focused: Bool
 
-    // A few clean gradient backgrounds to cycle through.
     private let backgrounds: [[Color]] = [
         [Color(hex: 0x7F00FF), Color(hex: 0xE100FF)],
         [Color(hex: 0xFF512F), Color(hex: 0xDD2476)],
@@ -30,46 +29,71 @@ struct StoryTextComposer: View {
 
     var body: some View {
         ZStack {
+            // Full-bleed gradient background.
             gradient(bgIndex).ignoresSafeArea()
-                .animation(.easeInOut(duration: 0.35), value: bgIndex)   // smooth background cycle
+                .animation(.easeInOut(duration: 0.35), value: bgIndex)
 
-            ZStack {
-                if text.isEmpty {
-                    Text("Type something…")
+            // Centered editable text — plain style removes the iOS default white box.
+            VStack {
+                Spacer()
+                ZStack(alignment: .center) {
+                    if text.isEmpty {
+                        Text("Type something…")
+                            .font(.system(size: 30, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .multilineTextAlignment(.center)
+                            .allowsHitTesting(false)
+                    }
+                    TextField("", text: $text, axis: .vertical)
+                        .focused($focused)
+                        .multilineTextAlignment(.center)
                         .font(.system(size: 30, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.6))
-                        .allowsHitTesting(false)
+                        .foregroundStyle(.white)
+                        .tint(.white)
+                        .textFieldStyle(.plain)          // prevents the system white-box background
+                        .background(Color.clear)
+                        .padding(.horizontal, 28)
                 }
-                TextField("", text: $text, axis: .vertical)
-                    .focused($focused)
-                    .multilineTextAlignment(.center)
-                    .font(.system(size: 30, weight: .bold))
-                    .foregroundStyle(.white)
-                    .tint(.white)
-                    .padding(.horizontal, 28)
+                .frame(maxWidth: .infinity)
+                Spacer()
             }
 
-            VStack {
+            // Controls layer — safe-area-aware (no ignoresSafeArea here).
+            VStack(spacing: 0) {
+                // Top row: close (X) on left, palette on right.
                 HStack {
-                    Button(action: onClose) { circle("xmark") }
-                    Spacer()
-                    Button { bgIndex += 1 } label: { circle("paintpalette.fill") }   // cycle background
-                }
-                .padding(.horizontal, 16).padding(.top, 8)
-                Spacer()
-                Button { share() } label: {
-                    if trimmed.isEmpty {
-                        Text("Share to My Status").fontWeight(.semibold).frame(maxWidth: .infinity)
-                    } else {
-                        Label("Share to My Status", systemImage: "paperplane.fill").fontWeight(.semibold).frame(maxWidth: .infinity)
+                    Button(action: onClose) {
+                        circle("xmark")
                     }
+                    .buttonStyle(.plain)
+                    Spacer()
+                    Button { bgIndex += 1 } label: {
+                        circle("paintpalette.fill")
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.borderedProminent).controlSize(.large)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                Spacer()
+
+                // Share button — rises above the keyboard.
+                Button(action: share) {
+                    Label(
+                        trimmed.isEmpty ? "Share to My Status" : "Share to My Status",
+                        systemImage: trimmed.isEmpty ? "square.and.arrow.up" : "paperplane.fill"
+                    )
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(.white.opacity(0.25))
                 .disabled(trimmed.isEmpty)
                 .padding(.horizontal, 16)
-                .padding(.bottom, kbHeight > 0 ? kbHeight + 12 : 16)   // rise above the keyboard so Share is reachable
+                .padding(.bottom, kbHeight > 0 ? kbHeight + 12 : 20)
+                .animation(.easeOut(duration: 0.25), value: kbHeight)
             }
-            .animation(.easeOut(duration: 0.25), value: kbHeight)
         }
         .onAppear { focused = true }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
@@ -77,10 +101,12 @@ struct StoryTextComposer: View {
                 kbHeight = max(0, UIScreen.main.bounds.height - f.origin.y)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in kbHeight = 0 }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            kbHeight = 0
+        }
     }
 
-    // Render the gradient + text to a 1080x1920 JPEG and hand it to the poster.
+    // Render the gradient + text to a 1080×1920 JPEG and hand it to the poster.
     @MainActor private func share() {
         guard !trimmed.isEmpty else { return }
         let card = ZStack {
@@ -103,7 +129,10 @@ struct StoryTextComposer: View {
     }
 
     private func circle(_ name: String) -> some View {
-        Image(systemName: name).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-            .frame(width: 42, height: 42).background(.black.opacity(0.3), in: Circle())
+        Image(systemName: name)
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 44, height: 44)
+            .background(.black.opacity(0.3), in: Circle())
     }
 }
