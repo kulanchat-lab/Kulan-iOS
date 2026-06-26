@@ -137,12 +137,12 @@ struct CallView: View {
                 .opacity(call.isVideo && !controlsShown ? 0 : 1)
                 .allowsHitTesting(call.isVideo ? controlsShown : true)
             }
-            // Swipe-down-to-minimize (FaceTime feel).
-            .scaleEffect(dragY > 0 ? max(0.80, 1 - dragY / 1000) : 1, anchor: .center)
-            .offset(y: dragY > 0 ? dragY * 0.8 : 0)
-            .clipped()
+            // Swipe-down-to-minimize: slide the whole card straight down, tracking the finger
+            // 1:1 (FaceTime/Telegram). NO scaleEffect — scaling the Metal video layer makes it
+            // zoom/distort, which was the bug. Just an offset + rounding + a gentle fade.
+            .offset(y: dragY)
             .cornerRadius(dragY > 0 ? 38 : 0)
-            .opacity(Double(max(0.45, 1 - dragY / 600)))
+            .opacity(Double(max(0.6, 1 - dragY / 900)))
             .onReceive(ticker) { now = $0 }
             .onTapGesture { if call.isVideo { revealControls() } }
             .onChange(of: call.state) { _, s in if s == .active, call.isVideo { revealControls() } }
@@ -258,24 +258,31 @@ struct CallView: View {
         }
     }
 
-    // ── Voice controls: Mute · Speaker · End (large circles, no pill) ──
+    // ── Voice controls: Mute · Speaker · End — SAME frosted capsule + sizing as video ──
     private var voiceControls: some View {
-        HStack(spacing: 28) {
+        HStack(spacing: 16) {
             controlButton(
                 icon: call.isMuted ? "mic.slash.fill" : "mic.fill",
                 label: call.isMuted ? "Unmute" : "Mute",
                 highlighted: call.isMuted,
-                size: 68
+                size: 56
             ) { call.toggleMute() }
 
             controlButton(
                 icon: call.isSpeaker ? "speaker.wave.2.fill" : "speaker.slash.fill",
                 label: "Speaker",
                 highlighted: call.isSpeaker,
-                size: 68
+                size: 56
             ) { call.toggleSpeaker() }
 
-            endButton(size: 68)
+            endButton(size: 56)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background {
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
         }
     }
 
