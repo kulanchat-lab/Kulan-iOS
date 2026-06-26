@@ -18,7 +18,7 @@ final class CallKitManager: NSObject {
 
     private override init() {
         let config = CXProviderConfiguration()
-        config.supportsVideo = false
+        config.supportsVideo = true
         config.maximumCallsPerCallGroup = 1
         config.supportedHandleTypes = [.generic]
         provider = CXProvider(configuration: config)
@@ -43,14 +43,14 @@ final class CallKitManager: NSObject {
     func reportConnected() { if let u = activeUUID { provider.reportOutgoingCall(with: u, connectedAt: nil) } }
 
     // MARK: - Incoming (idempotent per callId so two paths can't make two UUIDs)
-    func reportIncoming(callId: String, name: String, completion: (() -> Void)? = nil) {
+    func reportIncoming(callId: String, name: String, video: Bool = false, completion: (() -> Void)? = nil) {
         if activeCallId == callId, activeUUID != nil { completion?(); return }
         let uuid = UUID()
         activeUUID = uuid
         activeCallId = callId
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: name)
-        update.hasVideo = false
+        update.hasVideo = video
         provider.reportNewIncomingCall(with: uuid, update: update) { _ in completion?() }
     }
 

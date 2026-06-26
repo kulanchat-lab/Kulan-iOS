@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import AVFoundation
+import CoreMedia
 import WebRTC
 import FirebaseAuth
 import FirebaseFirestore
@@ -28,6 +29,9 @@ final class CallService: NSObject {
                 calleeRinging = false; recordWritten = false; minimized = false
                 endReason = .none; negotiationVersion = 0; appliedRemoteRestart = 0
                 stopRingback(); stopTone(); cancelTimers()
+                isVideo = false; cameraOn = true; usingFrontCamera = true
+                videoCapturer?.stopCapture(); videoCapturer = nil
+                localVideoTrack = nil; remoteVideoTrack = nil
             }
         }
     }
@@ -43,6 +47,13 @@ final class CallService: NSObject {
     private var ringbackPlayer: AVAudioPlayer?
     private var tonePlayer: AVAudioPlayer?       // busy / ended one-shot tones
     private var localAudioTrack: RTCAudioTrack?
+    // Video (1:1 video calls) — layered on top of the existing audio peer connection.
+    var isVideo = false
+    var cameraOn = true
+    var usingFrontCamera = true
+    var localVideoTrack: RTCVideoTrack?
+    var remoteVideoTrack: RTCVideoTrack?
+    private var videoCapturer: RTCCameraVideoCapturer?
     private(set) var callId: String?
     private var otherUid: String = ""
     private var isCaller = false
@@ -88,7 +99,52 @@ final class CallService: NSObject {
         let audioTrack = Self.factory.audioTrack(with: audioSource, trackId: "audio0")
         connection?.add(audioTrack, streamIds: ["stream0"])
         localAudioTrack = audioTrack
+        if isVideo { addLocalVideo(to: connection) }
         return connection
+    }
+
+    // MARK: - Video tracks / capture
+
+    private func addLocalVideo(to connection: RTCPeerConnection?) {
+        guard let connection else { return }
+        let source = Self.factory.videoSource()
+        let capturer = RTCCameraVideoCapturer(delegate: source)
+        let track = Self.factory.videoTrack(with: source, trackId: "video0")
+        track.isEnabled = cameraOn
+        connection.add(track, streamIds: ["stream0"])
+        videoCapturer = capturer
+        localVideoTrack = track
+        startCapture(front: usingFrontCamera)
+    }
+
+    // Pick the camera + a ~720p format and start feeding frames into the local track.
+    private func startCapture(front: Bool) {
+        guard let capturer = videoCapturer else { return }
+        let position: AVCaptureDevice.Position = front ? .front : .back
+        let devices = RTCCameraVideoCapturer.captureDevices()
+        guard let device = devices.first(where: { $0.position == position }) ?? devices.first else { return }
+        let formats = RTCCameraVideoCapturer.supportedFormats(for: device)
+        let target = 720
+        let format = formats.min(by: {
+            let d1 = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
+            let d2 = CMVideoFormatDescriptionGetDimensions($1.formatDescription)
+            return abs(Int(d1.height) - target) < abs(Int(d2.height) - target)
+        })
+        guard let format else { return }
+        let fps = min(30, Int(format.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 30))
+        capturer.startCapture(with: device, format: format, fps: fps)
+        usingFrontCamera = front
+    }
+
+    func toggleCamera() {
+        cameraOn.toggle()
+        localVideoTrack?.isEnabled = cameraOn
+        if cameraOn { startCapture(front: usingFrontCamera) } else { videoCapturer?.stopCapture() }
+    }
+
+    func switchCamera() {
+        guard cameraOn else { return }
+        startCapture(front: !usingFrontCamera)
     }
 
     // MARK: - In-call controls
@@ -225,8 +281,9 @@ final class CallService: NSObject {
 
     // MARK: - Outgoing
 
-    func startCall(to uid: String, name: String, photo: String? = nil) {
+    func startCall(to uid: String, name: String, photo: String? = nil, video: Bool = false) {
         guard state == .idle, !uid.isEmpty else { return }
+        isVideo = video
         isCaller = true
         otherUid = uid
         otherName = name
@@ -252,7 +309,7 @@ final class CallService: NSObject {
                         "callee": uid,
                         "callerName": ProfileStore.shared.me?.name ?? "Caller",
                         "callerPhoto": ProfileStore.shared.me?.photoUrl ?? "",
-                        "type": "voice",
+                        "type": self.isVideo ? "video" : "voice",
                         "status": "ringing",
                         "offer": ["sdp": sdp.sdp, "type": "offer"],
                         "createdAt": FieldValue.serverTimestamp(),
@@ -299,8 +356,9 @@ final class CallService: NSObject {
                     let photo = d["callerPhoto"] as? String ?? ""
                     self.otherPhotoUrl = photo.isEmpty ? nil : photo
                     self.isCaller = false
+                    self.isVideo = (d["type"] as? String == "video")
                     self.state = .incoming
-                    CallKitManager.shared.reportIncoming(callId: doc.documentID, name: self.otherName)
+                    CallKitManager.shared.reportIncoming(callId: doc.documentID, name: self.otherName, video: self.isVideo)
                     self.markRinging()
                 }
             }
@@ -308,7 +366,8 @@ final class CallService: NSObject {
 
     /// Set up an incoming call from a VoIP push (app may be cold-launching) so that a
     /// subsequent CallKit answer connects. No ringing here — CallKit shows the ring.
-    func prepareIncoming(callId: String, name: String, uid: String, photo: String?) {
+    func prepareIncoming(callId: String, name: String, uid: String, photo: String?, video: Bool = false) {
+        self.isVideo = video
         self.callId = callId
         self.otherName = name
         self.otherUid = uid
@@ -529,4 +588,11 @@ extension CallService: RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
+
+    // Unified-plan remote track arrival: grab the remote video track for rendering.
+    func peerConnection(_ peerConnection: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams mediaStreams: [RTCMediaStream]) {
+        if let track = rtpReceiver.track as? RTCVideoTrack {
+            DispatchQueue.main.async { self.remoteVideoTrack = track }
+        }
+    }
 }
