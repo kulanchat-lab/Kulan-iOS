@@ -548,18 +548,16 @@ struct ChatsView: View {
                     ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.bubble.right",
                                            description: Text("Tap the compose button to start one."))
                 } else {
-                    List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row (not select)
-                      // Stories row on top of Chats (My Status + friends' rings).
+                    VStack(spacing: 0) {
+                      // Stories row ABOVE the List (NOT a List cell) so each card is its own
+                      // context-menu target — long-press lifts ONE story, not the whole bar.
                       StoriesRow(meName: profile.me?.name ?? "You", mePhoto: profile.me?.photoUrl,
                                  onCompose: { showCompose = true },
                                  onOpen: { g in viewerAnonymous = false; viewerGroup = g },
                                  onMessage: { g in openStoryChat(g) },
                                  onProfile: { g in profileGroup = g },
                                  onOpenAnon: { g in viewerAnonymous = true; viewerGroup = g })
-                          .listRowInsets(EdgeInsets())
-                          .listRowSeparator(.hidden)
-                          .moveDisabled(true)
-                          .deleteDisabled(true)
+                      List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row
                       ForEach(visible) { conv in
                         // Full-row Button instead of a NavigationLink: a NavigationLink in a
                         // List always draws the trailing disclosure chevron (the arrow). A
@@ -619,6 +617,7 @@ struct ChatsView: View {
                     // membership only, so it won't animate unrelated content changes.
                     .animation(.spring(response: 0.38, dampingFraction: 0.86), value: visible.map(\.id))
                     .environment(\.editMode, .constant(selecting ? .active : .inactive))
+                    }   // close the VStack wrapping StoriesRow + List
                 }
             }
             .navigationTitle("Chats")
