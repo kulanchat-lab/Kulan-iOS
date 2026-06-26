@@ -444,6 +444,7 @@ struct AboutView: View {
         await Task.detached(priority: .utility) {
             let fm = FileManager.default
             var total = Int64(URLCache.shared.currentDiskUsage)
+            total += Int64(DiskImageCache.shared.diskBytes())   // persistent media cache
             if let en = fm.enumerator(at: fm.temporaryDirectory, includingPropertiesForKeys: [.fileSizeKey]) {
                 for case let url as URL in en {
                     total += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
@@ -456,6 +457,7 @@ struct AboutView: View {
 
     // Remove cached/downloaded media only — never touches messages or keys.
     private func clearCache() async {
+        DiskImageCache.shared.clear()   // persistent image/story disk cache (memory + disk)
         await Task.detached(priority: .utility) {
             let fm = FileManager.default
             if let items = try? fm.contentsOfDirectory(at: fm.temporaryDirectory, includingPropertiesForKeys: nil) {

@@ -57,7 +57,7 @@ struct CallView: View {
 
     private var bgImage: UIImage? {
         guard let url = call.otherPhotoUrl, !url.isEmpty else { return nil }
-        return DecryptedImageCache.shared.object(forKey: url as NSString)
+        return DiskImageCache.shared.memoryImage(url)
     }
 
     var body: some View {

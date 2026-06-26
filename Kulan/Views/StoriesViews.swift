@@ -3,14 +3,8 @@ import PhotosUI
 import Photos
 import UIKit
 
-// Cached story image: loads once, caches by URL, so swiping back/forward and replays
-// never re-download (kills the flashing/lag). Falls back gracefully if a URL is broken.
-private final class StoryImageCache {
-    static let shared: NSCache<NSString, UIImage> = {
-        let c = NSCache<NSString, UIImage>(); c.countLimit = 60; return c
-    }()
-}
-
+// Cached story image: memory + persistent disk (DiskImageCache), so swiping
+// back/forward, reopening, and app relaunches load instantly with no re-download.
 struct StoryImage: View {
     let url: String
     @State private var image: UIImage?
@@ -29,12 +23,12 @@ struct StoryImage: View {
     }
     @MainActor private func load() async {
         failed = false
-        if let cached = StoryImageCache.shared.object(forKey: url as NSString) { image = cached; return }
+        if let cached = await DiskImageCache.shared.image(for: url) { image = cached; return }
         guard let u = URL(string: url) else { failed = true; return }
         guard let (data, _) = try? await URLSession.shared.data(from: u), let img = UIImage(data: data) else {
             failed = true; return
         }
-        StoryImageCache.shared.setObject(img, forKey: url as NSString)
+        DiskImageCache.shared.store(img, data: data, for: url)
         image = img
     }
 }
@@ -427,7 +421,7 @@ struct StoryViewer: View {
     }
 
     private func saveToGallery() {
-        guard let s = story, let img = StoryImageCache.shared.object(forKey: s.mediaUrl as NSString) else {
+        guard let s = story, let img = DiskImageCache.shared.memoryImage(s.mediaUrl) else {
             toast("Save failed"); return
         }
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in

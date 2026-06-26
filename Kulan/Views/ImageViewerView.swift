@@ -62,7 +62,7 @@ struct ImageViewerView: View {
     // Save the already-decrypted image (from cache) to the camera roll.
     private func save() {
         guard let url = message.imageUrl,
-              let ui = DecryptedImageCache.shared.object(forKey: url as NSString) else { return }
+              let ui = DiskImageCache.shared.memoryImage(url) else { return }
         UIImageWriteToSavedPhotosAlbum(ui, nil, nil, nil)
         withAnimation { saved = true }
     }

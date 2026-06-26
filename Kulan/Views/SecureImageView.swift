@@ -1,17 +1,10 @@
 import SwiftUI
 import UIKit
 
-// Shared in-memory cache of decrypted images, keyed by URL. Stops SecureImageView
-// from re-downloading + re-running libsodium every time a bubble scrolls back on
-// screen (the big scroll-smoothness + data-saving win).
-enum DecryptedImageCache {
-    static let shared: NSCache<NSString, UIImage> = {
-        let c = NSCache<NSString, UIImage>(); c.countLimit = 200; return c
-    }()
-}
-
 // Downloads the encrypted bytes and decrypts them locally (the server only ever
-// stored ciphertext). Shows a placeholder while loading.
+// stored ciphertext), then caches the decrypted image to memory + disk via
+// DiskImageCache — so reopening the chat or relaunching the app loads it INSTANTLY
+// from local storage (and it stays viewable offline). Shows a shimmer while loading.
 struct SecureImageView: View {
     let imageUrl: String
     let enc: EncMeta?
@@ -41,10 +34,8 @@ struct SecureImageView: View {
 
     private func load() async {
         guard image == nil else { return }
-        // Cache hit → show instantly, no network or decrypt.
-        if let cached = DecryptedImageCache.shared.object(forKey: imageUrl as NSString) {
-            image = cached; return
-        }
+        // Memory or disk hit → show instantly, no network or decrypt.
+        if let cached = await DiskImageCache.shared.image(for: imageUrl) { image = cached; return }
         guard let url = URL(string: imageUrl) else { return }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
@@ -55,7 +46,7 @@ struct SecureImageView: View {
                 ui = UIImage(data: data)
             }
             if let ui {
-                DecryptedImageCache.shared.setObject(ui, forKey: imageUrl as NSString)
+                DiskImageCache.shared.store(ui, for: imageUrl)   // decrypted, file-protected on disk
                 image = ui
             } else { failed = true }
         } catch {
