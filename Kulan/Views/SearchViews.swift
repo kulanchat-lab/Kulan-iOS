@@ -163,6 +163,7 @@ struct ChatSearchView: View {
             }
             .navigationTitle("Search")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)   // no top nav bar -> search field anchors at the BOTTOM (above keyboard), consistently
             .background { SearchCancelWatcher(canReturn: { trimmed.isEmpty && path.isEmpty }, onCancel: onCancel) }
             .navigationDestination(for: ChatTarget.self) { t in
                 ThreadView(cid: t.id, title: t.name, photoUrl: t.photo).id(t.id)
@@ -332,6 +333,7 @@ struct ContactsSearchView: View {
             }
             .navigationTitle("Call")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)   // search field anchors at the BOTTOM, consistently
             .background { SearchCancelWatcher(canReturn: { trimmed.isEmpty }, onCancel: onCancel) }
         }
         .searchable(text: $query,
@@ -414,6 +416,7 @@ struct SettingsSearchView: View {
             }
             .navigationTitle("Search Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)   // search field anchors at the BOTTOM, consistently
             .background { SearchCancelWatcher(canReturn: { trimmed.isEmpty }, onCancel: onCancel) }
         }
         .searchable(text: $query,
