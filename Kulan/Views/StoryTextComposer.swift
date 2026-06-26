@@ -9,6 +9,7 @@ struct StoryTextComposer: View {
 
     @State private var text = ""
     @State private var bgIndex = 0
+    @State private var kbHeight: CGFloat = 0
     @FocusState private var focused: Bool
 
     // A few clean gradient backgrounds to cycle through.
@@ -64,10 +65,18 @@ struct StoryTextComposer: View {
                 }
                 .buttonStyle(.borderedProminent).controlSize(.large)
                 .disabled(trimmed.isEmpty)
-                .padding(.horizontal, 16).padding(.bottom, 16)
+                .padding(.horizontal, 16)
+                .padding(.bottom, kbHeight > 0 ? kbHeight + 12 : 16)   // rise above the keyboard so Share is reachable
             }
+            .animation(.easeOut(duration: 0.25), value: kbHeight)
         }
         .onAppear { focused = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            if let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                kbHeight = max(0, UIScreen.main.bounds.height - f.origin.y)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in kbHeight = 0 }
     }
 
     // Render the gradient + text to a 1080x1920 JPEG and hand it to the poster.
