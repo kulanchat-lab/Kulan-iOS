@@ -9,7 +9,6 @@ struct StoryTextComposer: View {
 
     @State private var text = ""
     @State private var bgIndex = 0
-    @State private var kbHeight: CGFloat = 0
     @FocusState private var focused: Bool
 
     private let backgrounds: [[Color]] = [
@@ -28,15 +27,14 @@ struct StoryTextComposer: View {
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
-        ZStack {
-            // Full-bleed gradient background.
-            gradient(bgIndex).ignoresSafeArea()
-                .animation(.easeInOut(duration: 0.35), value: bgIndex)
+        NavigationStack {
+            ZStack {
+                // Full-bleed gradient background.
+                gradient(bgIndex).ignoresSafeArea()
+                    .animation(.easeInOut(duration: 0.35), value: bgIndex)   // smooth background cycle
 
-            // Centered editable text — plain style removes the iOS default white box.
-            VStack {
-                Spacer()
-                ZStack(alignment: .center) {
+                // Centered editable text — .plain removes the iOS default white box.
+                ZStack {
                     if text.isEmpty {
                         Text("Type something…")
                             .font(.system(size: 30, weight: .bold))
@@ -54,56 +52,31 @@ struct StoryTextComposer: View {
                         .background(Color.clear)
                         .padding(.horizontal, 28)
                 }
-                .frame(maxWidth: .infinity)
-                Spacer()
-            }
 
-            // Controls layer — safe-area-aware (no ignoresSafeArea here).
-            VStack(spacing: 0) {
-                // Top row: close (X) on left, palette on right.
-                HStack {
-                    Button(action: onClose) {
-                        circle("xmark")
+                // Top controls: close (X) left, palette right.
+                VStack {
+                    HStack {
+                        Button(action: onClose) { circle("xmark") }.buttonStyle(.plain)
+                        Spacer()
+                        Button { bgIndex += 1 } label: { circle("paintpalette.fill") }.buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16).padding(.top, 8)
                     Spacer()
-                    Button { bgIndex += 1 } label: {
-                        circle("paintpalette.fill")
+                }
+            }
+            .toolbar(.hidden, for: .navigationBar)
+            // Native keyboard accessory: Share docks directly above the keyboard and tracks it.
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button { share() } label: {
+                        Label("Share to My Status", systemImage: "paperplane.fill").fontWeight(.semibold)
                     }
-                    .buttonStyle(.plain)
+                    .disabled(trimmed.isEmpty)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-
-                Spacer()
-
-                // Share button — rises above the keyboard.
-                Button(action: share) {
-                    Label(
-                        trimmed.isEmpty ? "Share to My Status" : "Share to My Status",
-                        systemImage: trimmed.isEmpty ? "square.and.arrow.up" : "paperplane.fill"
-                    )
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(.white.opacity(0.25))
-                .disabled(trimmed.isEmpty)
-                .padding(.horizontal, 16)
-                .padding(.bottom, kbHeight > 0 ? kbHeight + 12 : 20)
-                .animation(.easeOut(duration: 0.25), value: kbHeight)
             }
         }
         .onAppear { focused = true }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
-            if let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
-                kbHeight = max(0, UIScreen.main.bounds.height - f.origin.y)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            kbHeight = 0
-        }
     }
 
     // Render the gradient + text to a 1080×1920 JPEG and hand it to the poster.

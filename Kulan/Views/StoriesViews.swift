@@ -67,7 +67,8 @@ struct StoriesRow: View {
     var onMessage: (StoryGroup) -> Void = { _ in }
     var onProfile: (StoryGroup) -> Void = { _ in }
     var onOpenAnon: (StoryGroup) -> Void = { _ in }
-    @State private var prefsTick = 0
+    @State private var prefsTick = 0   // re-render after hide/notify toggles
+    @State private var menuStory: StoryGroup?   // per-card long-press action sheet target
 
     private let storySpacing: CGFloat = 10
     private let storyHPad: CGFloat = 12
@@ -84,19 +85,11 @@ struct StoriesRow: View {
                     card(cover: g.stories.last?.mediaUrl,
                          name: g.name.isEmpty ? "User" : g.name,
                          avatar: g.photoUrl, unseen: g.hasUnseen) { onOpen(g) }
-                        .contextMenu {
-                            Button { onMessage(g) } label: { Label("Send Message", systemImage: "message") }
-                            Button { onProfile(g) } label: { Label("Open Profile", systemImage: "person") }
-                            Button { StoryPrefs.toggleNotify(g.authorUid); prefsTick += 1 } label: {
-                                Label(StoryPrefs.isNotifying(g.authorUid) ? "Stop Notifying" : "Notify About Stories",
-                                      systemImage: StoryPrefs.isNotifying(g.authorUid) ? "bell.slash" : "bell")
-                            }
-                            Button { onOpenAnon(g) } label: { Label("View Anonymously", systemImage: "eye.slash") }
-                            Button(role: .destructive) { StoryPrefs.toggleHidden(g.authorUid); prefsTick += 1 } label: {
-                                Label("Hide Stories", systemImage: "archivebox")
-                            }
-                        } preview: {
-                            storyMenuPreview(g)
+                        // Per-card long-press -> native action sheet. A .contextMenu inside a List
+                        // cell lifts the WHOLE bar; an action sheet targets just this story reliably.
+                        .onLongPressGesture(minimumDuration: 0.4) {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            menuStory = g
                         }
                 }
             }
@@ -104,6 +97,18 @@ struct StoriesRow: View {
             .padding(.vertical, 10)
         }
         .task { await repo.load() }
+        .confirmationDialog(menuStory?.name ?? "Story",
+                            isPresented: Binding(get: { menuStory != nil }, set: { if !$0 { menuStory = nil } }),
+                            titleVisibility: .visible, presenting: menuStory) { g in
+            Button("Send Message") { onMessage(g) }
+            Button("Open Profile") { onProfile(g) }
+            Button(StoryPrefs.isNotifying(g.authorUid) ? "Stop Notifying" : "Notify About Stories") {
+                StoryPrefs.toggleNotify(g.authorUid); prefsTick += 1
+            }
+            Button("View Anonymously") { onOpenAnon(g) }
+            Button("Hide Stories", role: .destructive) { StoryPrefs.toggleHidden(g.authorUid); prefsTick += 1 }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     private var myCard: some View {
