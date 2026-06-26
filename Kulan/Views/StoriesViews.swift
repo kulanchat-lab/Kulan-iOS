@@ -97,6 +97,8 @@ struct StoriesRow: View {
                             Button(role: .destructive) { StoryPrefs.toggleHidden(g.authorUid); prefsTick += 1 } label: {
                                 Label("Hide Stories", systemImage: "archivebox")
                             }
+                        } preview: {
+                            storyMenuPreview(g)   // lift ONLY the held story card, not the whole row
                         }
                 }
             }
@@ -160,6 +162,18 @@ struct StoriesRow: View {
                 AvatarView(name: name, photoUrl: avatar, size: cardW * 0.62)
             }
         }
+    }
+
+    // Single-card preview for the long-press menu — only the held story lifts (not the row).
+    @ViewBuilder private func storyMenuPreview(_ g: StoryGroup) -> some View {
+        Group {
+            if let cover = g.stories.last?.mediaUrl, !cover.isEmpty {
+                StoryImage(url: cover)
+            } else {
+                ZStack { Color.secondary.opacity(0.2); AvatarView(name: g.name, photoUrl: g.photoUrl, size: 110) }
+            }
+        }
+        .frame(width: 210, height: 300)
     }
 
     func reload() { Task { await repo.load() } }
