@@ -392,11 +392,19 @@ struct StoryViewer: View {
         .simultaneousGesture(
             DragGesture(minimumDistance: 20)
                 .onChanged { v in
-                    if v.translation.height > 0 { dragDown = v.translation.height; paused = true }
+                    // With the reply keyboard up, a downward swipe should just lower the
+                    // keyboard — not tear down the viewer.
+                    if replyFocused { return }
+                    dragDown = max(0, v.translation.height)   // never sticks if the finger goes back up
+                    if dragDown > 0 { paused = true }
                 }
                 .onEnded { v in
+                    if replyFocused { replyFocused = false; return }
                     paused = false
-                    if v.translation.height > 120 || v.predictedEndTranslation.height > 320 {
+                    let dy = v.translation.height
+                    // Require real vertical travel before honouring the velocity branch, so a
+                    // quick horizontal/diagonal flick can't accidentally dismiss.
+                    if dy > 120 || (dy > 60 && v.predictedEndTranslation.height > 320) {
                         onClose()
                     } else {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) { dragDown = 0 }
@@ -463,7 +471,9 @@ struct StoryViewer: View {
     private func deleteCurrentStory() {
         guard let s = story else { return }
         Task { await StoriesService.shared.deleteStory(s.id) }
-        next()
+        // `group` is immutable, so we can't safely keep navigating the now-stale array
+        // (the deleted story would reappear on swipe-back). Close + let repo.load() refresh.
+        onClose()
     }
 
     private func sendToAuthor(_ s: Story, _ text: String) {

@@ -48,28 +48,44 @@ final class StoriesService {
         let storyId = UUID().uuidString
         let path = "stories/\(storyId)/photo.jpg"   // {storyId}/ segment so Storage rules can audience-scope reads
 
-        let jpeg = ChatService.downscaledJPEG(image)
-        let ref = Storage.storage().reference().child(path)
-        let meta = StorageMetadata(); meta.contentType = "image/jpeg"
-        _ = try await ref.putDataAsync(jpeg, metadata: meta)
-        let url = try await ref.downloadURL().absoluteString
-
+        // Snapshot recipients on the MAIN actor — `conversations` is mutated there by live
+        // listeners, so reading it from this background context directly is a data race.
         // v1 audience = everyone I have a conversation with.
-        let recipients = Set(ConversationsRepository.shared.conversations
-            .map { $0.otherUid(me) }.filter { !$0.isEmpty })
+        let recipients = await MainActor.run {
+            Set(ConversationsRepository.shared.conversations
+                .map { $0.otherUid(me) }.filter { !$0.isEmpty })
+        }
 
-        try await db.collection("stories").document(storyId).setData([
+        // Create the story doc FIRST (mediaUrl filled in after upload). The Storage READ
+        // rule for downloadURL() checks this doc's authorUid, so it must exist before we
+        // resolve the URL — otherwise getDownloadURL() is denied and the post fails.
+        let docRef = db.collection("stories").document(storyId)
+        try await docRef.setData([
             "authorUid": me,
             "createdAt": FieldValue.serverTimestamp(),
             "expiresAt": Timestamp(date: Date().addingTimeInterval(expiryHours * 3600)),
             "type": "image",
             "mediaPath": path,
-            "mediaUrl": url,
+            "mediaUrl": "",
             "audience": ["mode": "all", "listId": "my-story"],
             "allowsReplies": true,
             "replyCount": 0,
             "recipientUids": Array(recipients),
         ])
+
+        // Upload the image, then resolve + persist its download URL. If anything fails,
+        // remove the doc so we never leave a story with no image.
+        do {
+            let jpeg = ChatService.downscaledJPEG(image)
+            let ref = Storage.storage().reference().child(path)
+            let meta = StorageMetadata(); meta.contentType = "image/jpeg"
+            _ = try await ref.putDataAsync(jpeg, metadata: meta)
+            let url = try await ref.downloadURL().absoluteString
+            try await docRef.updateData(["mediaUrl": url])
+        } catch {
+            try? await docRef.delete()
+            throw error
+        }
     }
 
     // Record that I viewed a story: always bump my own seen-ring marker; only send a
