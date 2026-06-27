@@ -20,6 +20,7 @@ struct NewChatView: View {
     @State private var searching = false
     @State private var error: String?
     @State private var showScan = false
+    @State private var showNewGroup = false
 
     private var me: String { AuthService.shared.uid ?? "" }
 
@@ -41,6 +42,18 @@ struct NewChatView: View {
         NavigationStack {
             ScrollViewReader { proxy in
                 List {
+                    if query.isEmpty {
+                        Button { showNewGroup = true } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "person.3.fill")
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 44, height: 44)
+                                    .background(Color.accentColor, in: Circle())
+                                Text("New Group").foregroundStyle(.primary)
+                            }
+                        }
+                    }
                     if let error { Text(error).foregroundStyle(.red) }
 
                     if !query.isEmpty {
@@ -109,6 +122,9 @@ struct NewChatView: View {
             }
             .sheet(isPresented: $showScan) {
                 ScanQRView { user in showScan = false; start(user) }
+            }
+            .sheet(isPresented: $showNewGroup) {
+                NewGroupView { t in showNewGroup = false; dismiss(); onOpen(t) }
             }
             .onChange(of: query) { _, q in
                 let trimmed = q.trimmingCharacters(in: .whitespaces)

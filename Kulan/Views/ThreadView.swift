@@ -276,6 +276,7 @@ struct ThreadView: View {
     }
 
     private var presenceSubtitle: String? {
+        if isGroup { return conversation?.memberCountLabel }   // groups: "7 members", not presence
         if repo.iBlocked { return nil }   // blocked: don't reveal their typing/online/last-seen
         if typingPref && repo.otherTyping { return "typing…" }   // reciprocal: only if I share typing
         if lastSeenPref {                                        // reciprocal: only if I share last-seen
@@ -291,6 +292,13 @@ struct ThreadView: View {
     private var otherUid: String {
         cid.split(separator: "_").map(String.init).first { $0 != me } ?? ""
     }
+
+    // Live conversation (for group awareness — header + send fan-out).
+    private var conversation: Conversation? {
+        ConversationsRepository.shared.conversations.first { $0.id == cid }
+    }
+    private var isGroup: Bool { conversation?.isGroup ?? false }
+    private var groupMembers: [String] { conversation?.users ?? [] }
 
     // Extracted from `body` so the type-checker can handle the screen (the inline ForEach
     // with all its closures was too complex as one expression after the header refactor).
@@ -381,17 +389,20 @@ struct ThreadView: View {
                 Button { showContactInfo = true } label: { headerLabel }.buttonStyle(.plain)
             }
         }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
-                Image(systemName: "phone.fill")
+        // 1:1 call buttons only — group calls need an SFU (not built yet), so hide them in groups.
+        if !isGroup {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
+                    Image(systemName: "phone.fill")
+                }
+                .tint(.primary)
             }
-            .tint(.primary)
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl, video: true) } label: {
-                Image(systemName: "video.fill")
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl, video: true) } label: {
+                    Image(systemName: "video.fill")
+                }
+                .tint(.primary)
             }
-            .tint(.primary)
         }
     }
 
@@ -469,7 +480,8 @@ struct ThreadView: View {
 
     private func deliver(text: String, reply: ReplyRef?, clientId: String) async {
         do {
-            try await ChatService.sendText(cid: cid, text: text, replyTo: reply, clientId: clientId)
+            try await ChatService.sendText(cid: cid, text: text, replyTo: reply, clientId: clientId,
+                                           group: isGroup ? groupMembers : nil)
         } catch {
             // Keep the message as a failed bubble (tap to retry); flag the encryption case.
             await MainActor.run {
