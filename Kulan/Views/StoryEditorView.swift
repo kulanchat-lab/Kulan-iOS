@@ -141,14 +141,26 @@ struct StoryEditorView: View {
     @MainActor private func flatten() async -> Data {
         let base = edited
         let quality: CGFloat = hd ? 0.95 : 0.85
-        // No drawing → post the full-resolution edited image (HD keeps resolution; don't rasterize to screen).
-        if drawing.bounds.isEmpty {
+        let cap = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+        // No drawing AND no caption → post the full-resolution edited image (HD keeps resolution).
+        if drawing.bounds.isEmpty && cap.isEmpty {
             return base.jpegData(compressionQuality: quality) ?? Data()
         }
         let size = canvasSize == .zero ? UIScreen.main.bounds.size : canvasSize
-        let composed = ZStack {
+        let composed = ZStack(alignment: .bottom) {
             Image(uiImage: base).resizable().scaledToFit().frame(width: size.width, height: size.height)
-            Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: size), scale: UIScreen.main.scale)).resizable()
+            if !drawing.bounds.isEmpty {
+                Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: size), scale: UIScreen.main.scale)).resizable()
+            }
+            if !cap.isEmpty {   // bake the caption (was silently dropped) — bottom band, like WhatsApp
+                Text(cap)
+                    .font(.system(size: 22, weight: .semibold)).foregroundStyle(.white)
+                    .multilineTextAlignment(.center).shadow(radius: 4)
+                    .padding(.horizontal, 18).padding(.vertical, 12)
+                    .frame(maxWidth: size.width)
+                    .background(Color.black.opacity(0.32))
+                    .padding(.bottom, size.height * 0.10)
+            }
         }
         .frame(width: size.width, height: size.height)
         let r = ImageRenderer(content: composed); r.scale = UIScreen.main.scale

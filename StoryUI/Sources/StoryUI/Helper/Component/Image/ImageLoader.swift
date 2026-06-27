@@ -65,13 +65,19 @@ final class ImageLoader: UIView {
             guard let self else { return }
             if error != nil {
                 print(error as Any)
+                // Mark "ready" + stop the spinner so the progress timer advances/auto-skips
+                // instead of freezing the whole viewer on a failed load.
+                DispatchQueue.main.async { self.activityIndicator.stopAnimating(); imageIsLoaded() }
                 return
             }
 
             guard let data,
                   let response,
                   let image = UIImage(data: data)
-            else { return }
+            else {
+                DispatchQueue.main.async { self.activityIndicator.stopAnimating(); imageIsLoaded() }
+                return
+            }
 
             URLCache.shared.storeCachedResponse(
                 .init(response: response, data: data),

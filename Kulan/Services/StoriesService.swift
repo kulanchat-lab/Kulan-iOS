@@ -77,7 +77,8 @@ final class StoriesService {
         //  • included non-empty -> only those; • excluded non-empty -> everyone minus those; • else everyone.
         let allContacts = await MainActor.run {
             Set(ConversationsRepository.shared.conversations
-                .map { $0.otherUid(me) }.filter { !$0.isEmpty })
+                .filter { !$0.isGroup && !$0.leaksBlocked(me) }   // 1:1 contacts only (a group's otherUid is an
+                .map { $0.otherUid(me) }.filter { !$0.isEmpty })  // arbitrary member → leak); skip blocked (C3)
         }
         let recipients: Set<String>
         let mode: String
@@ -184,7 +185,7 @@ final class StoriesRepository {
         (docs ?? []).compactMap { d in
             let data = d.data()
             guard let author = data["authorUid"] as? String,
-                  let url = data["mediaUrl"] as? String,
+                  let url = data["mediaUrl"] as? String, !url.isEmpty,   // skip the pre-upload window (empty URL froze the viewer)
                   let exp = (data["expiresAt"] as? Timestamp)?.dateValue() else { return nil }
             let created = (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
             return Story(id: d.documentID, authorUid: author, createdAt: created,
@@ -232,6 +233,9 @@ final class StoriesRepository {
             return ("", nil)
         }
 
+        // Don't show stories from anyone in a blocked relationship (C3, read side).
+        let blockedAuthors = Set(convs.filter { $0.leaksBlocked(me) }.map { $0.otherUid(me) })
+
         var myGroup: StoryGroup?
         var groups: [StoryGroup] = []
         for (author, list) in Dictionary(grouping: all, by: { $0.authorUid }) {
@@ -239,7 +243,8 @@ final class StoriesRepository {
             let (name, photo) = display(author)
             let g = StoryGroup(authorUid: author, name: name, photoUrl: photo,
                                stories: sorted, lastViewedAt: lastViewed[author], isMine: author == me)
-            if author == me { myGroup = g } else { groups.append(g) }
+            if author == me { myGroup = g }
+            else if !blockedAuthors.contains(author) { groups.append(g) }
         }
         // Unseen first, then by most-recent story.
         groups.sort {
