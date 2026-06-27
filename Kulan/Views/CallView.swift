@@ -58,7 +58,7 @@ struct CallView: View {
                 VStack(spacing: 0) {
                     topBar(safeTop: geo.safeAreaInsets.top)
                     Spacer()
-                    if !call.isVideo {
+                    if showAvatar {
                         AvatarView(name: call.otherName, photoUrl: call.otherPhotoUrl, size: 180)
                             .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
                             .shadow(color: .black.opacity(0.45), radius: 26, y: 10)
@@ -73,6 +73,8 @@ struct CallView: View {
             .animation(.easeInOut(duration: 0.2), value: call.cameraOn)
             .animation(.easeInOut(duration: 0.2), value: call.isMuted)
             .animation(.easeInOut(duration: 0.2), value: call.isSpeaker)
+            .animation(.easeInOut(duration: 0.3), value: hasRemote)        // smooth shrink-to-PiP on connect
+            .animation(.easeInOut(duration: 0.3), value: isLocalExpanded)  // smooth tap-to-swap
             // Swipe down to minimize — detect the fling ONLY (no live offset tracking, which was
             // the source of the stuck/broken half-states). Taps still pass through to controls,
             // and the PiP keeps its own higher-priority drag.
@@ -101,25 +103,36 @@ struct CallView: View {
         }
     }
 
-    // MARK: - Background (voice gradient or remote video)
+    private var hasRemote: Bool { call.remoteVideoTrack != nil }
+    // Show MY camera full-screen until the other side's video arrives (or when I tap to swap).
+    private var showLocalFull: Bool { call.isVideo && (!hasRemote || isLocalExpanded) }
+    // Fall back to the avatar when a video call has nothing displayable full-screen.
+    private var showAvatar: Bool {
+        if !call.isVideo { return true }
+        return !hasRemote && (!call.cameraOn || call.localVideoTrack == nil) && !isLocalExpanded
+    }
+
+    // MARK: - Background (video feed, or avatar/gradient fallback)
 
     @ViewBuilder private func background(_ geo: GeometryProxy) -> some View {
-        // Fullscreen feed = remote by default, or the LOCAL feed once you tap to swap.
-        if call.isVideo, let full = (isLocalExpanded ? call.localVideoTrack : call.remoteVideoTrack) {
+        let full: RTCVideoTrack? = showLocalFull ? call.localVideoTrack
+                                                 : (call.isVideo ? call.remoteVideoTrack : nil)
+        let canShow = full != nil && !(showLocalFull && !call.cameraOn)
+        if call.isVideo, canShow, let full {
             ZStack {
                 Color.black
-                VideoRendererView(track: full, mirror: isLocalExpanded && call.usingFrontCamera)
+                VideoRendererView(track: full, mirror: showLocalFull && call.usingFrontCamera)
             }
             .ignoresSafeArea()
         } else {
             ZStack {
-                if let ui = bgImage, !call.isVideo {
+                if let ui = bgImage {
                     Image(uiImage: ui).resizable().scaledToFill().blur(radius: 50)
                         .overlay(Color.black.opacity(0.4))
                 }
                 LinearGradient(colors: [Color(hex: 0x4A3B7A), Color(hex: 0x191222)],
                                startPoint: .top, endPoint: .bottom)
-                    .opacity(bgImage != nil && !call.isVideo ? 0.55 : 1)
+                    .opacity(bgImage != nil ? 0.55 : 1)
             }
             .ignoresSafeArea()
         }
@@ -165,8 +178,9 @@ struct CallView: View {
         let safeBottom = geo.safeAreaInsets.bottom
         let pipIsLocal = !isLocalExpanded                                   // small window = the OTHER feed
         let pipTrack = isLocalExpanded ? call.remoteVideoTrack : call.localVideoTrack
-        // Hide a local PiP when the camera is off; a remote PiP shows whenever the feed exists.
-        let visible = pipTrack != nil && (pipIsLocal ? call.cameraOn : true)
+        // PiP only appears once the remote video is here (before that, MY camera is full-screen).
+        // Then hide a local PiP if the camera is off; a remote PiP always shows.
+        let visible = hasRemote && pipTrack != nil && (pipIsLocal ? call.cameraOn : true)
         return Group {
             if visible, let track = pipTrack {
                 ZStack(alignment: .topTrailing) {
@@ -192,7 +206,8 @@ struct CallView: View {
                             let w = pipBase.width + v.translation.width
                             let h = pipBase.height + v.translation.height
                             let maxLeft = -(geo.size.width - 104 - 28)
-                            let maxDown =  geo.size.height - 300 - safeBottom
+                            // Real geometry (PiP is 150 tall, sits at safeTop+70, control bar ~120) — no magic 300 that inverts on small screens.
+                            let maxDown = max(0, geo.size.height - 150 - (geo.safeAreaInsets.top + 70) - safeBottom - 120)
                             pipOffset = CGSize(width: min(0, max(maxLeft, w)), height: min(maxDown, max(0, h)))
                         }
                         .onEnded { _ in pipBase = pipOffset }
