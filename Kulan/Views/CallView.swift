@@ -37,7 +37,7 @@ struct CallView: View {
         }
     }
     private var durationText: String {
-        guard let start = call.connectedDate else { return "Connected" }
+        guard let start = call.connectedDate else { return "Connecting…" }   // not truly connected until ICE is up (H1)
         let s = max(0, Int(now.timeIntervalSince(start)))
         return String(format: "%02d:%02d", s / 60, s % 60)
     }

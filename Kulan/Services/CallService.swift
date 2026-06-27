@@ -23,7 +23,8 @@ final class CallService: NSObject {
 
     var state: State = .idle {
         didSet {
-            if state == .active && connectedDate == nil { connectedDate = Date() }
+            // connectedDate is set on ACTUAL media connect (iceConnectionState .connected), NOT here —
+            // state flips to .active at signaling time, which would inflate the call duration (H1).
             if state == .active {
                 if isVideo { isSpeaker = true }   // video calls default to speakerphone (like FaceTime)
                 try? AVAudioSession.sharedInstance().overrideOutputAudioPort(isSpeaker ? .speaker : .none)
@@ -525,8 +526,7 @@ final class CallService: NSObject {
                 self.pc?.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { _ in
                     self.flushPendingCandidates()
                 }
-                self.state = .active
-                CallKitManager.shared.reportConnected()
+                self.state = .active   // show the call screen; reportConnected fires on real ICE connect (H1)
             }
             // Callee applies an ICE-restart OFFER (reconnection) and answers it.
             if !self.isCaller, let ro = d["restartOffer"] as? [String: Any],
@@ -701,6 +701,11 @@ extension CallService: RTCPeerConnectionDelegate {
         DispatchQueue.main.async {
             switch newState {
             case .connected, .completed:
+                // First real media connect → NOW the call is truly connected: start the timer + tell CallKit.
+                if self.connectedDate == nil {
+                    self.connectedDate = Date()
+                    CallKitManager.shared.reportConnected()
+                }
                 self.recovered()                          // back to a healthy media path
             case .disconnected:
                 self.enterReconnecting(restartAfter: 3)   // may self-heal; force a restart in 3s

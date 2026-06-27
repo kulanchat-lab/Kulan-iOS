@@ -87,13 +87,10 @@ struct StoriesRow: View {
                         .contextMenu {
                             Button { onMessage(g) } label: { Label("Send Message", systemImage: "message") }
                             Button { onProfile(g) } label: { Label("Open Profile", systemImage: "person.crop.circle") }
-                            Button {
-                                StoryPrefs.toggleNotify(g.authorUid); prefsTick += 1
-                            } label: {
-                                Label(StoryPrefs.isNotifying(g.authorUid) ? "Stop Notifying" : "Notify About Stories",
-                                      systemImage: StoryPrefs.isNotifying(g.authorUid) ? "bell.slash" : "bell")
-                            }
                             Button { onOpenAnon(g) } label: { Label("View Anonymously", systemImage: "eye.slash") }
+                            // Report this person's latest story (H7 entry point; reportStory now writes reporterUid).
+                            Button { if let s = g.stories.last { Task { await StoriesService.shared.reportStory(s) } } }
+                                label: { Label("Report", systemImage: "flag") }
                             Button(role: .destructive) {
                                 StoryPrefs.toggleHidden(g.authorUid); prefsTick += 1
                             } label: { Label("Hide Stories", systemImage: "xmark.circle") }
