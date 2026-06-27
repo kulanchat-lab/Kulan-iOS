@@ -464,7 +464,7 @@ struct ThreadView: View {
             repo.addPending(Message(localImageData: data, width: m.width ?? 1, height: m.height ?? 1,
                                     authorId: me, clientId: clientId, sendState: .sending))
             Task {
-                do { try await ChatService.sendImage(cid: cid, data: data, clientId: clientId) }
+                do { try await ChatService.sendImage(cid: cid, data: data, clientId: clientId, group: isGroup ? groupMembers : nil) }
                 catch { await MainActor.run { repo.markFailed(clientId: clientId) } }
             }
         } else {
@@ -485,7 +485,7 @@ struct ThreadView: View {
                                         authorId: me, clientId: clientId, sendState: .sending))
             }
         }
-        do { try await ChatService.sendImage(cid: cid, data: data, clientId: clientId) }
+        do { try await ChatService.sendImage(cid: cid, data: data, clientId: clientId, group: isGroup ? groupMembers : nil) }
         catch { await MainActor.run { repo.markFailed(clientId: clientId) } }
     }
 
@@ -721,7 +721,7 @@ struct ThreadView: View {
     private var inputRow: some View {
         composerGlassContainer {
         HStack(alignment: .bottom, spacing: 8) {   // "+" outside-left, everything else in the field
-            if !recordingHeld && !isGroup {   // photo attach hidden in groups (media is a later iteration)
+            if !recordingHeld {
                 Menu {
                     Button { showCamera = true } label: { Label("Camera", systemImage: "camera") }
                     Button { showLibrary = true } label: { Label("Photo Library", systemImage: "photo") }
@@ -798,9 +798,7 @@ struct ThreadView: View {
             }
             .padding(.trailing, 5).padding(.bottom, 5)
             .transition(.scale.combined(with: .opacity))
-        } else if !isGroup {
-            // Photo/voice in groups isn't built yet (per-member media encryption — a later
-            // iteration), so groups are text-only for now rather than showing broken buttons.
+        } else {
             HStack(spacing: 10) {
                 Button { showCamera = true } label: {
                     Image(systemName: "camera").font(.system(size: 22)).foregroundStyle(.secondary)
@@ -963,7 +961,7 @@ struct ThreadView: View {
                                         authorId: me, clientId: clientId, sendState: .sending))
             }
         }
-        do { try await ChatService.sendAudio(cid: cid, data: data, duration: dur, waveform: wf, clientId: clientId) }
+        do { try await ChatService.sendAudio(cid: cid, data: data, duration: dur, waveform: wf, clientId: clientId, group: isGroup ? groupMembers : nil) }
         catch { await MainActor.run { repo.markFailed(clientId: clientId) } }
     }
 

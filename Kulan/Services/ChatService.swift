@@ -313,17 +313,22 @@ enum ChatService {
         return resized.jpegData(compressionQuality: quality) ?? data
     }
 
-    static func sendImage(cid: String, data rawData: Data, clientId: String? = nil) async throws {
+    static func sendImage(cid: String, data rawData: Data, clientId: String? = nil, group: [String]? = nil) async throws {
         let data = downscaledJPEG(rawData)
-        let (cipher, meta) = try await Crypto.shared.encryptBytes(cid, data)
-        let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+        var members = group
+        if members == nil, !cid.contains("_") {
+            let snap = try? await db.collection("conversations").document(cid).getDocument()
+            members = snap?.data()?["users"] as? [String]
+        }
         let convRef = db.collection("conversations").document(cid)
-
-        // Same ordering guarantee as sendText — conversation must exist first.
-        try await convRef.setData([
-            "users": [uid, other],
-            "updatedAt": FieldValue.serverTimestamp(),
-        ], merge: true)
+        let cipher: Data, meta: EncMeta
+        if let members {
+            (cipher, meta) = try await Crypto.shared.encryptBytesForGroup(data, members: members)
+        } else {
+            (cipher, meta) = try await Crypto.shared.encryptBytes(cid, data)
+            let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+            try await convRef.setData(["users": [uid, other], "updatedAt": FieldValue.serverTimestamp()], merge: true)
+        }
 
         let msgRef = convRef.collection("messages").document()
         let ref = Storage.storage().reference().child("chat/\(cid)/\(msgRef.documentID).enc")
@@ -333,43 +338,48 @@ enum ChatService {
 
         let batch = db.batch()
         var imgMsg: [String: Any] = [
-            "type": "image",
-            "imageUrl": url,
-            "enc": ["v": meta.v, "n": meta.n, "k": meta.k, "kn": meta.kn],
-            "text": "",
-            "authorId": uid,
-            "createdAt": FieldValue.serverTimestamp(),
+            "type": "image", "imageUrl": url, "enc": meta.asDict, "text": "",
+            "authorId": uid, "createdAt": FieldValue.serverTimestamp(),
         ]
         if let clientId { imgMsg["clientId"] = clientId }   // reconcile the optimistic bubble
         if let ui = UIImage(data: data) {                   // natural aspect ratio
             imgMsg["width"] = Double(ui.size.width); imgMsg["height"] = Double(ui.size.height)
         }
         batch.setData(imgMsg, forDocument: msgRef)
-        batch.updateData([
-            "lastMessage": "📷 Photo",   // plaintext preview (server never sees the image)
-            // Last-image pointer so the chat list can show a real thumbnail (not just text).
-            // Gated on lastMessage == "📷 Photo" at display time, so a later text message
-            // ignores this without us having to clear it.
+        var convUpdate: [String: Any] = [
+            "lastMessage": "📷 Photo",
             "lastImageUrl": url,
-            "lastImageEnc": ["v": meta.v, "n": meta.n, "k": meta.k, "kn": meta.kn],
+            "lastImageEnc": meta.asDict,
             "lastSender": uid,
             "updatedAt": FieldValue.serverTimestamp(),
-            "unreadCount.\(other)": FieldValue.increment(Int64(1)),
-        ], forDocument: convRef)
+        ]
+        if let members {
+            for m in members where m != uid { convUpdate["unreadCount.\(m)"] = FieldValue.increment(Int64(1)) }
+        } else {
+            let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+            convUpdate["unreadCount.\(other)"] = FieldValue.increment(Int64(1))
+        }
+        batch.updateData(convUpdate, forDocument: convRef)
         try await batch.commit()
     }
 
     /// Encrypt + send a voice note. Same E2EE pipeline as photos: the m4a bytes
     /// are sealed and the ciphertext uploaded; the server never hears the audio.
-    static func sendAudio(cid: String, data: Data, duration: Double, waveform: [Int] = [], clientId: String? = nil) async throws {
-        let (cipher, meta) = try await Crypto.shared.encryptBytes(cid, data)
-        let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+    static func sendAudio(cid: String, data: Data, duration: Double, waveform: [Int] = [], clientId: String? = nil, group: [String]? = nil) async throws {
+        var members = group
+        if members == nil, !cid.contains("_") {
+            let snap = try? await db.collection("conversations").document(cid).getDocument()
+            members = snap?.data()?["users"] as? [String]
+        }
         let convRef = db.collection("conversations").document(cid)
-
-        try await convRef.setData([
-            "users": [uid, other],
-            "updatedAt": FieldValue.serverTimestamp(),
-        ], merge: true)
+        let cipher: Data, meta: EncMeta
+        if let members {
+            (cipher, meta) = try await Crypto.shared.encryptBytesForGroup(data, members: members)
+        } else {
+            (cipher, meta) = try await Crypto.shared.encryptBytes(cid, data)
+            let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+            try await convRef.setData(["users": [uid, other], "updatedAt": FieldValue.serverTimestamp()], merge: true)
+        }
 
         let msgRef = convRef.collection("messages").document()
         let ref = Storage.storage().reference().child("chat/\(cid)/\(msgRef.documentID).m4a.enc")
@@ -379,23 +389,23 @@ enum ChatService {
 
         let batch = db.batch()
         var msg: [String: Any] = [
-            "type": "audio",
-            "audioUrl": url,
-            "duration": duration,
-            "waveform": waveform,                  // tiny amplitude bars for the UI
-            "enc": ["v": meta.v, "n": meta.n, "k": meta.k, "kn": meta.kn],
-            "text": "",
-            "authorId": uid,
-            "createdAt": FieldValue.serverTimestamp(),
+            "type": "audio", "audioUrl": url, "duration": duration, "waveform": waveform,
+            "enc": meta.asDict, "text": "", "authorId": uid, "createdAt": FieldValue.serverTimestamp(),
         ]
         if let clientId { msg["clientId"] = clientId }   // reconcile the optimistic bubble in place
         batch.setData(msg, forDocument: msgRef)
-        batch.updateData([
+        var convUpdate: [String: Any] = [
             "lastMessage": "🎤 Voice message",
             "lastSender": uid,
             "updatedAt": FieldValue.serverTimestamp(),
-            "unreadCount.\(other)": FieldValue.increment(Int64(1)),
-        ], forDocument: convRef)
+        ]
+        if let members {
+            for m in members where m != uid { convUpdate["unreadCount.\(m)"] = FieldValue.increment(Int64(1)) }
+        } else {
+            let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+            convUpdate["unreadCount.\(other)"] = FieldValue.increment(Int64(1))
+        }
+        batch.updateData(convUpdate, forDocument: convRef)
         try await batch.commit()
     }
 

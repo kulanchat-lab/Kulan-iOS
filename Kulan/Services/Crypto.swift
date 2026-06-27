@@ -267,8 +267,54 @@ final class Crypto {
         return (Data(sealedFile.authenticatedCipherText), meta)
     }
 
+    /// Group file encryption: seal the file once under a random key, then wrap that key for
+    /// EVERY member (incl. the author). Same shape as encryptForGroup but for media. The
+    /// per-member wraps + author go into EncMeta.w / EncMeta.a so decryption self-routes.
+    func encryptBytesForGroup(_ data: Data, members: [String]) async throws -> (cipher: Data, meta: EncMeta) {
+        try await ensureReady()
+        guard let sk = mySecretKey, let me = currentUid() else {
+            throw NSError(domain: "Crypto", code: 11, userInfo: [NSLocalizedDescriptionKey: "keys not ready"])
+        }
+        let fileKey = sodium.secretBox.key()
+        guard let sealedFile: (authenticatedCipherText: Bytes, nonce: SecretBox.Nonce) =
+                sodium.secretBox.seal(message: Bytes(data), secretKey: fileKey) else {
+            throw NSError(domain: "Crypto", code: 12, userInfo: [NSLocalizedDescriptionKey: "group file seal failed"])
+        }
+        var wraps: [String: String] = [:]
+        for uid in Set(members) {
+            guard let pub = await preloadKey(uid) else { continue }   // skip keyless members
+            guard let w: (authenticatedCipherText: Bytes, nonce: Box.Nonce) =
+                    sodium.box.seal(message: fileKey, recipientPublicKey: pub, senderSecretKey: sk) else { continue }
+            wraps[uid] = Data(w.authenticatedCipherText).base64EncodedString()
+                       + "." + Data(w.nonce).base64EncodedString()
+        }
+        guard wraps.keys.contains(where: { $0 != me }) else {
+            throw MissingRecipientKeyError(uid: members.first { $0 != me } ?? "")
+        }
+        let meta = EncMeta(v: 1, n: Data(sealedFile.nonce).base64EncodedString(), k: "", kn: "", w: wraps, a: me)
+        return (Data(sealedFile.authenticatedCipherText), meta)
+    }
+
     /// Reverse of encryptBytes. Returns nil if keys are missing or auth fails.
     func decryptBytes(_ cid: String, cipher: Data, meta: EncMeta) async -> Data? {
+        // Group media (meta.w present): unwrap MY copy of the file key with the AUTHOR's key.
+        if let wraps = meta.w, let author = meta.a {
+            do { try await ensureReady(); _ = await preloadKey(author) } catch {}
+            guard let sk = mySecretKey, let me = currentUid(),
+                  let myWrap = wraps[me],
+                  let authorPub = lock.withLock({ pubCache[author] }) else { return nil }
+            let wp = myWrap.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+            guard wp.count == 2,
+                  let wrappedKey = Data(base64Encoded: wp[0]),
+                  let keyNonce = Data(base64Encoded: wp[1]),
+                  let dataNonce = Data(base64Encoded: meta.n) else { return nil }
+            guard let fileKey = sodium.box.open(authenticatedCipherText: Bytes(wrappedKey),
+                                                senderPublicKey: authorPub, recipientSecretKey: sk,
+                                                nonce: Bytes(keyNonce)) else { return nil }
+            guard let opened = sodium.secretBox.open(authenticatedCipherText: Bytes(cipher),
+                                                     secretKey: fileKey, nonce: Bytes(dataNonce)) else { return nil }
+            return Data(opened)
+        }
         do {
             try await ensureReady()
             _ = await preloadKey(otherUid(cid))
