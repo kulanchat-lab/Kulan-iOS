@@ -177,6 +177,8 @@ struct Conversation: Identifiable, Equatable, Hashable {
     var groupDescription: String       // group description / "about" (groups only)
     var avatarUrl: String?             // group photo (groups only)
     var admins: [String]               // uids allowed to manage the group
+    var createdBy: String              // uid of the group creator (owner)
+    var createdAt: Date?               // when the group was created
     var updatedAtMillis: Double
 
     init(id: String, data: [String: Any]) {
@@ -204,6 +206,8 @@ struct Conversation: Identifiable, Equatable, Hashable {
         self.groupDescription = data["desc"] as? String ?? ""
         self.avatarUrl = data["avatarUrl"] as? String
         self.admins = data["admins"] as? [String] ?? []
+        self.createdBy = data["createdBy"] as? String ?? ""
+        self.createdAt = (data["createdAt"] as? Timestamp)?.dateValue()
         if let ts = data["updatedAt"] as? Timestamp {
             self.updatedAtMillis = ts.dateValue().timeIntervalSince1970 * 1000
         } else {

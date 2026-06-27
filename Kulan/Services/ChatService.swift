@@ -70,6 +70,7 @@ enum ChatService {
             "users": users,
             "admins": [uid],
             "createdBy": uid,
+            "createdAt": FieldValue.serverTimestamp(),
             "names": names,
             "photos": photos,
             "unreadCount": unread,

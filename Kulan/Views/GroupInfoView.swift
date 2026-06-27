@@ -20,6 +20,7 @@ struct GroupInfoView: View {
     @State private var showAdd = false
     @State private var memberAction: MemberAction?
     @State private var confirmLeave = false
+    @State private var confirmClear = false
     @State private var media: [Message] = []
     @State private var showAllMedia = false
 
@@ -193,6 +194,9 @@ struct GroupInfoView: View {
 
     private var leaveSection: some View {
         Section {
+            Button(role: .destructive) { confirmClear = true } label: {
+                Label("Clear Chat", systemImage: "trash")
+            }
             Button(role: .destructive) { confirmLeave = true } label: {
                 Label("Leave Group", systemImage: "rectangle.portrait.and.arrow.right")
             }
@@ -201,7 +205,24 @@ struct GroupInfoView: View {
             } label: {
                 Label("Report Group", systemImage: "exclamationmark.bubble")
             }
+        } footer: {
+            if let label = createdByLabel {
+                Text(label).frame(maxWidth: .infinity).multilineTextAlignment(.center).padding(.top, 6)
+            }
         }
+        .confirmationDialog("Clear this chat?", isPresented: $confirmClear, titleVisibility: .visible) {
+            Button("Clear Chat", role: .destructive) { Task { await ChatService.clearMyMessages(cid) } }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    // "Created by you · 26 Jun 2026" footer, like the reference group screens.
+    private var createdByLabel: String? {
+        guard let conv, conv.isGroup, !conv.createdBy.isEmpty else { return nil }
+        let who = conv.createdBy == me ? "you" : (conv.names[conv.createdBy] ?? "someone")
+        guard let d = conv.createdAt else { return "Created by \(who)" }
+        let f = DateFormatter(); f.dateStyle = .medium
+        return "Created by \(who) · \(f.string(from: d))"
     }
 
     @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
