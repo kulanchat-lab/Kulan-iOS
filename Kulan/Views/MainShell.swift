@@ -309,57 +309,89 @@ struct CallHistoryRow: View {
     }
 }
 
-// "New call" picker (mockup IMG_4490): search + your people, each with a call button.
-// Voice-only for now (no fake video buttons); reuses existing conversations.
+// "New call" picker: A–Z grouped contacts, each with REAL voice + video call buttons + a side
+// index. (No "Create Call Link" / phone-number search — those aren't real Kulan features.)
 struct NewCallView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var repo = ConversationsRepository.shared
     @State private var query = ""
     private var me: String { AuthService.shared.uid ?? "" }
 
-    private var people: [Conversation] {
+    private var sections: [(letter: String, convs: [Conversation])] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let list = repo.conversations.filter { !$0.otherUid(me).isEmpty }
-        return (q.isEmpty ? list : list.filter { $0.displayName(me).lowercased().contains(q) })
-            .sorted { $0.displayName(me).lowercased() < $1.name(for: me).lowercased() }
+        let all = repo.conversations.filter { !$0.otherUid(me).isEmpty && !$0.isGroup }
+        let filtered = q.isEmpty ? all : all.filter { $0.displayName(me).lowercased().contains(q) }
+        let grouped = Dictionary(grouping: filtered) { c -> String in
+            let n = c.displayName(me).trimmingCharacters(in: .whitespaces).uppercased()
+            guard let f = n.first, f.isLetter else { return "#" }
+            return String(f)
+        }
+        return grouped
+            .map { ($0.key, $0.value.sorted { $0.displayName(me).lowercased() < $1.displayName(me).lowercased() }) }
+            .sorted { $0.letter == "#" ? false : ($1.letter == "#" ? true : $0.letter < $1.letter) }
     }
+    private var indexLetters: [String] { sections.map(\.letter) }
 
     var body: some View {
         NavigationStack {
-            Group {
-                if people.isEmpty {
-                    ContentUnavailableView("No contacts", systemImage: "person.crop.circle",
-                                           description: Text("Start a chat first, then you can call them."))
-                } else {
-                    List {
-                        ForEach(people) { c in
-                            HStack(spacing: 12) {
-                                AvatarView(name: c.displayName(me), photoUrl: c.displayPhoto(me), size: 42)
-                                Text(c.displayName(me)).font(.system(size: 17, weight: .medium)).lineLimit(1)
-                                Spacer()
-                                Button {
-                                    CallService.shared.startCall(to: c.otherUid(me),
-                                                                 name: c.displayName(me),
-                                                                 photo: c.displayPhoto(me))
-                                    dismiss()
-                                } label: {
-                                    Image(systemName: "phone").font(.system(size: 20)).foregroundStyle(.tint)
-                                }
-                                .buttonStyle(.plain)
+            ScrollViewReader { proxy in
+                List {
+                    if sections.isEmpty {
+                        ContentUnavailableView("No contacts", systemImage: "phone",
+                                               description: Text("Start a chat first, then you can call them."))
+                    } else {
+                        ForEach(sections, id: \.letter) { section in
+                            Section(section.letter) {
+                                ForEach(section.convs) { c in callRow(c) }
                             }
-                            .padding(.vertical, 2)
+                            .id(section.letter)
                         }
                     }
-                    .listStyle(.plain)
+                }
+                .listStyle(.insetGrouped)   // grouped cards (matches the reference)
+                .overlay(alignment: .trailing) {
+                    if query.isEmpty && indexLetters.count > 1 {
+                        VStack(spacing: 1) {
+                            ForEach(indexLetters, id: \.self) { l in
+                                Text(l).font(.system(size: 11, weight: .semibold)).foregroundStyle(.tint)
+                                    .frame(width: 16).contentShape(Rectangle())
+                                    .onTapGesture { withAnimation { proxy.scrollTo(l, anchor: .top) } }
+                            }
+                        }
+                        .padding(.trailing, 1)
+                    }
                 }
             }
-            .navigationTitle("New Call")
+            .navigationTitle("New call")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, prompt: "Search name")
+            .searchable(text: $query, prompt: "Search name or username")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "xmark") }.tint(.primary) }
             }
         }
+    }
+
+    private func callRow(_ c: Conversation) -> some View {
+        HStack(spacing: 12) {
+            AvatarView(name: c.displayName(me), photoUrl: c.displayPhoto(me), size: 42)
+            Text(c.displayName(me)).font(.system(size: 17, weight: .medium)).lineLimit(1)
+            Spacer()
+            Button { call(c, video: false) } label: {
+                Image(systemName: "phone").font(.system(size: 19)).foregroundStyle(.primary)
+            }
+            .buttonStyle(.plain).frame(width: 44, height: 44).contentShape(Rectangle())
+            Button { call(c, video: true) } label: {
+                Image(systemName: "video").font(.system(size: 19)).foregroundStyle(.primary)
+            }
+            .buttonStyle(.plain).frame(width: 44, height: 44).contentShape(Rectangle())
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func call(_ c: Conversation, video: Bool) {
+        CallService.shared.startCall(to: c.otherUid(me), name: c.displayName(me),
+                                     photo: c.displayPhoto(me), video: video)
+        dismiss()
     }
 }
 
