@@ -79,6 +79,8 @@ enum ChatService {
         ]
         if let avatarUrl, !avatarUrl.isEmpty { data["avatarUrl"] = avatarUrl }
         try await ref.setData(data)
+        // Greet the new group with a system event (also gives the chat list a real preview).
+        try? await writeSystemMessage(cid: ref.documentID, text: "\(myName()) created the group")
         return ref.documentID
     }
 

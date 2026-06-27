@@ -872,6 +872,15 @@ struct ChatRow: View {
             Text(text).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(1)
         }
     }
+    // "Alice: " prefix for group previews so you can tell who sent the last message.
+    // Only for real messages (ciphertext or media markers) — NOT system events like "X added Y".
+    private var lastSenderPrefix: String {
+        guard conv.isGroup, !conv.lastSender.isEmpty, conv.lastSender != me else { return "" }
+        let c = conv.lastMessageCipher
+        guard c.hasPrefix("enc") || c == "📷 Photo" || c == "🎤 Voice message" else { return "" }
+        let n = conv.names[conv.lastSender] ?? "Someone"
+        return "\(n.split(separator: " ").first.map(String.init) ?? n): "
+    }
     private var unread: Int { conv.isBlockedByMe(me) ? 0 : conv.unread(me) }   // silent block: no badge
     private var muted: Bool { conv.isMuted(me, now: Date().timeIntervalSince1970 * 1000) }
 
@@ -886,14 +895,14 @@ struct ChatRow: View {
                 SecureImageView(imageUrl: conv.lastImageUrl ?? "", enc: conv.lastImageEnc, cid: conv.id)
                     .frame(width: 20, height: 20)
                     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                Text("Photo").font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(1)
+                Text("\(lastSenderPrefix)Photo").font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(1)
             }
         } else if !conv.leaksBlocked(me), let badge = previewBadge(conv.lastMessageCipher) {
             previewRow(badge.0, badge.1)
         } else if !conv.leaksBlocked(me), decodedLast.isEmpty {
             previewRow("hand.wave.fill", "Say hello")
         } else {
-            Text(decodedLast)
+            Text(lastSenderPrefix + decodedLast)
                 .font(.system(size: 14, weight: unread > 0 ? .medium : .regular))
                 .foregroundStyle(unread > 0 ? Color.primary : .secondary).lineLimit(2)   // darker when unread
         }
