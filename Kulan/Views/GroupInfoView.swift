@@ -73,7 +73,7 @@ struct GroupInfoView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
         .sheet(item: $memberAction) { m in
-            GroupMemberSheet(cid: cid, member: m, iAmAdmin: iAmAdmin)
+            GroupMemberSheet(cid: cid, member: m, iAmAdmin: iAmAdmin, ownerUid: conv?.createdBy ?? "")
                 .presentationDetents([.medium, .large])
         }
         .confirmationDialog("Leave this group?", isPresented: $confirmLeave, titleVisibility: .visible) {
@@ -218,9 +218,10 @@ struct GroupInfoView: View {
             }
         }
         .confirmationDialog("Clear this chat?", isPresented: $confirmClear, titleVisibility: .visible) {
-            Button("Clear Chat", role: .destructive) { Task { await ChatService.clearMyMessages(cid) } }
+            // Local clear (hides history for ME only) — NOT a global delete of my messages.
+            Button("Clear Chat", role: .destructive) { Task { await ChatService.deleteForMe(cid) } }
             Button("Cancel", role: .cancel) {}
-        }
+        } message: { Text("This clears the chat from your device only.") }
         .confirmationDialog("Report this group?", isPresented: $confirmReport, titleVisibility: .visible) {
             Button("Report", role: .destructive) {
                 Task { await ChatService.report(reportedUid: conv?.admins.first ?? "", cid: cid, reason: "group") }
@@ -343,10 +344,12 @@ struct GroupMemberSheet: View {
     let cid: String
     let member: GroupInfoView.MemberAction
     let iAmAdmin: Bool
+    let ownerUid: String
     @Environment(\.dismiss) private var dismiss
     @State private var profile: UserProfile?
     @State private var confirmRemove = false
     private var me: String { AuthService.shared.uid ?? "" }
+    private var isOwner: Bool { member.id == ownerUid }
 
     var body: some View {
         NavigationStack {
@@ -358,8 +361,8 @@ struct GroupMemberSheet: View {
                         if let h = profile?.handle, !h.isEmpty {
                             Text("@\(h)").font(.subheadline).foregroundStyle(.secondary)
                         }
-                        if member.isAdmin {
-                            Text("Admin").font(.caption.weight(.semibold))
+        if isOwner || member.isAdmin {
+                            Text(isOwner ? "Owner" : "Admin").font(.caption.weight(.semibold))
                                 .padding(.horizontal, 8).padding(.vertical, 3)
                                 .background(Color.accentColor.opacity(0.15), in: Capsule())
                                 .foregroundStyle(Color.accentColor)
@@ -371,7 +374,8 @@ struct GroupMemberSheet: View {
                     .frame(maxWidth: .infinity)
                     .listRowBackground(Color.clear)
                 }
-                if iAmAdmin && member.id != me {
+                // The owner is protected: no admin can demote or remove them.
+                if iAmAdmin && member.id != me && !isOwner {
                     Section {
                         if member.isAdmin {
                             Button("Remove as Admin") {

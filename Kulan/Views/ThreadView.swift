@@ -46,6 +46,13 @@ struct ThreadView: View {
     @AppStorage("shareLastSeen") private var lastSeenPref = true
 
     private var me: String { AuthService.shared.uid ?? "" }
+
+    // A person's display name: "You" for me, the member's name in a group, the 1:1 title otherwise.
+    // Never the group name for a member (that was a bug in several call sites).
+    private func personName(_ uid: String) -> String {
+        if uid == me { return "You" }
+        return isGroup ? (conversation?.names[uid] ?? "User") : title
+    }
     private var dark: Bool { scheme == .dark }
 
     init(cid: String, title: String, photoUrl: String?) {
@@ -171,7 +178,7 @@ struct ThreadView: View {
         }
         .sheet(item: $morePickerTarget) { m in EmojiMorePicker { emoji in react(m, emoji) } }
         .sheet(item: $reactorsTarget) { m in
-            ReactorsSheet(reactions: m.reactions, nameFor: { $0 == me ? "You" : title })
+            ReactorsSheet(reactions: m.reactions, nameFor: { personName($0) })
         }
         .sheet(item: $editTarget) { m in
             EditMessageSheet(original: m.text) { newText in
@@ -257,7 +264,7 @@ struct ThreadView: View {
     @ViewBuilder private func pinnedBar(_ proxy: ScrollViewProxy) -> some View {
         if !repo.pinnedMessageId.isEmpty {
             let msg = repo.messages.first { $0.id == repo.pinnedMessageId }
-            let author = msg.map { $0.authorId == me ? "You" : title } ?? "Pinned Message"
+            let author = msg.map { personName($0.authorId) } ?? "Pinned Message"
             // FLOATING glass card + separate glass pin button (like the header pills), not a
             // flat full-width bar. Grouped in a native GlassEffectContainer so the two glass
             // shapes render as one cohesive liquid-glass system.
@@ -376,7 +383,7 @@ struct ThreadView: View {
                 } else {
                     MessageBubble(
                         message: msg, isMe: msg.authorId == me, dark: dark, cid: cid,
-                        nameFor: { uid in uid == me ? "You" : (conversation?.names[uid] ?? title) },
+                        nameFor: { personName($0) },
                         onReply: { m in withAnimation(.easeInOut(duration: 0.22)) { replyingTo = m } },
                         onDelete: { pendingDelete = $0 },   // confirm dialog, not instant
                         onTapImage: { viewerImage = $0 },
@@ -566,7 +573,9 @@ struct ThreadView: View {
             await MainActor.run {
                 repo.markFailed(clientId: clientId)
                 if error is MissingRecipientKeyError {
-                    sendError = "\(title) hasn't opened Kulan yet, so encryption isn't set up. Your message will send once they do."
+                    sendError = isGroup
+                        ? "No one in this group has set up encryption yet. Your message will send once a member opens Kulan."
+                        : "\(title) hasn't opened Kulan yet, so encryption isn't set up. Your message will send once they do."
                 }
             }
         }
@@ -761,7 +770,7 @@ struct ThreadView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text("Reply to \(r.authorId == me ? "yourself" : title)")
+                Text("Reply to \(r.authorId == me ? "yourself" : personName(r.authorId))")
                     .font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
                 replyContentPreview(r)
             }

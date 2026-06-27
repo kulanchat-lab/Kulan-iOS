@@ -16,8 +16,8 @@ struct ForwardPicker: View {
 
     private var people: [Conversation] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let list = repo.conversations.filter { !$0.otherUid(me).isEmpty && $0.id != sourceCid }
-        return (q.isEmpty ? list : list.filter { $0.name(for: me).lowercased().contains(q) })
+        let list = repo.conversations.filter { ($0.isGroup || !$0.otherUid(me).isEmpty) && $0.id != sourceCid }
+        return (q.isEmpty ? list : list.filter { $0.displayName(me).lowercased().contains(q) })
             .sorted { $0.displayUpdatedAt(me) > $1.displayUpdatedAt(me) }
     }
 
@@ -39,8 +39,8 @@ struct ForwardPicker: View {
                             ForEach(people) { c in
                                 Button { toggle(c.id) } label: {
                                     HStack(spacing: 12) {
-                                        AvatarView(name: c.name(for: me), photoUrl: c.photoUrl(for: me), size: 44)
-                                        Text(c.name(for: me))
+                                        AvatarView(name: c.displayName(me), photoUrl: c.displayPhoto(me), size: 44)
+                                        Text(c.displayName(me))
                                             .font(.system(size: 16, weight: .medium)).foregroundStyle(.primary)
                                         Spacer()
                                         Image(systemName: selected.contains(c.id) ? "checkmark.circle.fill" : "circle")
