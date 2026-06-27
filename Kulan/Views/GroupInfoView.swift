@@ -25,6 +25,7 @@ struct GroupInfoView: View {
     @State private var media: [Message] = []
     @State private var showAllMedia = false
     @State private var uploadingAvatar = false
+    @State private var showCall = false
 
     struct MemberAction: Identifiable { let id: String; let name: String; let isAdmin: Bool }
 
@@ -101,6 +102,7 @@ struct GroupInfoView: View {
         }
         .task { media = await ChatService.sharedMedia(cid) }
         .sheet(isPresented: $showAllMedia) { SharedMediaGridView(cid: cid, media: media) }
+        .fullScreenCover(isPresented: $showCall) { GroupCallView() }
     }
 
     private var headerSection: some View {
@@ -134,16 +136,48 @@ struct GroupInfoView: View {
                     Button("Add group description…") { descText = ""; showDescEdit = true }
                         .font(.footnote)
                 }
+                // Premium action-pill row (Telegram/WhatsApp-style) — quick call + mute.
+                HStack(spacing: 10) {
+                    actionPill("phone.fill", "Audio") { startCall(video: false) }
+                    actionPill("video.fill", "Video") { startCall(video: true) }
+                    actionPill("bell.slash.fill", "Mute") { showMute = true }
+                }
+                .padding(.top, 8)
             }
             .frame(maxWidth: .infinity)
             .listRowBackground(Color.clear)
         }
     }
 
+    private func actionPill(_ icon: String, _ label: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 18))
+                Text(label).font(.caption2.weight(.medium))
+            }
+            .foregroundStyle(Color.accentColor)
+            .frame(maxWidth: .infinity).padding(.vertical, 12)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func startCall(video: Bool) {
+        Task { await GroupCallService.shared.start(cid: cid, title: conv?.title ?? "Group", video: video) }
+        showCall = true
+    }
+
+    // Colored icon chip for list rows (premium look vs plain SF Symbols).
+    private func chip(_ icon: String, _ color: Color) -> some View {
+        Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+            .frame(width: 29, height: 29)
+            .background(color, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+
     private var membersSection: some View {
         Section(conv?.memberCountLabel.capitalized ?? "Members") {
             if canAdd {
-                Button { showAdd = true } label: { Label("Add Members", systemImage: "person.badge.plus") }
+                Button { showAdd = true } label: { rowLabel("person.badge.plus", "Add Members", .blue) }
             }
             ForEach(sortedMembers, id: \.self) { uid in memberRow(uid) }
         }
@@ -151,23 +185,19 @@ struct GroupInfoView: View {
 
     private var settingsSection: some View {
         Section {
-            Button { showMute = true } label: {
-                Label("Mute Notifications", systemImage: "bell.slash")
-                    .foregroundStyle(.primary)
-            }
+            Button { showMute = true } label: { rowLabel("bell.slash.fill", "Mute Notifications", .gray) }
             // Disappearing messages is a group-wide setting → admin-only to change.
             if iAmAdmin {
                 Button { showDisappear = true } label: {
                     HStack {
-                        Label("Disappearing Messages", systemImage: "timer")
+                        rowLabel("timer", "Disappearing Messages", .orange)
                         Spacer()
                         Text(disappearLabel).foregroundStyle(.secondary)
                     }
-                    .foregroundStyle(.primary)
                 }
             } else if (conv?.disappearSeconds ?? 0) > 0 {
                 HStack {
-                    Label("Disappearing Messages", systemImage: "timer")
+                    rowLabel("timer", "Disappearing Messages", .orange)
                     Spacer()
                     Text(disappearLabel).foregroundStyle(.secondary)
                 }
@@ -177,22 +207,24 @@ struct GroupInfoView: View {
                 Toggle(isOn: Binding(
                     get: { conv?.onlyAdminsSend ?? false },
                     set: { v in Task { try? await ChatService.setOnlyAdminsSend(cid: cid, v) } }
-                )) {
-                    Label("Only admins can send", systemImage: "megaphone")
-                }
+                )) { rowLabel("megaphone.fill", "Only admins can send", .pink) }
                 Toggle(isOn: Binding(
                     get: { conv?.membersCanAdd ?? false },
                     set: { v in Task { try? await ChatService.setGroupPermission(cid: cid, key: "membersCanAdd", v) } }
-                )) {
-                    Label("Members can add others", systemImage: "person.badge.plus")
-                }
+                )) { rowLabel("person.badge.plus", "Members can add others", .green) }
                 Toggle(isOn: Binding(
                     get: { conv?.membersCanEditInfo ?? false },
                     set: { v in Task { try? await ChatService.setGroupPermission(cid: cid, key: "membersCanEditInfo", v) } }
-                )) {
-                    Label("Members can edit group info", systemImage: "pencil")
-                }
+                )) { rowLabel("pencil", "Members can edit group info", .purple) }
             }
+        }
+    }
+
+    // A list row: colored icon chip + label (premium look).
+    private func rowLabel(_ icon: String, _ text: String, _ color: Color) -> some View {
+        HStack(spacing: 12) {
+            chip(icon, color)
+            Text(text).foregroundStyle(.primary)
         }
     }
 
@@ -226,13 +258,13 @@ struct GroupInfoView: View {
     private var leaveSection: some View {
         Section {
             Button(role: .destructive) { confirmClear = true } label: {
-                Label("Clear Chat", systemImage: "trash")
+                HStack(spacing: 12) { chip("trash.fill", .red); Text("Clear Chat").foregroundStyle(.red) }
             }
             Button(role: .destructive) { confirmLeave = true } label: {
-                Label("Leave Group", systemImage: "rectangle.portrait.and.arrow.right")
+                HStack(spacing: 12) { chip("rectangle.portrait.and.arrow.right.fill", .red); Text("Leave Group").foregroundStyle(.red) }
             }
             Button(role: .destructive) { confirmReport = true } label: {
-                Label("Report Group", systemImage: "exclamationmark.bubble")
+                HStack(spacing: 12) { chip("exclamationmark.bubble.fill", .red); Text("Report Group").foregroundStyle(.red) }
             }
         } footer: {
             if let label = createdByLabel {
