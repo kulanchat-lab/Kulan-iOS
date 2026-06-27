@@ -104,7 +104,9 @@ struct ThreadView: View {
                     // INITIAL LOAD: messages arrive in chunks (cache → live). .defaultScrollAnchor(.bottom)
                     // already keeps us pinned to the bottom WITHOUT animation — so do NOT fire an animated
                     // scrollTo here, which is what caused the erratic jump/snap on open.
-                } else if isAtBottom || mine {
+                } else if mine {
+                    proxy.scrollTo("BOTTOM", anchor: .bottom)   // spring row-transition shows it; no competing scroll anim
+                } else if isAtBottom {
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("BOTTOM", anchor: .bottom) }
                 } else {
                     newWhileAway += 1
@@ -512,9 +514,8 @@ struct ThreadView: View {
                         },
                         onForward: { forwardTarget = $0 },
                         onEdit: { m in
-                            editingMessage = m
+                            withAnimation(.easeInOut(duration: 0.2)) { editingMessage = m; replyingTo = nil }
                             input = m.text
-                            withAnimation(.easeInOut(duration: 0.2)) { replyingTo = nil }
                             inputFocused = true
                         },
                         onReport: { reportTarget = $0 },
@@ -917,9 +918,10 @@ struct ThreadView: View {
 
     // Toggle my reaction (re-tapping the same emoji removes it) and remember it as recent.
     private func react(_ m: Message, _ emoji: String) {
+        guard m.sendState == nil else { return }   // can't react to a message that isn't on the server yet
         let new = m.reactions[me] == emoji ? nil : emoji
         if let e = new { ReactionRecents.add(e) }
-        Task { await ChatService.setReaction(cid: cid, messageId: m.id, emoji: new) }
+        Task { await ChatService.setReaction(cid: cid, messageId: m.id, emoji: new, group: isGroup ? groupMembers : nil) }
     }
 
 
@@ -1475,10 +1477,17 @@ struct MessageBubble: View {
     }
 
     // Message body: tappable URLs + @usernames + highlighted group @mentions.
+    // Built ONCE — NSDataDetector / NSRegularExpression construction is expensive; doing it per
+    // render per bubble was the main scroll-jank source.
+    private static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    private static let mentionRegex = try? NSRegularExpression(pattern: "@([A-Za-z0-9_]{3,24})")
+
     private var bodyText: Text {
-        var str = AttributedString(message.text)
-        str.font = .system(size: 17)
         let full = message.text
+        var str = AttributedString(full)
+        str.font = .system(size: 17)
+        // Fast path: plain text with no links/@/mentions skips ALL regex work (the common case).
+        guard full.contains("http") || full.contains("@") || !message.mentions.isEmpty else { return Text(str) }
         let ns = full as NSString
         let whole = NSRange(location: 0, length: ns.length)
 
@@ -1495,13 +1504,13 @@ struct MessageBubble: View {
         }
 
         // Web links → tappable (blue, underlined).
-        if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+        if let detector = Self.linkDetector {
             for m in detector.matches(in: full, range: whole) where m.url != nil {
                 style(m.range, link: m.url, underline: true)
             }
         }
         // @usernames → kulan://u/<handle> (resolved on tap).
-        if let re = try? NSRegularExpression(pattern: "@([A-Za-z0-9_]{3,24})") {
+        if let re = Self.mentionRegex {
             for m in re.matches(in: full, range: whole) {
                 let handle = ns.substring(with: m.range(at: 1))
                 style(m.range, link: URL(string: "kulan://u/\(handle)"))
@@ -1699,7 +1708,9 @@ struct MessageBubble: View {
                         if !message.isCall {
                             Button { onForward(message) } label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
                         }
-                        Button { onReactMore(message) } label: { Label("React…", systemImage: "face.smiling") }
+                        if message.sendState == nil {   // can't react until the message is on the server
+                            Button { onReactMore(message) } label: { Label("React…", systemImage: "face.smiling") }
+                        }
                         Divider()
                         if isMe {
                             Button(role: .destructive) { onDelete(message) } label: { Label("Delete", systemImage: "trash") }
@@ -1709,6 +1720,7 @@ struct MessageBubble: View {
                     }
                     // Double-tap to quick-react with a heart (iMessage/WhatsApp-style).
                     .highPriorityGesture(TapGesture(count: 2).onEnded {
+                        guard message.sendState == nil else { return }   // not until it's on the server
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         onReact(myReaction == "❤️" ? nil : "❤️")
                     })

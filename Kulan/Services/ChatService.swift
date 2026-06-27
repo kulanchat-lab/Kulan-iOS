@@ -393,6 +393,9 @@ enum ChatService {
         let sm = StorageMetadata(); sm.contentType = "application/octet-stream"
         _ = try await ref.putDataAsync(cipher, metadata: sm)
         let url = try await ref.downloadURL().absoluteString
+        // Seed the cache with the plaintext image under its URL so when the optimistic bubble
+        // reconciles to the server message, SecureImageView renders instantly (no shimmer / re-download).
+        if let ui = UIImage(data: rawData) { DiskImageCache.shared.store(ui, for: url) }
 
         let batch = db.batch()
         var imgMsg: [String: Any] = [
