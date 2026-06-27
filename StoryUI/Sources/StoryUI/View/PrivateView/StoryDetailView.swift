@@ -134,7 +134,7 @@ private extension StoryDetailView {
                         selectedEmoji: $selectedEmoji,
                         userClosure: userClosure
                     )
-                    .animation(messageViewPosition == 0 ? .none : .easeOut)
+                    .animation(messageViewPosition == 0 ? .none : .easeOut, value: messageViewPosition)
                     .offset(y: emojiViewPosition)
                     .opacity(messageViewPosition == 0 ? 0 : 1)
                 }

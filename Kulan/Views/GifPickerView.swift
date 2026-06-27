@@ -7,6 +7,7 @@ struct GifPickerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var gifs: [GiphyService.Gif] = []
+    @State private var searchTask: Task<Void, Never>?   // debounce: don't hit Giphy on every keystroke
 
     var body: some View {
         NavigationStack {
@@ -23,7 +24,15 @@ struct GifPickerView: View {
                 .padding(6)
             }
             .searchable(text: $query, prompt: "Search GIFs")
-            .onChange(of: query) { _, q in Task { gifs = await GiphyService.shared.search(q) } }
+            .onChange(of: query) { _, q in
+                searchTask?.cancel()
+                searchTask = Task {
+                    try? await Task.sleep(nanoseconds: 300_000_000)   // 300ms debounce
+                    if Task.isCancelled { return }
+                    let results = await GiphyService.shared.search(q)
+                    if !Task.isCancelled { gifs = results }
+                }
+            }
             .navigationTitle("GIF")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } } }

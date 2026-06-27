@@ -134,9 +134,12 @@ struct QRScanner: UIViewControllerRepresentable {
         override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); preview?.frame = view.bounds }
         override func viewWillDisappear(_ animated: Bool) { super.viewWillDisappear(animated); session.stopRunning() }
 
+        private var didFind = false   // fire once — not on every camera frame (was spamming findByHandle ~30fps)
         func metadataOutput(_ output: AVCaptureMetadataOutput,
                             didOutput objs: [AVMetadataObject], from connection: AVCaptureConnection) {
-            guard let obj = objs.first as? AVMetadataMachineReadableCodeObject, let s = obj.stringValue else { return }
+            guard !didFind,
+                  let obj = objs.first as? AVMetadataMachineReadableCodeObject, let s = obj.stringValue else { return }
+            didFind = true
             onCode?(s)
         }
     }
