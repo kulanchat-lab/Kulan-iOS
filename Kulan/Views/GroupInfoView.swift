@@ -22,43 +22,13 @@ struct GroupInfoView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    VStack(spacing: 10) {
-                        AvatarView(name: conv?.title ?? "Group", photoUrl: conv?.avatarUrl, size: 88)
-                        Text(conv?.title ?? "Group").font(.title2.weight(.bold))
-                        Text(conv?.memberCountLabel ?? "").font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .listRowBackground(Color.clear)
-                }
-
-                Section("\(conv?.users.count ?? 0) Members") {
-                    if iAmAdmin {
-                        Button { showAdd = true } label: {
-                            Label("Add Members", systemImage: "person.badge.plus")
-                        }
-                    }
-                    ForEach(sortedMembers, id: \.self) { uid in
-                        memberRow(uid)
-                    }
-                }
-
-                Section {
-                    Button(role: .destructive) { confirmLeave = true } label: {
-                        Label("Leave Group", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                }
+                headerSection
+                membersSection
+                leaveSection
             }
             .navigationTitle("Group Info")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Done") { dismiss() } }
-                if iAmAdmin {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Edit") { newName = conv?.title ?? ""; showRename = true }
-                    }
-                }
-            }
+            .toolbar { toolbarContent }
             .alert("Rename group", isPresented: $showRename) {
                 TextField("Group name", text: $newName)
                 Button("Save") { let t = newName; Task { try? await ChatService.renameGroup(cid: cid, title: t) } }
@@ -67,13 +37,7 @@ struct GroupInfoView: View {
             .confirmationDialog(memberAction?.name ?? "",
                                 isPresented: Binding(get: { memberAction != nil }, set: { if !$0 { memberAction = nil } }),
                                 titleVisibility: .visible, presenting: memberAction) { m in
-                if !m.isAdmin {
-                    Button("Make Admin") { Task { try? await ChatService.promoteGroupAdmin(cid: cid, uid: m.id, name: m.name) } }
-                }
-                Button("Remove from Group", role: .destructive) {
-                    Task { try? await ChatService.removeGroupMember(cid: cid, uid: m.id, name: m.name) }
-                }
-                Button("Cancel", role: .cancel) {}
+                memberActions(m)
             }
             .confirmationDialog("Leave this group?", isPresented: $confirmLeave, titleVisibility: .visible) {
                 Button("Leave", role: .destructive) {
@@ -85,6 +49,54 @@ struct GroupInfoView: View {
                 AddMembersSheet(cid: cid, existing: Set(conv?.users ?? []))
             }
         }
+    }
+
+    private var headerSection: some View {
+        Section {
+            VStack(spacing: 10) {
+                AvatarView(name: conv?.title ?? "Group", photoUrl: conv?.avatarUrl, size: 88)
+                Text(conv?.title ?? "Group").font(.title2.weight(.bold))
+                Text(conv?.memberCountLabel ?? "").font(.subheadline).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .listRowBackground(Color.clear)
+        }
+    }
+
+    private var membersSection: some View {
+        Section("\(conv?.users.count ?? 0) Members") {
+            if iAmAdmin {
+                Button { showAdd = true } label: { Label("Add Members", systemImage: "person.badge.plus") }
+            }
+            ForEach(sortedMembers, id: \.self) { uid in memberRow(uid) }
+        }
+    }
+
+    private var leaveSection: some View {
+        Section {
+            Button(role: .destructive) { confirmLeave = true } label: {
+                Label("Leave Group", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+        }
+    }
+
+    @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) { Button("Done") { dismiss() } }
+        if iAmAdmin {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Edit") { newName = conv?.title ?? ""; showRename = true }
+            }
+        }
+    }
+
+    @ViewBuilder private func memberActions(_ m: MemberAction) -> some View {
+        if !m.isAdmin {
+            Button("Make Admin") { Task { try? await ChatService.promoteGroupAdmin(cid: cid, uid: m.id, name: m.name) } }
+        }
+        Button("Remove from Group", role: .destructive) {
+            Task { try? await ChatService.removeGroupMember(cid: cid, uid: m.id, name: m.name) }
+        }
+        Button("Cancel", role: .cancel) {}
     }
 
     private var sortedMembers: [String] {

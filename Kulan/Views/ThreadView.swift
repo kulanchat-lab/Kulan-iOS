@@ -342,6 +342,7 @@ struct ThreadView: View {
                         onEdit: { editTarget = $0 },
                         onReport: { reportTarget = $0 },
                         onReactMore: { morePickerTarget = $0 },
+                        isGroup: isGroup,
                         onTapReactions: { reactorsTarget = msg },
                         onResend: { m in resend(m) },
                         onJumpTo: { id in jump(to: id, proxy) },
@@ -714,7 +715,7 @@ struct ThreadView: View {
     private var inputRow: some View {
         composerGlassContainer {
         HStack(alignment: .bottom, spacing: 8) {   // "+" outside-left, everything else in the field
-            if !recordingHeld {
+            if !recordingHeld && !isGroup {   // photo attach hidden in groups (media is a later iteration)
                 Menu {
                     Button { showCamera = true } label: { Label("Camera", systemImage: "camera") }
                     Button { showLibrary = true } label: { Label("Photo Library", systemImage: "photo") }
@@ -791,7 +792,9 @@ struct ThreadView: View {
             }
             .padding(.trailing, 5).padding(.bottom, 5)
             .transition(.scale.combined(with: .opacity))
-        } else {
+        } else if !isGroup {
+            // Photo/voice in groups isn't built yet (per-member media encryption — a later
+            // iteration), so groups are text-only for now rather than showing broken buttons.
             HStack(spacing: 10) {
                 Button { showCamera = true } label: {
                     Image(systemName: "camera").font(.system(size: 22)).foregroundStyle(.secondary)
@@ -978,6 +981,7 @@ struct MessageBubble: View {
     var onEdit: (Message) -> Void = { _ in }
     var onReport: (Message) -> Void = { _ in }
     var onReactMore: (Message) -> Void = { _ in }
+    var isGroup: Bool = false   // reactions/edit not yet supported in groups → hidden
     var onTapReactions: () -> Void = {}
     var onLongPress: (Message) -> Void = { _ in }
     var onResend: (Message) -> Void = { _ in }
@@ -1109,9 +1113,11 @@ struct MessageBubble: View {
                         if !message.isImage && !message.text.isEmpty {
                             Button { UIPasteboard.general.string = message.text } label: { Label("Copy", systemImage: "doc.on.doc") }
                         }
-                        Button { onReactMore(message) } label: { Label("React…", systemImage: "face.smiling") }
+                        if !isGroup {   // reactions not yet wired for groups (per-author crypto, later iteration)
+                            Button { onReactMore(message) } label: { Label("React…", systemImage: "face.smiling") }
+                        }
                         Button { onPin(message) } label: { Label("Pin", systemImage: "pin") }
-                        if isMe && !message.isImage && !message.isAudio && !message.isCall && message.sendState == nil {
+                        if isMe && !isGroup && !message.isImage && !message.isAudio && !message.isCall && message.sendState == nil {
                             Button { onEdit(message) } label: { Label("Edit", systemImage: "pencil") }
                         }
                         Divider()
@@ -1123,6 +1129,7 @@ struct MessageBubble: View {
                     }
                     // Double-tap to quick-react with a heart (iMessage/WhatsApp-style).
                     .highPriorityGesture(TapGesture(count: 2).onEnded {
+                        guard !isGroup else { return }   // group reactions not wired yet
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         onReact(myReaction == "❤️" ? nil : "❤️")
                     })
