@@ -28,59 +28,64 @@ struct GroupInfoView: View {
 
     var body: some View {
         Group {   // pushed from the chat header → uses the parent nav bar (no nested stack)
-            List {
-                headerSection
-                settingsSection
-                membersSection
-                leaveSection
-            }
-            .navigationTitle("Group Info")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbarContent }
-            .alert("Rename group", isPresented: $showRename) {
-                TextField("Group name", text: $newName)
-                Button("Save") { let t = newName; Task { try? await ChatService.renameGroup(cid: cid, title: t) } }
-                Button("Cancel", role: .cancel) {}
-            }
-            .alert("Group description", isPresented: $showDescEdit) {
-                TextField("Description", text: $descText)
-                Button("Save") { let t = descText; Task { try? await ChatService.setGroupDescription(cid: cid, text: t) } }
-                Button("Cancel", role: .cancel) {}
-            }
-            .confirmationDialog("Mute Notifications", isPresented: $showMute, titleVisibility: .visible) {
-                Button("Mute for 1 hour")  { Task { await ChatService.setMute(cid, until: ChatService.muteUntil(1)) } }
-                Button("Mute for 8 hours") { Task { await ChatService.setMute(cid, until: ChatService.muteUntil(8)) } }
-                Button("Mute for 1 week")  { Task { await ChatService.setMute(cid, until: ChatService.muteUntil(168)) } }
-                Button("Mute Always")      { Task { await ChatService.setMute(cid, until: ChatService.muteUntil(nil)) } }
-                Button("Unmute")           { Task { await ChatService.setMute(cid, until: 0) } }
-                Button("Cancel", role: .cancel) {}
-            }
-            .confirmationDialog("Disappearing Messages", isPresented: $showDisappear, titleVisibility: .visible) {
-                Button("Off")     { Task { await ChatService.setDisappear(cid, seconds: 0) } }
-                Button("1 Day")   { Task { await ChatService.setDisappear(cid, seconds: 86_400) } }
-                Button("1 Week")  { Task { await ChatService.setDisappear(cid, seconds: 604_800) } }
-                Button("Cancel", role: .cancel) {}
-            }
-            .confirmationDialog(memberAction?.name ?? "",
-                                isPresented: Binding(get: { memberAction != nil }, set: { if !$0 { memberAction = nil } }),
-                                titleVisibility: .visible, presenting: memberAction) { m in
-                memberActions(m)
-            }
-            .confirmationDialog("Leave this group?", isPresented: $confirmLeave, titleVisibility: .visible) {
-                Button("Leave", role: .destructive) {
-                    Task { try? await ChatService.leaveGroup(cid: cid); await MainActor.run { dismiss() } }
+            groupBody
+                .alert("Rename group", isPresented: $showRename) {
+                    TextField("Group name", text: $newName)
+                    Button("Save") { let t = newName; Task { try? await ChatService.renameGroup(cid: cid, title: t) } }
+                    Button("Cancel", role: .cancel) {}
                 }
-                Button("Cancel", role: .cancel) {}
+                .alert("Group description", isPresented: $showDescEdit) {
+                    TextField("Description", text: $descText)
+                    Button("Save") { let t = descText; Task { try? await ChatService.setGroupDescription(cid: cid, text: t) } }
+                    Button("Cancel", role: .cancel) {}
+                }
+                .confirmationDialog("Mute Notifications", isPresented: $showMute, titleVisibility: .visible) {
+                    Button("Mute for 1 hour")  { Task { await ChatService.setMute(cid, until: ChatService.muteUntil(1)) } }
+                    Button("Mute for 8 hours") { Task { await ChatService.setMute(cid, until: ChatService.muteUntil(8)) } }
+                    Button("Mute for 1 week")  { Task { await ChatService.setMute(cid, until: ChatService.muteUntil(168)) } }
+                    Button("Mute Always")      { Task { await ChatService.setMute(cid, until: ChatService.muteUntil(nil)) } }
+                    Button("Unmute")           { Task { await ChatService.setMute(cid, until: 0) } }
+                    Button("Cancel", role: .cancel) {}
+                }
+                .confirmationDialog("Disappearing Messages", isPresented: $showDisappear, titleVisibility: .visible) {
+                    Button("Off")     { Task { await ChatService.setDisappear(cid, seconds: 0) } }
+                    Button("1 Day")   { Task { await ChatService.setDisappear(cid, seconds: 86_400) } }
+                    Button("1 Week")  { Task { await ChatService.setDisappear(cid, seconds: 604_800) } }
+                    Button("Cancel", role: .cancel) {}
+                }
+        }
+    }
+
+    // Split out so the body's modifier chain stays small enough for the type-checker.
+    private var groupBody: some View {
+        List {
+            headerSection
+            settingsSection
+            membersSection
+            leaveSection
+        }
+        .navigationTitle("Group Info")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { toolbarContent }
+        .confirmationDialog(memberAction?.name ?? "",
+                            isPresented: Binding(get: { memberAction != nil }, set: { if !$0 { memberAction = nil } }),
+                            titleVisibility: .visible, presenting: memberAction) { m in
+            memberActions(m)
+        }
+        .confirmationDialog("Leave this group?", isPresented: $confirmLeave, titleVisibility: .visible) {
+            Button("Leave", role: .destructive) {
+                Task { try? await ChatService.leaveGroup(cid: cid); await MainActor.run { dismiss() } }
             }
-            .sheet(isPresented: $showAdd) {
-                AddMembersSheet(cid: cid, existing: Set(conv?.users ?? []))
-            }
-            .onChange(of: avatarItem) { _, item in
-                guard let item else { return }
-                Task {
-                    if let d = try? await item.loadTransferable(type: Data.self) {
-                        try? await ChatService.uploadGroupAvatar(cid: cid, data: d)
-                    }
+            Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showAdd) {
+            AddMembersSheet(cid: cid, existing: Set(conv?.users ?? []))
+        }
+        .onChange(of: avatarItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let d = try? await item.loadTransferable(type: Data.self) {
+                    try? await ChatService.uploadGroupAvatar(cid: cid, data: d)
                 }
             }
         }
