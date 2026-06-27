@@ -288,12 +288,15 @@ struct ThreadView: View {
                         .font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                Button { Task { await ChatService.setPinnedMessage(cid, nil) } } label: {
-                    Image(systemName: "pin.fill").font(.system(size: 16)).foregroundStyle(.secondary)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
+                // Only an admin can unpin in a group (else any member could wipe the pin).
+                if !isGroup || (conversation?.isAdmin(me) ?? false) {
+                    Button { Task { await ChatService.setPinnedMessage(cid, nil) } } label: {
+                        Image(systemName: "pin.fill").font(.system(size: 16)).foregroundStyle(.secondary)
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.leading, 14).padding(.trailing, 8)
             .frame(height: 48)
@@ -406,6 +409,7 @@ struct ThreadView: View {
                             tappedMember = GroupInfoView.MemberAction(
                                 id: uid, name: personName(uid), isAdmin: conversation?.isAdmin(uid) ?? false)
                         },
+                        canPin: !isGroup || (conversation?.isAdmin(me) ?? false),
                         onResend: { m in resend(m) },
                         onJumpTo: { id in jump(to: id, proxy) },
                         isHighlighted: msg.id == highlightId,
@@ -456,8 +460,9 @@ struct ThreadView: View {
                 Button { showContactInfo = true } label: { headerLabel }.buttonStyle(.plain)
             }
         }
-        // 1:1 call buttons only — group calls need an SFU (not built yet), so hide them in groups.
-        if !isGroup {
+        // 1:1 call buttons only — group calls need an SFU (not built yet). The cid check keeps
+        // them from flashing on a group cold-open before the conversation doc has loaded.
+        if !isGroup && cid.contains("_") {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { CallService.shared.startCall(to: otherUid, name: title, photo: photoUrl) } label: {
                     Image(systemName: "phone.fill")
@@ -1128,6 +1133,7 @@ struct MessageBubble: View {
     var isGroup: Bool = false   // drives per-sender name labels above others' bubbles in groups
     var onTapReactions: () -> Void = {}
     var onTapSender: (String) -> Void = { _ in }
+    var canPin: Bool = true
     var onLongPress: (Message) -> Void = { _ in }
     var onResend: (Message) -> Void = { _ in }
     var onJumpTo: (String) -> Void = { _ in }
@@ -1290,7 +1296,7 @@ struct MessageBubble: View {
                             Button { UIPasteboard.general.string = message.text } label: { Label("Copy", systemImage: "doc.on.doc") }
                         }
                         Button { onReactMore(message) } label: { Label("React…", systemImage: "face.smiling") }
-                        Button { onPin(message) } label: { Label("Pin", systemImage: "pin") }
+                        if canPin { Button { onPin(message) } label: { Label("Pin", systemImage: "pin") } }
                         if isMe && !message.isImage && !message.isAudio && !message.isCall && message.sendState == nil {
                             Button { onEdit(message) } label: { Label("Edit", systemImage: "pencil") }
                         }
