@@ -30,6 +30,9 @@ struct GroupInfoView: View {
 
     private var conv: Conversation? { repo.conversations.first { $0.id == cid } }
     private var iAmAdmin: Bool { conv?.isAdmin(me) ?? false }
+    // Admins always can; members can too when the matching permission toggle is on.
+    private var canEditInfo: Bool { iAmAdmin || (conv?.membersCanEditInfo ?? false) }
+    private var canAdd: Bool { iAmAdmin || (conv?.membersCanAdd ?? false) }
 
     var body: some View {
         Group {   // pushed from the chat header → uses the parent nav bar (no nested stack)
@@ -103,7 +106,7 @@ struct GroupInfoView: View {
     private var headerSection: some View {
         Section {
             VStack(spacing: 10) {
-                if iAmAdmin {
+                if canEditInfo {
                     PhotosPicker(selection: $avatarItem, matching: .images) {
                         ZStack(alignment: .bottomTrailing) {
                             AvatarView(name: conv?.title ?? "Group", photoUrl: conv?.avatarUrl, size: 88)
@@ -126,8 +129,8 @@ struct GroupInfoView: View {
                 if let d = conv?.groupDescription, !d.isEmpty {
                     Text(d).font(.footnote).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                        .onTapGesture { if iAmAdmin { descText = d; showDescEdit = true } }
-                } else if iAmAdmin {
+                        .onTapGesture { if canEditInfo { descText = d; showDescEdit = true } }
+                } else if canEditInfo {
                     Button("Add group description…") { descText = ""; showDescEdit = true }
                         .font(.footnote)
                 }
@@ -139,7 +142,7 @@ struct GroupInfoView: View {
 
     private var membersSection: some View {
         Section(conv?.memberCountLabel.capitalized ?? "Members") {
-            if iAmAdmin {
+            if canAdd {
                 Button { showAdd = true } label: { Label("Add Members", systemImage: "person.badge.plus") }
             }
             ForEach(sortedMembers, id: \.self) { uid in memberRow(uid) }
@@ -176,6 +179,18 @@ struct GroupInfoView: View {
                     set: { v in Task { try? await ChatService.setOnlyAdminsSend(cid: cid, v) } }
                 )) {
                     Label("Only admins can send", systemImage: "megaphone")
+                }
+                Toggle(isOn: Binding(
+                    get: { conv?.membersCanAdd ?? false },
+                    set: { v in Task { try? await ChatService.setGroupPermission(cid: cid, key: "membersCanAdd", v) } }
+                )) {
+                    Label("Members can add others", systemImage: "person.badge.plus")
+                }
+                Toggle(isOn: Binding(
+                    get: { conv?.membersCanEditInfo ?? false },
+                    set: { v in Task { try? await ChatService.setGroupPermission(cid: cid, key: "membersCanEditInfo", v) } }
+                )) {
+                    Label("Members can edit group info", systemImage: "pencil")
                 }
             }
         }
@@ -247,7 +262,7 @@ struct GroupInfoView: View {
     }
 
     @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
-        if iAmAdmin {
+        if canEditInfo {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Edit") { newName = conv?.title ?? ""; showRename = true }
             }

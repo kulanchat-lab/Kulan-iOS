@@ -354,7 +354,7 @@ struct ThreadView: View {
             if conversation?.createdBy == me {
                 Text("You created this group").font(.caption).foregroundStyle(.secondary)
             }
-            if conversation?.isAdmin(me) == true {
+            if (conversation?.isAdmin(me) ?? false) || (conversation?.membersCanAdd ?? false) {
                 Button { showGroupAdd = true } label: {
                     Label("Add Members", systemImage: "person.badge.plus")
                         .font(.subheadline.weight(.medium))

@@ -182,6 +182,8 @@ struct Conversation: Identifiable, Equatable, Hashable {
     var createdBy: String              // uid of the group creator (owner)
     var createdAt: Date?               // when the group was created
     var onlyAdminsSend: Bool           // announcement mode: only admins may send (groups)
+    var membersCanAdd: Bool            // group: non-admins may add members (default false)
+    var membersCanEditInfo: Bool       // group: non-admins may edit name/photo/desc (default false)
     var updatedAtMillis: Double
 
     init(id: String, data: [String: Any]) {
@@ -212,6 +214,8 @@ struct Conversation: Identifiable, Equatable, Hashable {
         self.createdBy = data["createdBy"] as? String ?? ""
         self.createdAt = (data["createdAt"] as? Timestamp)?.dateValue()
         self.onlyAdminsSend = data["onlyAdminsSend"] as? Bool ?? false
+        self.membersCanAdd = data["membersCanAdd"] as? Bool ?? false
+        self.membersCanEditInfo = data["membersCanEditInfo"] as? Bool ?? false
         if let ts = data["updatedAt"] as? Timestamp {
             self.updatedAtMillis = ts.dateValue().timeIntervalSince1970 * 1000
         } else {

@@ -191,6 +191,14 @@ enum ChatService {
             : "\(myName()) allowed everyone to send messages")
     }
 
+    /// Toggle a member permission (admin): "membersCanAdd" or "membersCanEditInfo".
+    static func setGroupPermission(cid: String, key: String, _ value: Bool) async throws {
+        try await db.collection("conversations").document(cid).updateData([
+            key: value,
+            "updatedAt": FieldValue.serverTimestamp(),
+        ])
+    }
+
     /// Set the group description / "about" (admin). No system message (low-signal change).
     static func setGroupDescription(cid: String, text: String) async throws {
         let desc = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(500))
