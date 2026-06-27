@@ -31,7 +31,7 @@ final class CallService: NSObject {
             if state == .idle {
                 connectedDate = nil; isMuted = false; isSpeaker = false
                 calleeRinging = false; recordWritten = false; minimized = false
-                endReason = .none; negotiationVersion = 0; appliedRemoteRestart = 0
+                endReason = .none; negotiationVersion = 0; appliedRemoteRestart = 0; handledVideoRequest = false
                 stopRingback(); stopTone(); cancelTimers()
                 isVideo = false; cameraOn = true; usingFrontCamera = true
                 videoCapturer?.stopCapture(); videoCapturer = nil
@@ -66,7 +66,8 @@ final class CallService: NSObject {
     private var noAnswerWork: DispatchWorkItem?      // outgoing: nobody answered -> Missed
     private var iceRestartWork: DispatchWorkItem?    // delayed ICE restart after a drop
     private var reconnectGiveUpWork: DispatchWorkItem? // hard cap: can't recover -> Failed
-    private var negotiationVersion = 0               // bumps each ICE restart (caller)
+    private var negotiationVersion = 0               // bumps each ICE restart / media renegotiation (caller)
+    private var handledVideoRequest = false          // caller handled a callee's mid-call video request once
     private var appliedRemoteRestart = 0             // last restart version we applied
 
     private let db = Firestore.firestore()
@@ -159,6 +160,37 @@ final class CallService: NSObject {
         // RTCCameraVideoCapturer in place can freeze/black the local feed on flip.
         capturer.stopCapture { [weak self] in
             DispatchQueue.global(qos: .userInitiated).async { self?.startCapture(front: next) }
+        }
+    }
+
+    /// Upgrade an ACTIVE voice call to video without dropping it: add my camera track and
+    /// renegotiate the existing peer connection (reuses the proven restartOffer/restartAnswer
+    /// channel). The peer's didAdd(rtpReceiver) fires for the new video track → their UI flips.
+    /// NOTE: mid-call SDP renegotiation needs a real 2-device test; not verifiable in the simulator.
+    func upgradeToVideo() {
+        guard let pc, state == .active, !isVideo, localVideoTrack == nil else { return }
+        isVideo = true
+        cameraOn = true
+        if !isSpeaker { toggleSpeaker() }
+        addLocalVideo(to: pc)        // inject my video track into the live session
+        renegotiateMedia()
+    }
+
+    // Re-offer the current tracks. Caller drives signaling directly; callee asks the caller to
+    // (the restart channel is caller→callee), having already added its own track first.
+    private func renegotiateMedia() {
+        guard let pc, let id = callId else { return }
+        if isCaller {
+            negotiationVersion += 1
+            let v = negotiationVersion
+            pc.offer(for: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)) { [weak self] sdp, _ in
+                guard let self, let sdp, let pc = self.pc else { return }
+                pc.setLocalDescription(sdp) { _ in
+                    self.db.collection("calls").document(id).updateData(["restartOffer": ["sdp": sdp.sdp, "version": v]])
+                }
+            }
+        } else {
+            db.collection("calls").document(id).updateData(["videoRequested": FieldValue.serverTimestamp()])
         }
     }
 
@@ -480,6 +512,15 @@ final class CallService: NSObject {
                 self.appliedRemoteRestart = v
                 pc.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { _ in }
             }
+            // Caller: the callee tapped video mid-call → add a recv-only video transceiver so their
+            // track has an m-line to land on, flip our UI to video, and drive the re-offer.
+            if self.isCaller, d["videoRequested"] != nil, !self.handledVideoRequest, let pc = self.pc {
+                self.handledVideoRequest = true
+                self.isVideo = true
+                let initt = RTCRtpTransceiverInit(); initt.direction = .recvOnly
+                pc.addTransceiver(of: .video, init: initt)
+                self.renegotiateMedia()
+            }
         }
         listeners.append(l)
     }
@@ -613,7 +654,8 @@ extension CallService: RTCPeerConnectionDelegate {
     // Unified-plan remote track arrival: grab the remote video track for rendering.
     func peerConnection(_ peerConnection: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams mediaStreams: [RTCMediaStream]) {
         if let track = rtpReceiver.track as? RTCVideoTrack {
-            DispatchQueue.main.async { self.remoteVideoTrack = track }
+            // Mid-call upgrade: a video track arriving on a voice call flips this side to video.
+            DispatchQueue.main.async { self.remoteVideoTrack = track; self.isVideo = true }
         }
     }
 }

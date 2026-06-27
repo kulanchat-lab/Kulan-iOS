@@ -237,6 +237,9 @@ struct CallView: View {
             if call.isVideo {
                 callCircle(call.cameraOn ? "video.fill" : "video.slash.fill", active: !call.cameraOn) { call.toggleCamera() }
                 callCircle("arrow.triangle.2.circlepath", active: false) { call.switchCamera() }
+            } else {
+                // Seamless upgrade: turn this voice call into a video call (renegotiates, no hang-up).
+                callCircle("video.fill", active: false) { call.upgradeToVideo() }
             }
             callCircle(call.isSpeaker ? "speaker.wave.2.fill" : "speaker.slash.fill", active: call.isSpeaker) { call.toggleSpeaker() }
             endCircle
