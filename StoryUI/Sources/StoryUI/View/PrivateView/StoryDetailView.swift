@@ -15,7 +15,7 @@ struct StoryDetailView: View {
     @State var model: StoryUIModel
     @Binding var isPresented: Bool
     
-    @State var timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+    @State var timer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
     @State var timerProgress: CGFloat = 0
 
     
