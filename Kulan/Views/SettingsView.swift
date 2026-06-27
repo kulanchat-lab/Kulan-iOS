@@ -533,7 +533,7 @@ struct EditProfileView: View {
                             Divider().padding(.leading, 18)
                             nameField("Last Name", text: $lastName)
                         }
-                        .background(cardBG, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .liquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                         // Username row → pushes the dedicated username editor.
                         Button { showUsername = true } label: {
@@ -544,7 +544,7 @@ struct EditProfileView: View {
                                 Image(systemName: "chevron.right").font(.footnote).foregroundStyle(.tertiary)
                             }
                             .padding(.horizontal, 18).padding(.vertical, 16)
-                            .background(cardBG, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .liquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
                         .buttonStyle(.plain)
 
@@ -552,7 +552,7 @@ struct EditProfileView: View {
                         TextField("A few words about you", text: $about, axis: .vertical)
                             .lineLimit(1...4)
                             .padding(.horizontal, 18).padding(.vertical, 16)
-                            .background(cardBG, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .liquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
                             .onChange(of: about) { _, v in if v.count > 140 { about = String(v.prefix(140)) } }
 
                         if let error { Text(error).foregroundStyle(.red).font(.footnote) }
@@ -579,7 +579,7 @@ struct EditProfileView: View {
         HStack {
             Button { dismiss() } label: {
                 Image(systemName: "xmark").font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
-                    .frame(width: 40, height: 40).background(cardBG, in: Circle())
+                    .frame(width: 40, height: 40).liquidGlass(Circle(), interactive: true)
             }
             Spacer()
             Text("Edit Profile").font(.headline)
@@ -587,7 +587,7 @@ struct EditProfileView: View {
             Button { Task { await save() } } label: {
                 Text("Save").font(.headline).foregroundStyle(saving ? .secondary : .primary)
                     .padding(.horizontal, 18).padding(.vertical, 9)
-                    .background(cardBG, in: Capsule())
+                    .liquidGlass(Capsule(), interactive: true)
             }
             .disabled(saving)
         }
@@ -667,7 +667,7 @@ struct UsernameEditView: View {
                 HStack {
                     Button { dismiss() } label: {
                         Image(systemName: "xmark").font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
-                            .frame(width: 40, height: 40).background(cardBG, in: Circle())
+                            .frame(width: 40, height: 40).liquidGlass(Circle(), interactive: true)
                     }
                     Spacer()
                     Text("Username").font(.headline)
@@ -689,7 +689,7 @@ struct UsernameEditView: View {
                             .onChange(of: draft) { _, v in let c = ChatService.sanitizeHandle(v); if c != v { draft = c } }
                     }
                     .padding(.horizontal, 18).padding(.vertical, 16)
-                    .background(cardBG, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .liquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     Text("Letters, numbers and _ only. 3–24 characters.")
                         .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 4)
                 }

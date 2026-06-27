@@ -1329,6 +1329,8 @@ struct MessageBubble: View {
     var otherLastRead: Double = 0
 
     @State private var dragX: CGFloat = 0
+    @State private var pendingLink: URL?          // web link tapped -> "Open link?" confirm
+    @State private var notFoundUser = false       // @username tapped but no such user
     @AppStorage("readReceipts") private var readReceiptsPref = true
 
     private var myUid: String { AuthService.shared.uid ?? "" }
@@ -1341,10 +1343,40 @@ struct MessageBubble: View {
         return palette[sum % palette.count]
     }
 
-    // Message body with @mentions highlighted (semibold + accent for received bubbles).
+    // Message body: tappable URLs + @usernames + highlighted group @mentions.
     private var bodyText: Text {
         var str = AttributedString(message.text)
         str.font = .system(size: 17)
+        let full = message.text
+        let ns = full as NSString
+        let whole = NSRange(location: 0, length: ns.length)
+
+        // Map a UTF-16 NSRange to AttributedString indices (emoji-safe) and apply attributes.
+        func style(_ nsRange: NSRange, link: URL?, underline: Bool = false) {
+            guard let sr = Range(nsRange, in: full) else { return }
+            let startOff = full.distance(from: full.startIndex, to: sr.lowerBound)
+            let len = full.distance(from: sr.lowerBound, to: sr.upperBound)
+            let lo = str.index(str.startIndex, offsetByCharacters: startOff)
+            let hi = str.index(lo, offsetByCharacters: len)
+            str[lo..<hi].foregroundColor = .blue
+            if let link { str[lo..<hi].link = link }
+            if underline { str[lo..<hi].underlineStyle = .single }
+        }
+
+        // Web links → tappable (blue, underlined).
+        if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+            for m in detector.matches(in: full, range: whole) where m.url != nil {
+                style(m.range, link: m.url, underline: true)
+            }
+        }
+        // @usernames → kulan://u/<handle> (resolved on tap).
+        if let re = try? NSRegularExpression(pattern: "@([A-Za-z0-9_]{3,24})") {
+            for m in re.matches(in: full, range: whole) {
+                let handle = ns.substring(with: m.range(at: 1))
+                style(m.range, link: URL(string: "kulan://u/\(handle)"))
+            }
+        }
+        // Group @mentions by display name → bold + accent (overrides the generic style).
         for uid in message.mentions {
             let token = "@\(nameFor(uid))"
             var idx = str.startIndex
@@ -1355,6 +1387,26 @@ struct MessageBubble: View {
             }
         }
         return Text(str)
+    }
+
+    // Route a tapped link: web URL -> "Open link?" confirm; kulan://u/<handle> -> open the
+    // person (or show "doesn't exist"). Returns .handled so iOS never opens it directly.
+    private func routeTappedURL(_ url: URL) -> OpenURLAction.Result {
+        if url.scheme == "kulan", url.host == "u" {
+            let handle = url.lastPathComponent
+            Task { @MainActor in
+                if let u = await ChatService.findByHandle(handle) {
+                    AppRouter.shared.pendingChatName = u.name
+                    AppRouter.shared.pendingChatPhoto = u.photoUrl
+                    AppRouter.shared.pendingChatId = ChatService.convId(myUid, u.id)
+                } else {
+                    notFoundUser = true
+                }
+            }
+            return .handled
+        }
+        pendingLink = url
+        return .handled
     }
 
     // Aggregate uid->emoji into (emoji, count, mine), most-popular first (Signal's logic,
@@ -1473,6 +1525,18 @@ struct MessageBubble: View {
                         .onTapGesture { onTapSender(message.authorId) }
                 }
                 content
+                    // Tappable links/usernames inside the bubble route through here.
+                    .environment(\.openURL, OpenURLAction { url in routeTappedURL(url) })
+                    .confirmationDialog("Open link?",
+                                        isPresented: Binding(get: { pendingLink != nil },
+                                                             set: { if !$0 { pendingLink = nil } }),
+                                        titleVisibility: .visible, presenting: pendingLink) { url in
+                        Button("Open") { UIApplication.shared.open(url) }
+                        Button("Cancel", role: .cancel) {}
+                    } message: { url in Text(url.absoluteString) }
+                    .alert("Sorry, this user doesn't seem to exist.", isPresented: $notFoundUser) {
+                        Button("OK", role: .cancel) {}
+                    }
                     // REAL native context menu (same as the chat list) — iOS handles the
                     // lift + blur + spring. No custom overlay.
                     .contextMenu {
