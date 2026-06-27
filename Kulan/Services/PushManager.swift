@@ -53,9 +53,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNU
         let name = d["callerName"] as? String ?? "Call"
         let uid = d["callerUid"] as? String ?? ""
         let photo = d["photo"] as? String
+        let video = (d["type"] as? String) == "video"   // M1: show the right CallKit UI for a video call
         // iOS 13+: MUST report to CallKit before completion or the app is terminated.
-        CallService.shared.prepareIncoming(callId: callId, name: name, uid: uid, photo: photo)
-        CallKitManager.shared.reportIncoming(callId: callId, name: name) { completion() }
+        CallService.shared.prepareIncoming(callId: callId, name: name, uid: uid, photo: photo, video: video)
+        CallKitManager.shared.reportIncoming(callId: callId, name: name, video: video) { completion() }
     }
 
     func application(_ application: UIApplication,

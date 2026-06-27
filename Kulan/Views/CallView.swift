@@ -169,6 +169,12 @@ struct CallView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, safeTop + 14)   // clear the iOS status-bar call indicator (green pill)
+        .padding(.bottom, 14)
+        .background(   // dark top scrim so white buttons + name stay legible over bright video (L1)
+            LinearGradient(colors: [.black.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea(edges: .top)
+                .allowsHitTesting(false)
+        )
     }
 
     private func topCircle(_ icon: String) -> some View {
