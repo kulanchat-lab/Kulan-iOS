@@ -11,6 +11,7 @@ struct ThreadView: View {
     @State private var input = ""
     @State private var mentionMap: [String: String] = [:]   // inserted "@name" -> uid (groups)
     @State private var showGroupAdd = false
+    @State private var tappedMember: GroupInfoView.MemberAction?
     @State private var replyingTo: Message?
     @State private var photoItem: PhotosPickerItem?
     @State private var sendingPhoto = false
@@ -190,6 +191,12 @@ struct ThreadView: View {
         }
         .sheet(isPresented: $showGroupAdd) {
             AddMembersSheet(cid: cid, existing: Set(groupMembers))
+        }
+        .sheet(item: $tappedMember) { m in
+            GroupMemberSheet(cid: cid, member: m,
+                             iAmAdmin: conversation?.isAdmin(me) ?? false,
+                             ownerUid: conversation?.createdBy ?? "")
+                .presentationDetents([.medium, .large])
         }
         .modifier(MessageActionDialogs(cid: cid, title: title,
                                        pendingDelete: $pendingDelete, reportTarget: $reportTarget))
@@ -395,6 +402,10 @@ struct ThreadView: View {
                         onReactMore: { morePickerTarget = $0 },
                         isGroup: isGroup,
                         onTapReactions: { reactorsTarget = msg },
+                        onTapSender: { uid in
+                            tappedMember = GroupInfoView.MemberAction(
+                                id: uid, name: personName(uid), isAdmin: conversation?.isAdmin(uid) ?? false)
+                        },
                         onResend: { m in resend(m) },
                         onJumpTo: { id in jump(to: id, proxy) },
                         isHighlighted: msg.id == highlightId,
@@ -1116,6 +1127,7 @@ struct MessageBubble: View {
     var onReactMore: (Message) -> Void = { _ in }
     var isGroup: Bool = false   // drives per-sender name labels above others' bubbles in groups
     var onTapReactions: () -> Void = {}
+    var onTapSender: (String) -> Void = { _ in }
     var onLongPress: (Message) -> Void = { _ in }
     var onResend: (Message) -> Void = { _ in }
     var onJumpTo: (String) -> Void = { _ in }
@@ -1264,6 +1276,7 @@ struct MessageBubble: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(senderColor)
                         .padding(.leading, 12)
+                        .onTapGesture { onTapSender(message.authorId) }
                 }
                 content
                     // REAL native context menu (same as the chat list) — iOS handles the

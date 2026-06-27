@@ -98,6 +98,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNU
     static let shared = AppRouter()
     private init() {}
     var pendingChatId: String?    // a chat to open from a notification tap
+    var pendingChatName: String?  // fallback header name when the conv isn't in the cache yet
+    var pendingChatPhoto: String? // fallback header photo
     var activeChatId: String?     // the chat currently on screen (suppresses its own banners)
 }
 

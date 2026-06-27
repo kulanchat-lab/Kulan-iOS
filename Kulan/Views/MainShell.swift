@@ -709,12 +709,18 @@ struct ChatsView: View {
     // Open a chat from a notification tap. Stays pending until the chat list loads
     // so we can resolve name/photo, then routes straight to it.
     private func openPendingChat() {
-        guard let cid = router.pendingChatId,
-              let conv = repo.conversations.first(where: { $0.id == cid }) else { return }
+        guard let cid = router.pendingChatId else { return }
+        // Navigate even if the conv isn't cached yet (e.g. a brand-new 1:1 opened from a
+        // group member sheet) — fall back to the name/photo the caller supplied.
+        let conv = repo.conversations.first(where: { $0.id == cid })
+        let name = conv?.displayName(me) ?? router.pendingChatName ?? "Chat"
+        let photo = conv?.displayPhoto(me) ?? router.pendingChatPhoto
         var p = NavigationPath()
-        p.append(ChatTarget(id: cid, name: conv.displayName(me), photo: conv.displayPhoto(me)))
+        p.append(ChatTarget(id: cid, name: name, photo: photo))
         path = p
         router.pendingChatId = nil
+        router.pendingChatName = nil
+        router.pendingChatPhoto = nil
     }
 }
 

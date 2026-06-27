@@ -374,6 +374,17 @@ struct GroupMemberSheet: View {
                     .frame(maxWidth: .infinity)
                     .listRowBackground(Color.clear)
                 }
+                // Anyone can message a fellow member (opens/creates the 1:1).
+                if member.id != me {
+                    Section {
+                        Button {
+                            AppRouter.shared.pendingChatName = member.name
+                            AppRouter.shared.pendingChatPhoto = profile?.photoUrl
+                            AppRouter.shared.pendingChatId = ChatService.convId(me, member.id)
+                            dismiss()
+                        } label: { Label("Message", systemImage: "message") }
+                    }
+                }
                 // The owner is protected: no admin can demote or remove them.
                 if iAmAdmin && member.id != me && !isOwner {
                     Section {
