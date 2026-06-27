@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import FirebaseFirestore
 
 struct ThreadView: View {
     let cid: String
@@ -11,6 +12,10 @@ struct ThreadView: View {
     @State private var input = ""
     @State private var mentionMap: [String: String] = [:]   // inserted "@name" -> uid (groups)
     @State private var showGroupAdd = false
+    @State private var showGroupCall = false
+    @State private var groupCallActive = false
+    @State private var groupCallVideo = false
+    @State private var groupCallListener: ListenerRegistration?
     @State private var tappedMember: GroupInfoView.MemberAction?
     @State private var replyingTo: Message?
     @State private var photoItem: PhotosPickerItem?
@@ -198,10 +203,30 @@ struct ThreadView: View {
                              ownerUid: conversation?.createdBy ?? "")
                 .presentationDetents([.medium, .large])
         }
+        .fullScreenCover(isPresented: $showGroupCall) { GroupCallView() }
+        .safeAreaInset(edge: .top) {
+            if groupCallActive && !GroupCallService.shared.isActive {
+                Button {
+                    showGroupCall = true
+                    Task { await GroupCallService.shared.start(cid: cid, title: title, video: groupCallVideo) }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: groupCallVideo ? "video.fill" : "phone.fill")
+                        Text("Group call in progress").fontWeight(.medium)
+                        Spacer()
+                        Text("Join").fontWeight(.semibold)
+                    }
+                    .font(.subheadline).foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(Color.green)
+                }
+            }
+        }
         .modifier(MessageActionDialogs(cid: cid, title: title,
                                        pendingDelete: $pendingDelete, reportTarget: $reportTarget))
         .onAppear {
             repo.start()
+            if isGroup || !cid.contains("_") { startGroupCallListener() }
             AppRouter.shared.activeChatId = cid          // suppress this chat's own banners
             NotificationCleaner.clear(cid: cid)          // clear its notifications + fix the badge
             Task {
@@ -213,6 +238,7 @@ struct ThreadView: View {
         }
         .onDisappear {
             repo.stop()
+            groupCallListener?.remove(); groupCallListener = nil
             AppRouter.shared.activeChatId = nil
             Task { await ChatService.setTyping(cid, false) }
             // Don't leave a half-finished recording running when you leave the chat.
@@ -482,7 +508,30 @@ struct ThreadView: View {
                 }
                 .tint(.primary)
             }
+        } else if isGroup {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { startGroupCall(video: false) } label: { Image(systemName: "phone.fill") }.tint(.primary)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { startGroupCall(video: true) } label: { Image(systemName: "video.fill") }.tint(.primary)
+            }
         }
+    }
+
+    private func startGroupCall(video: Bool) {
+        showGroupCall = true
+        Task { await GroupCallService.shared.start(cid: cid, title: title, video: video) }
+    }
+
+    // Watch the group's call doc so a "Join call" bar appears when a call is active.
+    private func startGroupCallListener() {
+        groupCallListener?.remove()
+        groupCallListener = Firestore.firestore().collection("groupCalls").document(cid)
+            .addSnapshotListener { snap, _ in
+                let d = snap?.data()
+                groupCallActive = (d?["active"] as? Bool) ?? false
+                groupCallVideo = (d?["video"] as? Bool) ?? false
+            }
     }
 
     // Avatar + name + presence shown in the chat header (kept glass-free — see chatToolbar).

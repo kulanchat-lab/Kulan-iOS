@@ -1,6 +1,8 @@
 import Foundation
 import LiveKit
 import FirebaseFunctions
+import FirebaseFirestore
+import FirebaseAuth
 
 // Group calls run on LiveKit (an SFU) — phones can't mesh more than ~3 people. 1:1 calls stay on
 // stasel/WebRTC; LiveKit ships LK-prefixed WebRTC so the two coexist. The join token is minted
@@ -36,6 +38,14 @@ final class GroupCallService: ObservableObject {
             try await room.localParticipant.setMicrophone(enabled: true)
             if video { try await room.localParticipant.setCamera(enabled: true) }
             activeCid = cid; micOn = true; cameraOn = video; connecting = false
+            // Mark the call active so other members see a "Join call" bar + get rung.
+            try? await Firestore.firestore().collection("groupCalls").document(cid).setData([
+                "active": true,
+                "startedBy": Auth.auth().currentUser?.uid ?? "",
+                "video": video,
+                "title": title,
+                "startedAt": FieldValue.serverTimestamp(),
+            ])
         } catch {
             connecting = false
             await disconnect()
@@ -54,7 +64,13 @@ final class GroupCallService: ObservableObject {
     func end() { Task { await disconnect() } }
 
     private func disconnect() async {
+        let cid = activeCid
+        let wasLast = room.remoteParticipants.isEmpty   // I'm the only one → end the call for the group
         await room.disconnect()
+        if let cid, wasLast {
+            try? await Firestore.firestore().collection("groupCalls").document(cid)
+                .setData(["active": false], merge: true)
+        }
         activeCid = nil; micOn = true; cameraOn = false; isVideo = false; callTitle = ""
     }
 }
