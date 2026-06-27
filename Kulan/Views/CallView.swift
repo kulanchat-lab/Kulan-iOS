@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import WebRTC
 
 // Full-screen in-app call UI — rebuilt from scratch to match the reference:
 //   • Top bar: back (minimize) · centered name + timer · ⋯ menu
@@ -49,7 +50,10 @@ struct CallView: View {
         GeometryReader { geo in
             ZStack {
                 background(geo)
-                if call.isVideo { pipLayer(geo) }
+                if call.isVideo {
+                    CallPiPHost(track: call.remoteVideoTrack).allowsHitTesting(false)   // native PiP source
+                    pipLayer(geo)
+                }
 
                 VStack(spacing: 0) {
                     topBar(safeTop: geo.safeAreaInsets.top)
@@ -80,6 +84,19 @@ struct CallView: View {
             )
         }
         .ignoresSafeArea()
+        .onDisappear { CallPiPController.shared.teardown() }
+    }
+
+    // Invisible host whose UIView is the PiP "source view"; binds the remote track to the controller.
+    struct CallPiPHost: UIViewRepresentable {
+        let track: RTCVideoTrack?
+        func makeUIView(context: Context) -> UIView {
+            let v = UIView(); v.isUserInteractionEnabled = false; v.backgroundColor = .clear
+            return v
+        }
+        func updateUIView(_ uiView: UIView, context: Context) {
+            CallPiPController.shared.configure(sourceView: uiView, remoteTrack: track)
+        }
     }
 
     // MARK: - Background (voice gradient or remote video)
