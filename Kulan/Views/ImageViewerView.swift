@@ -49,6 +49,8 @@ struct ImageViewerView: View {
                     Button { save() } label: {
                         Image(systemName: saved ? "checkmark" : "square.and.arrow.down")
                             .font(.title3.weight(.semibold))
+                            .contentTransition(.symbolEffect(.replace))
+                            .symbolEffect(.bounce, value: saved)
                             .foregroundStyle(.white)
                             .padding(12)
                             .background(.ultraThinMaterial, in: Circle())
@@ -76,7 +78,10 @@ struct ImageViewerView: View {
                 try await PHPhotoLibrary.shared().performChanges {
                     PHAssetChangeRequest.creationRequestForAsset(from: image)
                 }
-                await MainActor.run { withAnimation { saved = true } }
+                await MainActor.run {
+                    withAnimation { saved = true }
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
             } catch {
                 await MainActor.run { saveError = true }
             }

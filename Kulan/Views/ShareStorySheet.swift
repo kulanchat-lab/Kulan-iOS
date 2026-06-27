@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // Flattened story image awaiting the audience sheet (used by both the photo editor + text composer).
 struct StoryShareData: Identifiable { let id = UUID(); let data: Data }
@@ -49,6 +50,7 @@ struct ShareStorySheet: View {
                     }
                     .liquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .padding(16)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: mode)
 
                     Spacer()
 
@@ -57,6 +59,7 @@ struct ShareStorySheet: View {
                             .frame(maxWidth: .infinity).frame(height: 52)
                             .background(.blue, in: Capsule())
                     }
+                    .buttonStyle(StoryPressStyle())
                     .padding(.horizontal, 16).padding(.bottom, 12)
                 }
             }
@@ -79,7 +82,10 @@ struct ShareStorySheet: View {
                     if let subtitle { Text("\(subtitle) · Edit").font(.footnote).foregroundStyle(.green) }
                 }
                 Spacer()
-                if mode == m { Image(systemName: "checkmark").foregroundStyle(.green).fontWeight(.semibold) }
+                if mode == m {
+                    Image(systemName: "checkmark").foregroundStyle(.green).fontWeight(.semibold)
+                        .transition(.scale.combined(with: .opacity))
+                }
             }
             .padding(.horizontal, 14).padding(.vertical, 14)
         }
@@ -87,6 +93,7 @@ struct ShareStorySheet: View {
     }
 
     private func post() {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
         StoriesService.shared.postStoryBackground(
             image: image,
             excluded: mode == 1 ? excluded : [],

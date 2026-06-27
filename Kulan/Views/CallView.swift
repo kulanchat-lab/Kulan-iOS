@@ -71,6 +71,8 @@ struct CallView: View {
             .onReceive(ticker) { now = $0 }
             .animation(.easeInOut(duration: 0.25), value: call.state)
             .animation(.easeInOut(duration: 0.2), value: call.cameraOn)
+            .animation(.easeInOut(duration: 0.2), value: call.isMuted)
+            .animation(.easeInOut(duration: 0.2), value: call.isSpeaker)
             // Swipe down to minimize — detect the fling ONLY (no live offset tracking, which was
             // the source of the stuck/broken half-states). Taps still pass through to controls,
             // and the PiP keeps its own higher-priority drag.
@@ -233,6 +235,7 @@ struct CallView: View {
         } label: {
             Image(systemName: icon)
                 .font(.system(size: 20, weight: .semibold))
+                .contentTransition(.symbolEffect(.replace))   // mic/speaker/camera slash morphs in
                 .foregroundStyle(active ? .black : .white)
                 .frame(width: 52, height: 52)
                 .background(active ? AnyShapeStyle(.white) : AnyShapeStyle(Color.white.opacity(0.16)), in: Circle())

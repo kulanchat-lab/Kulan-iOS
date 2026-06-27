@@ -194,6 +194,7 @@ struct CallsView: View {
                         }
                     }
                     .listStyle(.plain)
+                    .animation(.spring(response: 0.38, dampingFraction: 0.86), value: shown.map(\.id))   // deletes/filter switch animate (parity with chats)
                     .environment(\.defaultMinListRowHeight, 56)   // tight, compact rows
                     .environment(\.editMode, .constant(selecting ? .active : .inactive))
                 }

@@ -673,6 +673,7 @@ struct ThreadView: View {
     private func send() {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        impact(.light)   // tactile send (parity with voice release)
         // Resolve which inserted @mentions are still present in the final text.
         let mentions = mentionMap.compactMap { text.contains("@\($0.key)") ? $0.value : nil }
         mentionMap = [:]
