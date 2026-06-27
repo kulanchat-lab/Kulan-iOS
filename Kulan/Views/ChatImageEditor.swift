@@ -66,8 +66,8 @@ struct ChatImageEditor: View {
     }
 
     private var bottomBar: some View {
-        VStack(spacing: 12) {
-            // Caption capsule.
+        VStack(spacing: 10) {
+            // Caption capsule — dark pill, same as Image 2.
             HStack(spacing: 10) {
                 Image(systemName: "plus.square.on.square").foregroundStyle(.white)
                 TextField("", text: $caption, prompt: Text("Add a caption…").foregroundColor(Color(.systemGray3)))
@@ -75,24 +75,29 @@ struct ChatImageEditor: View {
                 Image(systemName: "at").foregroundStyle(.white)
             }
             .padding(.horizontal, 16).frame(height: 46)
-            .background(Color.black.opacity(0.55), in: Capsule())
+            .background(Color(white: 0.13), in: Capsule())
 
-            // Tool row + green send.
-            HStack(spacing: 12) {
-                HStack(spacing: 6) {
-                    tool("crop", active: aspectIndex != 0) { aspectIndex = (aspectIndex + 1) % Self.aspects.count }
-                    tool(isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip", active: isDrawing) { isDrawing.toggle() }
-                    tool("slider.horizontal.3", active: filterIndex != 0) { filterIndex = (filterIndex + 1) % Self.filters.count }
-                    tool("4k.tv", active: hd, label: "HD") { hd.toggle() }
+            // Tool row + send — Telegram-style: flat individual icons, no pill container.
+            HStack(spacing: 0) {
+                tool("crop", active: aspectIndex != 0) {
+                    aspectIndex = (aspectIndex + 1) % Self.aspects.count
                 }
-                .padding(.horizontal, 12).frame(height: 40)
-                .background(Color.black.opacity(0.4), in: Capsule())
+                tool(isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle", active: isDrawing) {
+                    isDrawing.toggle()
+                }
+                tool("slider.horizontal.3", active: filterIndex != 0) {
+                    filterIndex = (filterIndex + 1) % Self.filters.count
+                }
+                tool("", active: hd, label: "HD") { hd.toggle() }
 
                 Spacer()
 
                 Button { send() } label: {
-                    Image(systemName: "paperplane.fill").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                        .frame(width: 46, height: 46).background(Color(.systemGreen), in: Circle())
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 46, height: 46)
+                        .background(Color(.systemGreen), in: Circle())
                         .shadow(color: Color(.systemGreen).opacity(0.5), radius: 8)
                 }
                 .buttonStyle(StoryPressStyle())
@@ -101,18 +106,29 @@ struct ChatImageEditor: View {
         .padding(.horizontal, 16)
     }
 
+    // Flat individual tool button — no background circle, white icon, green when active.
     @ViewBuilder
     private func tool(_ icon: String, active: Bool, label: String? = nil, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Group {
-                if let label {
-                    Text(label).font(.system(size: 13, weight: .bold))
+                if let label, !label.isEmpty {
+                    // "HD" badge: text in a rounded-rect border, like Telegram.
+                    Text(label)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(active ? .green : .white)
+                        .padding(.horizontal, 5)
+                        .frame(height: 22)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5)
+                                .stroke(active ? Color.green : Color.white, lineWidth: 1.5)
+                        )
                 } else {
-                    Image(systemName: icon).font(.system(size: 18))
+                    Image(systemName: icon)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(active ? .green : .white)
                 }
             }
-            .foregroundStyle(active ? .green : .white)
-            .frame(width: 40, height: 40)
+            .frame(width: 46, height: 46)
         }
         .buttonStyle(StoryPressStyle())
     }
