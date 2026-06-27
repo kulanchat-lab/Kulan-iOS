@@ -216,7 +216,7 @@ struct CallsView: View {
                 } else {
                     if !repo.calls.isEmpty {
                         ToolbarItem(placement: .topBarLeading) {
-                            Button("Edit") { withAnimation(.easeInOut(duration: 0.3)) { selecting = true } }.tint(.primary)
+                            Button("Edit") { withAnimation(.spring(response: 0.4, dampingFraction: 0.72)) { selecting = true } }.tint(.primary)
                         }
                     }
                     ToolbarItem(placement: .principal) {
@@ -429,7 +429,7 @@ struct ChatsView: View {
     // Avatar dropdown menu: Select Chats / Settings / Archive (Telegram-style).
     // Left: Edit (multi-select). Settings moved to its own tab, so no avatar here anymore.
     private var editButton: some View {
-        Button("Edit") { withAnimation(.easeInOut(duration: 0.3)) { selecting = true } }.tint(.primary)
+        Button("Edit") { withAnimation(.spring(response: 0.4, dampingFraction: 0.72)) { selecting = true } }.tint(.primary)
     }
     // Right: filter the list (All / Unread) + reach Archived.
     private var filterMenu: some View {
@@ -607,7 +607,7 @@ struct ChatsView: View {
                         .tag(conv.id)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)   // clean, no row lines (like Signal)
-                        .moveDisabled(!conv.isPinned(me))   // only pinned chats can be dragged
+                        .moveDisabled(true)   // reordering removed — pinned chats stay fixed
                         // Full-swipe enabled like the leading (Pin) edge. The FIRST action is
                         // what a full swipe triggers, so Archive leads (WhatsApp-style): a long
                         // left swipe archives; Mute/Delete are still revealed for a tap.
@@ -638,9 +638,6 @@ struct ChatsView: View {
                         } preview: {
                             ChatPeekPreview(conv: conv, me: me, dark: dark)
                         }
-                      }
-                      .onMove { source, destination in
-                          reorderPinned(from: source, to: destination)
                       }
                     }
                     .listStyle(.plain)
@@ -838,7 +835,7 @@ struct ArchivedChatsView: View {
                 } else {
                     if hasAnyArchived {
                         ToolbarItem(placement: .topBarLeading) {
-                            Button("Select") { withAnimation(.easeInOut(duration: 0.3)) { selecting = true } }.tint(.primary)
+                            Button("Select") { withAnimation(.spring(response: 0.4, dampingFraction: 0.72)) { selecting = true } }.tint(.primary)
                         }
                     }
                     ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
