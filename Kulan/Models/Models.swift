@@ -45,6 +45,7 @@ struct Message: Identifiable, Equatable {
     var clientId: String?
     var replyTo: ReplyRef?
     var reactions: [String: String]   // uid -> decrypted emoji
+    var mentions: [String] = []       // uids @-mentioned in this message (groups)
     var createdAt: Date
     var sendState: MessageSendState? = nil  // set only on local optimistic messages
     var localImageData: Data? = nil         // optimistic local photo shown before upload
@@ -135,6 +136,7 @@ struct Message: Identifiable, Equatable {
                 let e = crypto.decrypt(kv.value, cid: cid, authorId: kv.key)
                 if !e.isEmpty, e != "…", e != "🔒" { acc[kv.key] = e }
             } ?? [:]
+        self.mentions = data["mentions"] as? [String] ?? []
         if let r = data["replyTo"] as? [String: Any] {
             self.replyTo = ReplyRef(
                 id: r["id"] as? String ?? "",

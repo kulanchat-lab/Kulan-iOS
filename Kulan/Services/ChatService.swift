@@ -231,7 +231,7 @@ enum ChatService {
 
     /// Encrypt + send a text message and bump the conversation. Throws
     /// MissingRecipientKeyError if the recipient has no key yet (never sends plaintext).
-    static func sendText(cid: String, text: String, replyTo: ReplyRef? = nil, clientId: String? = nil, group: [String]? = nil) async throws {
+    static func sendText(cid: String, text: String, replyTo: ReplyRef? = nil, clientId: String? = nil, group: [String]? = nil, mentions: [String] = []) async throws {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
         // Group path: per-member encryption + unread fan-out. 1:1 path below is untouched.
@@ -244,7 +244,7 @@ enum ChatService {
             members = snap?.data()?["users"] as? [String]
         }
         if let members {
-            try await sendGroupText(cid: cid, members: members, text: t, replyTo: replyTo, clientId: clientId)
+            try await sendGroupText(cid: cid, members: members, text: t, replyTo: replyTo, clientId: clientId, mentions: mentions)
             return
         }
 
@@ -277,6 +277,7 @@ enum ChatService {
         ]
         if let clientId { msg["clientId"] = clientId }   // lets the client reconcile its optimistic copy
         if let replyEnc { msg["replyTo"] = replyEnc }
+        if !mentions.isEmpty { msg["mentions"] = mentions }
         batch.setData(msg, forDocument: msgRef)
         batch.updateData([
             "lastMessage": cipher,
@@ -290,7 +291,7 @@ enum ChatService {
     /// Group text send: encrypt once per member, fan out the unread increment to everyone
     /// but me. The conversation already exists (created by createGroup), so no users write.
     private static func sendGroupText(cid: String, members: [String], text t: String,
-                                      replyTo: ReplyRef?, clientId: String?) async throws {
+                                      replyTo: ReplyRef?, clientId: String?, mentions: [String] = []) async throws {
         let cipher = try await Crypto.shared.encryptForGroup(t, members: members)
         var replyEnc: [String: Any]?
         if let r = replyTo {
@@ -307,6 +308,7 @@ enum ChatService {
         ]
         if let clientId { msg["clientId"] = clientId }
         if let replyEnc { msg["replyTo"] = replyEnc }
+        if !mentions.isEmpty { msg["mentions"] = mentions }
         batch.setData(msg, forDocument: msgRef)
         var convUpdate: [String: Any] = [
             "lastMessage": cipher,

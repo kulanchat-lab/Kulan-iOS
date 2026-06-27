@@ -9,6 +9,8 @@ struct ThreadView: View {
 
     @State private var repo: ThreadRepository
     @State private var input = ""
+    @State private var mentionMap: [String: String] = [:]   // inserted "@name" -> uid (groups)
+    @State private var showGroupAdd = false
     @State private var replyingTo: Message?
     @State private var photoItem: PhotosPickerItem?
     @State private var sendingPhoto = false
@@ -179,6 +181,9 @@ struct ThreadView: View {
         .sheet(item: $forwardTarget) { m in
             ForwardPicker(message: m, sourceCid: cid)
         }
+        .sheet(isPresented: $showGroupAdd) {
+            AddMembersSheet(cid: cid, existing: Set(groupMembers))
+        }
         .modifier(MessageActionDialogs(cid: cid, title: title,
                                        pendingDelete: $pendingDelete, reportTarget: $reportTarget))
         .onAppear {
@@ -315,6 +320,33 @@ struct ThreadView: View {
     // Extracted from `body` so the type-checker can handle the screen (the inline ForEach
     // with all its closures was too complex as one expression after the header refactor).
     @ViewBuilder
+    // WhatsApp/Telegram-style intro card at the top of a group: avatar, name, members,
+    // "you created this group", and an Add Members CTA (admins).
+    private var groupIntroCard: some View {
+        VStack(spacing: 8) {
+            AvatarView(name: conversation?.title ?? "Group", photoUrl: conversation?.avatarUrl, size: 72)
+            Text(conversation?.title ?? "Group").font(.headline)
+            Text(conversation?.memberCountLabel ?? "").font(.caption).foregroundStyle(.secondary)
+            if conversation?.createdBy == me {
+                Text("You created this group").font(.caption).foregroundStyle(.secondary)
+            }
+            if conversation?.isAdmin(me) == true {
+                Button { showGroupAdd = true } label: {
+                    Label("Add Members", systemImage: "person.badge.plus")
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 18).padding(.vertical, 9)
+                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 22).padding(.horizontal, 18)
+        .background(Color.gray.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(.horizontal, 36).padding(.top, 14).padding(.bottom, 6)
+    }
+
     private func messageList(_ proxy: ScrollViewProxy) -> some View {
         LazyVStack(spacing: 0) {
             // Scroll-to-top spinner: pages in older history, then restores the anchor.
@@ -326,6 +358,8 @@ struct ThreadView: View {
                     .id("TOP")
                     .onAppear { loadOlderWithAnchor(proxy) }
             }
+            // "You created this group" intro card at the very top (when no older history).
+            if isGroup && !repo.canLoadOlder { groupIntroCard }
             ForEach(Array(repo.items.enumerated()), id: \.element.rowId) { index, msg in
                 if shouldShowDate(at: index) {
                     Text(dayLabel(msg.createdAt))
@@ -438,9 +472,39 @@ struct ThreadView: View {
         }
     }
 
+    // MARK: - @mentions (groups)
+
+    // The "@token" currently being typed at the end of the input, or nil.
+    private var mentionQuery: String? {
+        guard isGroup, let r = input.range(of: "@[^\\s@]*$", options: .regularExpression) else { return nil }
+        return String(input[r].dropFirst())
+    }
+
+    // Members matching the current @query (excluding me).
+    private var mentionCandidates: [(uid: String, name: String)] {
+        guard let q = mentionQuery else { return [] }
+        let names = conversation?.names ?? [:]
+        return groupMembers.filter { $0 != me }.compactMap { uid -> (uid: String, name: String)? in
+            let n = names[uid] ?? ""
+            guard !n.isEmpty else { return nil }
+            return (q.isEmpty || n.lowercased().contains(q.lowercased())) ? (uid, n) : nil
+        }
+    }
+
+    private func insertMention(_ uid: String, _ name: String) {
+        if let r = input.range(of: "@[^\\s@]*$", options: .regularExpression) {
+            input.replaceSubrange(r, with: "@\(name) ")
+        }
+        mentionMap[name] = uid
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
     private func send() {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        // Resolve which inserted @mentions are still present in the final text.
+        let mentions = mentionMap.compactMap { text.contains("@\($0.key)") ? $0.value : nil }
+        mentionMap = [:]
         input = ""
         let reply = replyingTo.map {
             ReplyRef(id: $0.id, authorId: $0.authorId,
@@ -456,7 +520,7 @@ struct ThreadView: View {
         }
         Task {
             await ChatService.setTyping(cid, false)
-            await deliver(text: text, reply: reply, clientId: clientId)
+            await deliver(text: text, reply: reply, clientId: clientId, mentions: mentions)
         }
     }
 
@@ -493,10 +557,10 @@ struct ThreadView: View {
         catch { await MainActor.run { repo.markFailed(clientId: clientId) } }
     }
 
-    private func deliver(text: String, reply: ReplyRef?, clientId: String) async {
+    private func deliver(text: String, reply: ReplyRef?, clientId: String, mentions: [String] = []) async {
         do {
             try await ChatService.sendText(cid: cid, text: text, replyTo: reply, clientId: clientId,
-                                           group: isGroup ? groupMembers : nil)
+                                           group: isGroup ? groupMembers : nil, mentions: mentions)
         } catch {
             // Keep the message as a failed bubble (tap to retry); flag the encryption case.
             await MainActor.run {
@@ -743,13 +807,35 @@ struct ThreadView: View {
     }
 
     private var composer: some View {
-        Group {
-            if recordLocked { lockedRecordingBar } else { inputRow }
+        VStack(spacing: 6) {
+            if !mentionCandidates.isEmpty { mentionPicker }
+            Group {
+                if recordLocked { lockedRecordingBar } else { inputRow }
+            }
         }
         .padding(.horizontal, 16)   // spec: 16pt left/right margin
         .padding(.top, 6)
         .padding(.bottom, 8)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: recordLocked)
+    }
+
+    // @-mention autocomplete shown above the input while typing "@" in a group.
+    private var mentionPicker: some View {
+        VStack(spacing: 0) {
+            ForEach(mentionCandidates.prefix(5), id: \.uid) { c in
+                Button { insertMention(c.uid, c.name) } label: {
+                    HStack(spacing: 10) {
+                        AvatarView(name: c.name, photoUrl: conversation?.photos[c.uid], size: 30)
+                        Text(c.name).foregroundStyle(.primary).lineLimit(1)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private var inputRow: some View {
