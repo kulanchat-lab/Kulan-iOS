@@ -42,8 +42,8 @@ struct VoiceMessageView: View {
             .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 4) {
-                WaveformBars(bars: displayBars, progress: progress,
-                             played: tint, unplayed: tint.opacity(0.3)) { pct in seek(pct) }
+                WaveformBars(bars: displayBars, progress: progress, played: tint,
+                             unplayed: tint.opacity(0.3), playing: playing) { pct in seek(pct) }
                     .frame(width: 158, height: 26)
                 HStack(spacing: 8) {
                     Text(durationText).font(.caption2).foregroundStyle(tint.opacity(0.8))
@@ -133,29 +133,40 @@ struct WaveformBars: View {
     var progress: Double     // 0…1
     var played: Color
     var unplayed: Color
+    var playing: Bool = false
     var onSeek: (Double) -> Void
 
     var body: some View {
         GeometryReader { geo in
-            Canvas { ctx, size in
-                let count = max(bars.count, 1)
-                let slot = size.width / CGFloat(count)
-                let barW = max(2, slot * 0.5)
-                let playedTo = Int(Double(count) * progress)
-                for (i, v) in bars.enumerated() {
-                    let norm = CGFloat(max(0, min(100, v))) / 100
-                    let h = max(3, norm * size.height)
-                    let x = CGFloat(i) * slot + (slot - barW) / 2
-                    let rect = CGRect(x: x, y: (size.height - h) / 2, width: barW, height: h)
-                    ctx.fill(Path(roundedRect: rect, cornerRadius: barW / 2),
-                             with: .color(i <= playedTo ? played : unplayed))
+            // TimelineView drives a gentle equalizer wobble while playing; paused when idle
+            // so there's zero redraw cost when the note isn't playing.
+            TimelineView(.animation(minimumInterval: 0.05, paused: !playing)) { tl in
+                let phase = tl.date.timeIntervalSinceReferenceDate
+                Canvas { ctx, size in
+                    let count = max(bars.count, 1)
+                    let slot = size.width / CGFloat(count)
+                    let barW = max(2, slot * 0.5)
+                    let playedTo = Int(Double(count) * progress)
+                    for (i, v) in bars.enumerated() {
+                        let norm = CGFloat(max(0, min(100, v))) / 100
+                        var h = max(3, norm * size.height)
+                        // Subtle live wobble on already-played bars during playback.
+                        if playing && i <= playedTo {
+                            let wob = sin(phase * 6 + Double(i) * 0.5)
+                            h = max(3, h * CGFloat(1 + 0.14 * wob))
+                        }
+                        let x = CGFloat(i) * slot + (slot - barW) / 2
+                        let rect = CGRect(x: x, y: (size.height - h) / 2, width: barW, height: h)
+                        ctx.fill(Path(roundedRect: rect, cornerRadius: barW / 2),
+                                 with: .color(i <= playedTo ? played : unplayed))
+                    }
+                    // White scrubber line at the current playback position (reference look).
+                    let sx = max(1, size.width * CGFloat(max(0, min(1, progress))))
+                    var line = Path()
+                    line.move(to: CGPoint(x: sx, y: 0))
+                    line.addLine(to: CGPoint(x: sx, y: size.height))
+                    ctx.stroke(line, with: .color(played), lineWidth: 2)
                 }
-                // White scrubber line at the current playback position (reference look).
-                let sx = max(1, size.width * CGFloat(max(0, min(1, progress))))
-                var line = Path()
-                line.move(to: CGPoint(x: sx, y: 0))
-                line.addLine(to: CGPoint(x: sx, y: size.height))
-                ctx.stroke(line, with: .color(played), lineWidth: 2)
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { v in

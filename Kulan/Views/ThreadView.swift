@@ -36,6 +36,7 @@ struct ThreadView: View {
     @State private var showContactInfo = false   // tap avatar/name in header → profile (or Group Info for groups)
     // Hold-to-record voice gesture state (WhatsApp/Telegram-style).
     @State private var recordLocked = false        // recording continues after finger lifts
+    @State private var holdHint = false             // "hold to record" flash after an accidental tap
     @State private var recordDrag: CGSize = .zero   // live finger translation while holding
     @State private var recordCancelArmed = false    // dragged left past the cancel threshold
     @State private var holdStarted = false          // guards a single start per hold
@@ -1000,6 +1001,16 @@ struct ThreadView: View {
         .padding(.horizontal, 16)   // spec: 16pt left/right margin
         .padding(.top, 6)
         .padding(.bottom, 8)
+        .overlay(alignment: .top) {
+            if holdHint {
+                Text("Hold to record, release to send")
+                    .font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(.black.opacity(0.8), in: Capsule())
+                    .offset(y: -8)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: recordLocked)
     }
 
@@ -1038,8 +1049,8 @@ struct ThreadView: View {
                 .transition(.scale.combined(with: .opacity))
             }
 
-            // Single field (Telegram/iMessage style): reply preview + text/record content on
-            // the left, and the camera/mic/send controls INSIDE on the right.
+            // The field holds reply preview + text/record row, with the camera kept INSIDE
+            // on the right. The mic/send live OUTSIDE as a standalone right sibling (like "+").
             VStack(spacing: 0) {
                 // Reply preview spans the FULL field width (so the X sits at the far right).
                 if let r = replyingTo, !recordingHeld {
@@ -1049,12 +1060,15 @@ struct ThreadView: View {
                 }
                 HStack(alignment: .bottom, spacing: 4) {
                     if recordingHeld { recordingHoldRow } else { messageField }
-                    trailingControls
+                    if !recordingHeld && !hasText { inFieldCamera }
                 }
                 .frame(minHeight: 40)   // input row stays 40px even in voice mode
             }
             // Liquid-glass field (iMessage on iOS 26 look), soft edges, no hard border.
             .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous), interactive: true)
+
+            // Mic (hold-to-record) OR Send — a standalone button OUTSIDE the field, like "+".
+            rightButton
         }
         }
         .animation(.easeInOut(duration: 0.2), value: hasText)
@@ -1090,25 +1104,24 @@ struct ThreadView: View {
             }
     }
 
-    // Inside-the-field controls: send when typing, otherwise camera + hold-to-record mic.
-    @ViewBuilder private var trailingControls: some View {
+    // Camera lives INSIDE the field (right), only when not typing/recording.
+    private var inFieldCamera: some View {
+        Button { showCamera = true } label: {
+            Image(systemName: "camera").font(.system(size: 22)).foregroundStyle(.secondary)
+        }
+        .padding(.trailing, 12).padding(.bottom, 7)
+    }
+
+    // Standalone right button OUTSIDE the field (like "+"): Send when typing, else hold-to-record mic.
+    @ViewBuilder private var rightButton: some View {
         if hasText {
             Button { send() } label: {
                 Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 30)).foregroundStyle(Theme.accent(dark))
+                    .font(.system(size: 38)).foregroundStyle(Theme.accent(dark))
             }
-            .padding(.trailing, 5).padding(.bottom, 5)
             .transition(.scale.combined(with: .opacity))
         } else {
-            HStack(spacing: 10) {
-                Button { showCamera = true } label: {
-                    Image(systemName: "camera").font(.system(size: 22)).foregroundStyle(.secondary)
-                }
-                .opacity(recordingHeld ? 0 : 1)
-                .frame(width: recordingHeld ? 0 : nil)   // collapse camera while recording
-                micButton
-            }
-            .padding(.trailing, 12).padding(.bottom, 2)   // keep the bar at ~40px
+            micButton
         }
     }
 
@@ -1134,16 +1147,13 @@ struct ThreadView: View {
     // hint above. Drag up to lock, drag left to cancel, release to send.
     private var micButton: some View {
         Image(systemName: "mic.fill")
-            .font(.system(size: 22, weight: .medium))
-            .foregroundStyle(recordingHeld ? Theme.onAccent(dark) : Color.secondary)
-            .frame(width: 36, height: 36)   // FIXED layout footprint -> the bar stays 40px
-            .background {
-                if recordingHeld {
-                    Circle().fill(recordCancelArmed ? Color.red : Theme.accent(dark))
-                }
-            }
-            // ONLY the mic circle scales up (visual feedback) — scaleEffect overflows, so it
-            // never stretches the input bar's height. The bar stays a fixed 40px.
+            .font(.system(size: 20, weight: .medium))
+            .foregroundStyle(recordingHeld ? Theme.onAccent(dark) : .primary)
+            .frame(width: 40, height: 40)   // standalone target, same size as "+"
+            // Held: solid colored (red when armed-to-cancel) circle. Idle: liquid glass like "+".
+            .background(Circle().fill(recordingHeld ? (recordCancelArmed ? Color.red : Theme.accent(dark)) : Color.clear))
+            .liquidGlass(Circle(), interactive: true)
+            // scaleEffect overflows the footprint, so the bar height never stretches.
             .scaleEffect(recordingHeld ? 1.5 : 1, anchor: .center)
             .offset(recordingHeld ? clampedDrag : .zero)
             .overlay(alignment: .top) { if recordingHeld { lockHint } }
@@ -1192,8 +1202,14 @@ struct ThreadView: View {
                 let cancel = v.translation.width < -90
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { recordDrag = .zero }
                 recordCancelArmed = false
-                if cancel { recorder.cancel(); notify(.warning) }      // slide-to-cancel
-                else { Task { await stopAndSendAudio() }; impact(.light) }   // release-to-send
+                if cancel {
+                    recorder.cancel(); notify(.warning)                // slide-to-cancel
+                } else if recorder.elapsed < 0.6 {
+                    // Quick tap, not a real hold → DON'T send (fixes accidental one-tap voice sends).
+                    recorder.cancel(); notify(.warning); flashHoldHint()
+                } else {
+                    Task { await stopAndSendAudio() }; impact(.light)  // release-to-send
+                }
             }
     }
 
@@ -1239,6 +1255,12 @@ struct ThreadView: View {
     }
     private func resetRecordingState() {
         withAnimation { recordLocked = false; recordDrag = .zero; recordCancelArmed = false; holdStarted = false }
+    }
+    private func flashHoldHint() {
+        withAnimation(.easeOut(duration: 0.2)) { holdHint = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            withAnimation(.easeIn(duration: 0.25)) { holdHint = false }
+        }
     }
     private func impact(_ s: UIImpactFeedbackGenerator.FeedbackStyle) {
         UIImpactFeedbackGenerator(style: s).impactOccurred()
