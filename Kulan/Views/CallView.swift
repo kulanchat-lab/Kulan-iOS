@@ -12,6 +12,7 @@ import UIKit
 struct CallView: View {
     private var call = CallService.shared
     @State private var now = Date()
+    @State private var isLocalExpanded = false      // tap the PiP to swap which feed is fullscreen
     @State private var pipOffset = CGSize.zero
     @State private var pipBase = CGSize.zero
     @State private var ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -84,10 +85,11 @@ struct CallView: View {
     // MARK: - Background (voice gradient or remote video)
 
     @ViewBuilder private func background(_ geo: GeometryProxy) -> some View {
-        if call.isVideo, let remote = call.remoteVideoTrack {
+        // Fullscreen feed = remote by default, or the LOCAL feed once you tap to swap.
+        if call.isVideo, let full = (isLocalExpanded ? call.localVideoTrack : call.remoteVideoTrack) {
             ZStack {
                 Color.black
-                VideoRendererView(track: remote)
+                VideoRendererView(track: full, mirror: isLocalExpanded && call.usingFrontCamera)
             }
             .ignoresSafeArea()
         } else {
@@ -142,25 +144,31 @@ struct CallView: View {
 
     private func pipLayer(_ geo: GeometryProxy) -> some View {
         let safeBottom = geo.safeAreaInsets.bottom
+        let pipIsLocal = !isLocalExpanded                                   // small window = the OTHER feed
+        let pipTrack = isLocalExpanded ? call.remoteVideoTrack : call.localVideoTrack
+        // Hide a local PiP when the camera is off; a remote PiP shows whenever the feed exists.
+        let visible = pipTrack != nil && (pipIsLocal ? call.cameraOn : true)
         return Group {
-            if call.cameraOn, let local = call.localVideoTrack {
+            if visible, let track = pipTrack {
                 ZStack(alignment: .topTrailing) {
-                    VideoRendererView(track: local, mirror: call.usingFrontCamera)
+                    VideoRendererView(track: track, mirror: pipIsLocal && call.usingFrontCamera)
                         .frame(width: 104, height: 150)
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(.white.opacity(0.25), lineWidth: 1))
-                    Button { call.switchCamera() } label: {
-                        Image(systemName: "arrow.triangle.2.circlepath.camera.fill")
-                            .font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
-                            .padding(6).background(.black.opacity(0.45), in: Circle())
+                    if pipIsLocal {
+                        Button { call.switchCamera() } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath.camera.fill")
+                                .font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                                .padding(6).background(.black.opacity(0.45), in: Circle())
+                        }
+                        .padding(6)
                     }
-                    .padding(6)
                 }
                 .shadow(color: .black.opacity(0.45), radius: 14, y: 5)
                 .offset(pipOffset)
-                // highPriority so dragging the PiP repositions it instead of minimizing the call.
+                // Drag (min 10pt) repositions the window; a tap (no move) swaps the feeds.
                 .highPriorityGesture(
-                    DragGesture()
+                    DragGesture(minimumDistance: 10)
                         .onChanged { v in
                             let w = pipBase.width + v.translation.width
                             let h = pipBase.height + v.translation.height
@@ -170,6 +178,9 @@ struct CallView: View {
                         }
                         .onEnded { _ in pipBase = pipOffset }
                 )
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { isLocalExpanded.toggle() }
+                }
                 .padding(.top, geo.safeAreaInsets.top + 70)
                 .padding(.trailing, 14)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
