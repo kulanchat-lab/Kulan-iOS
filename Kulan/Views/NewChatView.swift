@@ -21,6 +21,7 @@ struct NewChatView: View {
     @State private var error: String?
     @State private var showScan = false
     @State private var showNewGroup = false
+    @State private var showNewContact = false
 
     private var me: String { AuthService.shared.uid ?? "" }
 
@@ -43,19 +44,12 @@ struct NewChatView: View {
             ScrollViewReader { proxy in
                 List {
                     if query.isEmpty {
-                        Button { showNewGroup = true } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "person.2.fill")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 44, height: 44)
-                                    .background(Color.green, in: Circle())   // visible (was accent-on-accent = blank)
-                                Text("New Group").font(.body.weight(.medium)).foregroundStyle(.primary)
-                            }
-                            .padding(.vertical, 4)
+                        Section {
+                            Button { showNewGroup = true } label: { actionRow("person.2.fill", "New group") }
+                                .tint(.primary)
+                            Button { showNewContact = true } label: { actionRow("person.crop.circle.badge.plus", "New contact") }
+                                .tint(.primary)
                         }
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
                     }
                     if let error { Text(error).foregroundStyle(.red) }
 
@@ -66,8 +60,6 @@ struct NewChatView: View {
                                     personRow(name: user.name.isEmpty ? user.handle : user.name,
                                               handle: user.handle, photo: user.photoUrl)
                                 }
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
                             }
                             if results.isEmpty {
                                 if searching {
@@ -89,15 +81,13 @@ struct NewChatView: View {
                                     } label: {
                                         personRow(name: conv.name(for: me), handle: nil, photo: conv.photoUrl(for: me))
                                     }
-                                    .listRowSeparator(.hidden)
-                                    .listRowBackground(Color.clear)
                                 }
                             }
                             .id(section.letter)
                         }
                     }
                 }
-                .listStyle(.plain)
+                .listStyle(.insetGrouped)   // grouped cards (matches the reference)
                 // A–Z side index (SwiftUI has no native one) — tap a letter to jump.
                 .overlay(alignment: .trailing) {
                     if query.isEmpty && indexLetters.count > 1 {
@@ -133,6 +123,9 @@ struct NewChatView: View {
             .sheet(isPresented: $showNewGroup) {
                 NewGroupView { t in showNewGroup = false; dismiss(); onOpen(t) }
             }
+            .sheet(isPresented: $showNewContact) {
+                NewContactView { t in showNewContact = false; dismiss(); onOpen(t) }
+            }
             .onChange(of: query) { _, q in
                 let trimmed = q.trimmingCharacters(in: .whitespaces)
                 guard !trimmed.isEmpty else { results = []; searching = false; return }
@@ -147,6 +140,13 @@ struct NewChatView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func actionRow(_ icon: String, _ title: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon).font(.system(size: 18)).foregroundStyle(.green).frame(width: 30)
+            Text(title).foregroundStyle(.primary)
         }
     }
 
