@@ -3,203 +3,134 @@ import PencilKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
 
-// Premium full-screen story editor (WhatsApp/Instagram-style): the picked media fills the
-// screen; a right-side tool rail does Aa (text) + pencil (draw); swipe up cycles filters;
-// a caption capsule + audience pill + green send sit at the bottom. On send, the filtered
-// image + drawing + text are flattened into one JPEG and posted via StoriesService.postStory.
+// Photo-story editor — matches the in-chat photo editor (image 212): the picked photo fits on a
+// black canvas; X top-left; a caption bar + @ and a crop / draw / adjust / HD tool row at the
+// bottom with a green send. Send flattens the edits and opens the audience sheet, which posts the
+// story via StoriesService. Every tool is real.
 struct StoryEditorView: View {
     let source: UIImage
     var onPosted: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
 
     @State private var caption = ""
-    @State private var textOverlays: [TextOverlay] = []
-    @State private var editingText: TextOverlay?
     @State private var drawing = PKDrawing()
     @State private var isDrawing = false
     @State private var filterIndex = 0
-    @State private var filteredCache: UIImage?       // recomputed only when the filter changes
-    @State private var canvasSize: CGSize = .zero    // on-screen size, so the export matches WYSIWYG
+    @State private var aspectIndex = 0
+    @State private var hd = false
+    @State private var editedCache: UIImage?         // filtered+cropped; recomputed only on tool change
+    @State private var canvasSize: CGSize = .zero
     @State private var posting = false
     @State private var postError = false
-    @State private var controlsIn = false   // controls fade/slide in when the editor opens
-    @State private var pendingShare: StoryShareData?   // flattened image awaiting the audience sheet
-    @State private var zoom: CGFloat = 1     // pinch-to-zoom the photo
-    @State private var lastZoom: CGFloat = 1
-    @State private var pan: CGSize = .zero    // pan while zoomed
-    @State private var lastPan: CGSize = .zero
+    @State private var pendingShare: StoryShareData?
+    @FocusState private var captionFocused: Bool
 
-    private static let ciContext = CIContext()       // one shared context (cheap reuse)
-
-    struct TextOverlay: Identifiable { let id = UUID(); var text: String; var pos: CGPoint }
-
+    private static let ciContext = CIContext()
     private static let filters: [(name: String, ci: String?)] = [
-        ("Original", nil), ("Mono", "CIPhotoEffectMono"), ("Noir", "CIPhotoEffectNoir"),
-        ("Fade", "CIPhotoEffectFade"), ("Chrome", "CIPhotoEffectChrome"), ("Instant", "CIPhotoEffectInstant"),
+        ("Original", nil), ("Vivid", "CIPhotoEffectChrome"), ("Mono", "CIPhotoEffectMono"),
+        ("Fade", "CIPhotoEffectFade"), ("Noir", "CIPhotoEffectNoir"),
     ]
+    private static let aspects: [(String, CGFloat?)] = [("Original", nil), ("Square", 1), ("Portrait", 4.0 / 5.0)]
 
-    private var displayImage: UIImage { filterIndex == 0 ? source : (filteredCache ?? source) }
+    private var edited: UIImage { editedCache ?? source }
+    private func recomputeEdited() {
+        editedCache = Self.cropped(Self.apply(Self.filters[filterIndex].ci, to: source),
+                                   aspect: Self.aspects[aspectIndex].1)
+    }
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 Color.black.ignoresSafeArea()
-                Image(uiImage: displayImage)
-                    .resizable().scaledToFill()
+                Image(uiImage: edited)
+                    .resizable().scaledToFit()
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
-                    .scaleEffect(zoom)
-                    .offset(pan)
-                    .ignoresSafeArea()
-                    // Pinch to zoom; one-finger pan when zoomed, otherwise swipe-up = filters.
-                    .gesture(
-                        SimultaneousGesture(
-                            MagnificationGesture()
-                                .onChanged { v in zoom = min(5, max(1, lastZoom * v)) }
-                                .onEnded { _ in
-                                    lastZoom = zoom
-                                    if zoom <= 1.01 {
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { zoom = 1; pan = .zero }
-                                        lastZoom = 1; lastPan = .zero
-                                    }
-                                },
-                            DragGesture(minimumDistance: 12)
-                                .onChanged { v in
-                                    if zoom > 1 { pan = CGSize(width: lastPan.width + v.translation.width,
-                                                              height: lastPan.height + v.translation.height) }
-                                }
-                                .onEnded { v in
-                                    if zoom > 1 { lastPan = pan }
-                                    else if v.translation.height < -40 { cycleFilter() }
-                                }
-                        )
-                    )
-                    .allowsHitTesting(!isDrawing)
 
-                // Drawing canvas (only interactive while drawing).
-                DrawingCanvas(drawing: $drawing, isActive: isDrawing)
-                    .allowsHitTesting(isDrawing)
-                    .ignoresSafeArea()
-
-                // Draggable text overlays (above the swipe catcher so tap-to-edit/drag work).
-                ForEach(textOverlays) { t in
-                    Text(t.text)
-                        .font(.system(size: 30, weight: .bold)).foregroundStyle(.white)
-                        .shadow(radius: 4)
-                        .position(t.pos)
-                        .gesture(DragGesture().onChanged { v in move(t, to: v.location) })
-                        .onTapGesture { editingText = t }
+                if isDrawing {
+                    DrawingCanvas(drawing: $drawing, isActive: true).ignoresSafeArea()
                 }
 
-                overlayControls(geo)
+                VStack(spacing: 0) {
+                    HStack {
+                        Button { dismiss() } label: {
+                            Image(systemName: "xmark").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                                .frame(width: 48, height: 48).background(.black.opacity(0.4), in: Circle())
+                        }
+                        Spacer()
+                        if isDrawing {
+                            Button("Done") { isDrawing = false }.foregroundStyle(.white).fontWeight(.semibold)
+                        }
+                    }
+                    .padding(.horizontal, 16).padding(.top, geo.safeAreaInsets.top + 6)
+                    Spacer()
+                    bottomBar
+                        .padding(.bottom, geo.safeAreaInsets.bottom + 8)
+                }
             }
-            .onAppear { canvasSize = geo.size }
+            .onAppear { canvasSize = geo.size; recomputeEdited() }
             .onChange(of: geo.size) { _, s in canvasSize = s }
+            .onChange(of: filterIndex) { _, _ in recomputeEdited() }
+            .onChange(of: aspectIndex) { _, _ in recomputeEdited() }
         }
         .statusBarHidden()
         .alert("Couldn't share", isPresented: $postError) { Button("OK", role: .cancel) {} }
-        .sheet(item: $editingText) { t in TextEntrySheet(text: t.text) { updated in commitText(t, updated) } }
         .sheet(item: $pendingShare) { s in ShareStorySheet(image: s.data, onPosted: { onPosted(); dismiss() }) }
         .toolbar(.hidden, for: .navigationBar)
     }
 
-    @ViewBuilder private func overlayControls(_ geo: GeometryProxy) -> some View {
-        VStack {
-            // Top row: close (left) + tool rail (right).
-            HStack(alignment: .top) {
-                roundIcon("xmark") { dismiss() }
-                Spacer()
-                VStack(spacing: 10) {
-                    roundIcon(isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip") { isDrawing.toggle() }
-                    roundIcon("textformat") { addText() }
-                }
-            }
-            .padding(.horizontal, 14).padding(.top, 8)
-
-            Spacer()
-
-            // Brief filter NAME flashes only while a filter is active (no "swipe up" prompt).
-            if filterIndex != 0 {
-                Text(Self.filters[filterIndex].name)
-                    .font(.caption).foregroundStyle(.white).shadow(radius: 3)
-                    .padding(.bottom, 10)
-            }
-
-            bottomBar
-        }
-        .opacity(controlsIn ? 1 : 0)
-        .offset(y: controlsIn ? 0 : 12)
-        .onAppear { withAnimation(.easeOut(duration: 0.35).delay(0.05)) { controlsIn = true } }
-    }
-
     private var bottomBar: some View {
-        VStack(spacing: 12) {
-            // Caption capsule.
+        VStack(spacing: 10) {
+            // Caption bar — dark pill, same as image 212.
             HStack(spacing: 10) {
                 Image(systemName: "plus.square.on.square").foregroundStyle(.white)
                 TextField("", text: $caption, prompt: Text("Add a caption…").foregroundColor(Color(.systemGray3)))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.white).focused($captionFocused)
                 Image(systemName: "at").foregroundStyle(.white)
             }
-            .padding(.horizontal, 16).frame(height: 48)
-            .liquidGlass(Capsule())   // real glass caption bar
+            .padding(.horizontal, 16).frame(height: 46)
+            .background(Color(white: 0.13), in: Capsule())
 
-            // Audience pill + green send.
-            HStack(spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: "circle.dashed")
-                    Text("Status").lineLimit(1)
-                    Spacer()
-                    Image(systemName: "plus")
-                }
-                .font(.subheadline).foregroundStyle(.white)
-                .padding(.horizontal, 14).frame(height: 38)
-                .liquidGlass(Capsule())   // real glass audience pill
+            // Tool row (crop · draw · adjust · HD) + green send — flat icons, like image 212.
+            HStack(spacing: 0) {
+                tool("crop", active: aspectIndex != 0) { aspectIndex = (aspectIndex + 1) % Self.aspects.count }
+                tool(isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle", active: isDrawing) { isDrawing.toggle() }
+                tool("slider.horizontal.3", active: filterIndex != 0) { filterIndex = (filterIndex + 1) % Self.filters.count }
+                tool("", active: hd, label: "HD") { hd.toggle() }
+
+                Spacer()
 
                 Button { Task { await send() } } label: {
                     Image(systemName: posting ? "ellipsis" : "paperplane.fill")
-                        .font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                        .font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
                         .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 48, height: 48).background(Color(.systemGreen), in: Circle())
+                        .frame(width: 46, height: 46).background(Color(.systemGreen), in: Circle())
                         .shadow(color: Color(.systemGreen).opacity(0.5), radius: posting ? 2 : 8)
                 }
-                .buttonStyle(StoryPressStyle())
-                .disabled(posting)
+                .buttonStyle(StoryPressStyle()).disabled(posting)
             }
         }
-        .padding(.horizontal, 16).padding(.bottom, 8)
+        .padding(.horizontal, 16)
     }
 
-    private func roundIcon(_ name: String, _ action: @escaping () -> Void) -> some View {
+    // Flat tool button: white icon, green when active; "HD" renders as a bordered badge.
+    @ViewBuilder
+    private func tool(_ icon: String, active: Bool, label: String? = nil, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: name).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                .contentTransition(.symbolEffect(.replace))   // icon morphs (e.g. pencil toggles)
-                .frame(width: 40, height: 40)
-                .liquidGlass(Circle(), interactive: true)     // real iOS 26 glass
+            Group {
+                if let label, !label.isEmpty {
+                    Text(label).font(.system(size: 12, weight: .bold)).foregroundStyle(active ? .green : .white)
+                        .padding(.horizontal, 5).frame(height: 22)
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(active ? Color.green : Color.white, lineWidth: 1.5))
+                } else {
+                    Image(systemName: icon).font(.system(size: 20, weight: .medium)).foregroundStyle(active ? .green : .white)
+                }
+            }
+            .frame(width: 46, height: 46)
         }
         .buttonStyle(StoryPressStyle())
     }
 
-    // MARK: - Actions
-    private func cycleFilter() {
-        let next = (filterIndex + 1) % Self.filters.count
-        filteredCache = next == 0 ? nil : Self.apply(Self.filters[next].ci, to: source)
-        withAnimation(.easeInOut(duration: 0.2)) { filterIndex = next }
-    }
-    private func addText() { editingText = TextOverlay(text: "", pos: CGPoint(x: 200, y: 320)) }
-    private func move(_ t: TextOverlay, to p: CGPoint) {
-        if let i = textOverlays.firstIndex(where: { $0.id == t.id }) { textOverlays[i].pos = p }
-    }
-    private func commitText(_ t: TextOverlay, _ updated: String) {
-        let trimmed = updated.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let i = textOverlays.firstIndex(where: { $0.id == t.id }) {
-            if trimmed.isEmpty { textOverlays.remove(at: i) } else { textOverlays[i].text = trimmed }
-        } else if !trimmed.isEmpty {
-            textOverlays.append(TextOverlay(text: trimmed, pos: t.pos))
-        }
-    }
-
-    // Green send → flatten, then open the audience sheet (Post Story uploads in the background).
+    // MARK: - Send
     private func send() async {
         posting = true
         let data = await flatten()
@@ -207,35 +138,40 @@ struct StoryEditorView: View {
         pendingShare = StoryShareData(data: data)
     }
 
-    // Flatten at the ON-SCREEN size so text/drawing land exactly where the user placed them
-    // (their positions are in screen points), then render at retina scale for sharpness.
     @MainActor private func flatten() async -> Data {
-        let base = displayImage
+        let base = edited
+        let quality: CGFloat = hd ? 0.95 : 0.85
+        // No drawing → post the full-resolution edited image (HD keeps resolution; don't rasterize to screen).
+        if drawing.bounds.isEmpty {
+            return base.jpegData(compressionQuality: quality) ?? Data()
+        }
         let size = canvasSize == .zero ? UIScreen.main.bounds.size : canvasSize
         let composed = ZStack {
-            Image(uiImage: base).resizable().scaledToFill()
-                .frame(width: size.width, height: size.height).clipped()
-                .scaleEffect(zoom).offset(pan)   // bake the pinch-zoom/pan into the export
-                .frame(width: size.width, height: size.height).clipped()
-            if !drawing.bounds.isEmpty {
-                Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: size), scale: UIScreen.main.scale)).resizable()
-            }
-            ForEach(textOverlays) { t in
-                Text(t.text).font(.system(size: 30, weight: .bold)).foregroundStyle(.white).shadow(radius: 4)
-                    .position(t.pos)
-            }
+            Image(uiImage: base).resizable().scaledToFit().frame(width: size.width, height: size.height)
+            Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: size), scale: UIScreen.main.scale)).resizable()
         }
         .frame(width: size.width, height: size.height)
         let r = ImageRenderer(content: composed); r.scale = UIScreen.main.scale
-        return r.uiImage?.jpegData(compressionQuality: 0.9) ?? (base.jpegData(compressionQuality: 0.9) ?? Data())
+        return r.uiImage?.jpegData(compressionQuality: quality) ?? (base.jpegData(compressionQuality: quality) ?? Data())
     }
 
+    // MARK: - Image ops
     private static func apply(_ filterName: String?, to image: UIImage) -> UIImage {
         guard let filterName, let ci = CIImage(image: image),
               let filter = CIFilter(name: filterName) else { return image }
         filter.setValue(ci, forKey: kCIInputImageKey)
         guard let out = filter.outputImage, let cg = ciContext.createCGImage(out, from: out.extent) else { return image }
         return UIImage(cgImage: cg, scale: image.scale, orientation: image.imageOrientation)
+    }
+
+    private static func cropped(_ image: UIImage, aspect: CGFloat?) -> UIImage {
+        guard let aspect, let cg = image.cgImage else { return image }
+        let w = CGFloat(cg.width), h = CGFloat(cg.height)
+        var cw = w, ch = h
+        if w / h > aspect { cw = h * aspect } else { ch = w / aspect }
+        let rect = CGRect(x: (w - cw) / 2, y: (h - ch) / 2, width: cw, height: ch)
+        guard let out = cg.cropping(to: rect) else { return image }
+        return UIImage(cgImage: out, scale: image.scale, orientation: image.imageOrientation)
     }
 }
 
@@ -271,26 +207,5 @@ struct DrawingCanvas: UIViewRepresentable {
         let parent: DrawingCanvas
         init(_ p: DrawingCanvas) { parent = p }
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) { parent.drawing = canvasView.drawing }
-    }
-}
-
-// Simple text-entry sheet for a story text overlay.
-struct TextEntrySheet: View {
-    @State var text: String
-    let onDone: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @FocusState private var focused: Bool
-    var body: some View {
-        NavigationStack {
-            TextField("Type something…", text: $text, axis: .vertical)
-                .font(.title2).padding().focused($focused)
-                .navigationTitle("Text").navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
-                    ToolbarItem(placement: .topBarTrailing) { Button("Done") { onDone(text); dismiss() }.fontWeight(.semibold) }
-                }
-                .onAppear { focused = true }
-        }
-        .presentationDetents([.height(200)])
     }
 }
