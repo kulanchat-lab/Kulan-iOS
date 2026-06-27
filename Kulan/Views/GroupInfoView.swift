@@ -289,6 +289,8 @@ struct AddMembersSheet: View {
     @State private var selected = Set<String>()
     @State private var query = ""
     @State private var results: [UserProfile] = []
+    @State private var adding = false
+    @State private var errorText: String?
 
     private var candidates: [(id: String, name: String, photo: String?)] {
         convRepo.conversations
@@ -321,15 +323,27 @@ struct AddMembersSheet: View {
             .onChange(of: query) { _, q in search(q) }
             .navigationTitle("Add Members")
             .navigationBarTitleDisplayMode(.inline)
+            .overlay { if adding { ProgressView().padding(20).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14)) } }
+            .alert("Couldn't add members", isPresented: Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: { Text(errorText ?? "") }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add") {
                         let ids = Array(selected)
-                        Task { try? await ChatService.addGroupMembers(cid: cid, add: ids) }
-                        dismiss()
+                        adding = true
+                        Task {
+                            do {
+                                try await ChatService.addGroupMembers(cid: cid, add: ids)
+                                await MainActor.run { dismiss() }
+                            } catch {
+                                let msg = error.localizedDescription
+                                await MainActor.run { errorText = msg; adding = false }
+                            }
+                        }
                     }
-                    .disabled(selected.isEmpty).fontWeight(.semibold)
+                    .disabled(selected.isEmpty || adding).fontWeight(.semibold)
                 }
             }
         }
