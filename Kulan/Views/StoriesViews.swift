@@ -67,6 +67,13 @@ struct StoriesRow: View {
     var onOpenAnon: (StoryGroup) -> Void = { _ in }
     @State private var prefsTick = 0   // re-render after hide/notify toggles
 
+    // Per-item context menu state.
+    // nil  = no menu is open.
+    // non-nil = the menu is open for exactly that story group's author UID.
+    // Using the author UID (String) — not a shared Bool — ensures one long-press on
+    // "Fatima" never opens the menu for "User" or any other card in the row.
+    @State private var selectedStoryId: String? = nil
+
     private let storySpacing: CGFloat = 10
     private let storyHPad: CGFloat = 12
     private var cardW: CGFloat {
@@ -74,34 +81,63 @@ struct StoriesRow: View {
     }
     private var cardH: CGFloat { cardW * 1.46 }
 
+    // Resolved group for the currently-open menu (safe look-up so the overlay never shows stale data).
+    private var menuGroup: StoryGroup? {
+        guard let id = selectedStoryId else { return nil }
+        return repo.others.first { $0.authorUid == id }
+    }
+
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: storySpacing) {
-                myCard
-                ForEach(repo.others.filter { !StoryPrefs.isHidden($0.authorUid) }) { g in
-                    card(cover: g.stories.last?.mediaUrl,
-                         name: g.name.isEmpty ? "User" : g.name,
-                         avatar: g.photoUrl, unseen: g.hasUnseen) { onOpen(g) }
-                        // Native Apple peek: long-press lifts THIS card + shows the system menu
-                        // (same as the chat rows). Works here because the row is a ScrollView, not a List.
-                        .contextMenu {
-                            Button { onMessage(g) } label: { Label("Send Message", systemImage: "message") }
-                            Button { onProfile(g) } label: { Label("Open Profile", systemImage: "person.crop.circle") }
-                            Button {
-                                StoryPrefs.toggleNotify(g.authorUid); prefsTick += 1
-                            } label: {
-                                Label(StoryPrefs.isNotifying(g.authorUid) ? "Stop Notifying" : "Notify About Stories",
-                                      systemImage: StoryPrefs.isNotifying(g.authorUid) ? "bell.slash" : "bell")
+        ZStack {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: storySpacing) {
+                    myCard
+                    ForEach(repo.others.filter { !StoryPrefs.isHidden($0.authorUid) }) { g in
+                        card(cover: g.stories.last?.mediaUrl,
+                             name: g.name.isEmpty ? "User" : g.name,
+                             avatar: g.photoUrl, unseen: g.hasUnseen) { onOpen(g) }
+                            // Long-press sets the nullable ID to THIS card's author UID only.
+                            // No global boolean — each card independently targets itself.
+                            .onLongPressGesture(minimumDuration: 0.4) {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                    selectedStoryId = g.authorUid
+                                }
                             }
-                            Button { onOpenAnon(g) } label: { Label("View Anonymously", systemImage: "eye.slash") }
-                            Button(role: .destructive) {
-                                StoryPrefs.toggleHidden(g.authorUid); prefsTick += 1
-                            } label: { Label("Hide Stories", systemImage: "xmark.circle") }
-                        }
+                            // Scale down the pressed card so the user gets immediate visual
+                            // confirmation that THIS specific card was targeted.
+                            .scaleEffect(selectedStoryId == g.authorUid ? 0.94 : 1)
+                            .animation(.spring(response: 0.25, dampingFraction: 0.7),
+                                       value: selectedStoryId == g.authorUid)
+                    }
                 }
+                .padding(.horizontal, storyHPad)
+                .padding(.vertical, 10)
             }
-            .padding(.horizontal, storyHPad)
-            .padding(.vertical, 10)
+
+            // ── Per-item context menu overlay ─────────────────────────────────────────
+            // Rendered OUTSIDE the ScrollView so it can cover the entire screen.
+            // It only appears when selectedStoryId is non-nil, and it only shows
+            // actions for the single group whose authorUid matches selectedStoryId.
+            if let g = menuGroup {
+                StoryContextOverlay(
+                    group: g,
+                    prefsTick: prefsTick,
+                    onDismiss: {
+                        withAnimation(.easeOut(duration: 0.18)) { selectedStoryId = nil }
+                    },
+                    onMessage: { onMessage(g); selectedStoryId = nil },
+                    onProfile: { onProfile(g); selectedStoryId = nil },
+                    onNotify: { StoryPrefs.toggleNotify(g.authorUid); prefsTick += 1 },
+                    onOpenAnon: { onOpenAnon(g); selectedStoryId = nil },
+                    onHide: {
+                        StoryPrefs.toggleHidden(g.authorUid)
+                        prefsTick += 1
+                        withAnimation(.easeOut(duration: 0.18)) { selectedStoryId = nil }
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+            }
         }
         .task { await repo.load() }
     }
@@ -196,6 +232,81 @@ struct StoriesRow: View {
     }
 
     func reload() { Task { await repo.load() } }
+}
+
+// MARK: - Story Context Overlay
+
+// Full-screen dim + floating white menu card.
+// Instantiated ONLY for the specific StoryGroup whose authorUid matches selectedStoryId —
+// so it is structurally impossible for this overlay to be triggered by a different card.
+// Tapping the dim layer or any menu row dismisses the overlay.
+private struct StoryContextOverlay: View {
+    let group: StoryGroup
+    let prefsTick: Int          // passed down so Label re-evaluates notify/hide prefs live
+    var onDismiss: () -> Void
+    var onMessage: () -> Void
+    var onProfile: () -> Void
+    var onNotify: () -> Void
+    var onOpenAnon: () -> Void
+    var onHide: () -> Void
+
+    private var isNotifying: Bool { StoryPrefs.isNotifying(group.authorUid) }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            // ── Dim layer — tap anywhere outside the card to dismiss ─────────────
+            Color.black.opacity(0.38)
+                .ignoresSafeArea()
+                .onTapGesture { onDismiss() }
+
+            // ── Floating menu card ───────────────────────────────────────────────
+            VStack(spacing: 0) {
+                menuRow(icon: "message",            label: "Send Message",      color: .primary) { onMessage() }
+                divider
+                menuRow(icon: "person.crop.circle", label: "Open Profile",      color: .primary) { onProfile() }
+                divider
+                menuRow(icon: isNotifying ? "bell.slash" : "bell",
+                         label: isNotifying ? "Stop Notifying" : "Notify About Stories",
+                         color: .primary) {
+                    onNotify()   // stays open so the user sees the label flip
+                }
+                divider
+                menuRow(icon: "eye.slash",          label: "View Anonymously",  color: .primary) { onOpenAnon() }
+                divider
+                menuRow(icon: "xmark.circle",       label: "Hide Stories",      color: .red)     { onHide() }
+            }
+            .background(.background, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.primary.opacity(0.07), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.18), radius: 24, y: 8)
+            .padding(.horizontal, 28)
+            .padding(.top, 130)   // clear the stories row itself
+        }
+    }
+
+    private func menuRow(icon: String, label: String, color: Color,
+                         action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .foregroundStyle(color)
+                    .frame(width: 28)
+                Text(label)
+                    .font(.system(size: 17))
+                    .foregroundStyle(color)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var divider: some View {
+        Divider().padding(.leading, 64)
+    }
 }
 
 // MARK: - Story Viewer (Instagram-style)
