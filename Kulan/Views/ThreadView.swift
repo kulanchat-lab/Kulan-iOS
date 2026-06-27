@@ -47,6 +47,7 @@ struct ThreadView: View {
     @State private var recorder = AudioRecorder()
     @State private var highlightId: String?
     @State private var isAtBottom = true
+    @State private var settled = false   // suppress animated auto-scroll until the open transition + first load finish
     @State private var newWhileAway = 0
     @State private var unreadOnOpen = 0
     @State private var firstUnreadId: String?
@@ -99,6 +100,10 @@ struct ThreadView: View {
                 // position the list (don't fight it by jumping to the bottom).
                 if !didAnchorUnread && unreadOnOpen > 0 {
                     // no-op: anchorUnread handles initial positioning
+                } else if !settled {
+                    // INITIAL LOAD: messages arrive in chunks (cache → live). .defaultScrollAnchor(.bottom)
+                    // already keeps us pinned to the bottom WITHOUT animation — so do NOT fire an animated
+                    // scrollTo here, which is what caused the erratic jump/snap on open.
                 } else if isAtBottom || mine {
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("BOTTOM", anchor: .bottom) }
                 } else {
@@ -273,6 +278,11 @@ struct ThreadView: View {
         .onAppear {
             repo.start()
             recorder.prepare()                           // pre-warm so hold-to-record is instant
+            // Gate animated auto-scroll until the push transition + first chunked load settle,
+            // so the conversation opens cleanly at the bottom with no jump (defaultScrollAnchor
+            // handles the initial position). ~0.6s ≈ transition (0.35s) + load buffer.
+            settled = false
+            Task { try? await Task.sleep(nanoseconds: 600_000_000); await MainActor.run { settled = true } }
             if isGroup || !cid.contains("_") { startGroupCallListener() }
             AppRouter.shared.activeChatId = cid          // suppress this chat's own banners
             NotificationCleaner.clear(cid: cid)          // clear its notifications + fix the badge
