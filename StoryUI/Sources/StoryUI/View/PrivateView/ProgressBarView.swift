@@ -20,12 +20,14 @@ struct ProgressBarView: View {
             
             Capsule()
                 .fill(.gray.opacity(0.5))
-                .overlay (
+                .overlay(
                     Capsule()
                         .fill(.white)
                         .frame(width: width * perfectProgress)
-                    
-                    ,alignment: .leading
+                        // Smoothly interpolate between timer ticks so the bar
+                        // glides instead of stepping. Duration matches the tick interval.
+                        .animation(.linear(duration: 0.05), value: perfectProgress)
+                    , alignment: .leading
                 )
         }.frame(height: Constant.progressBarHeight)
     }
