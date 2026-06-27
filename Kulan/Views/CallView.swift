@@ -137,8 +137,9 @@ struct CallView: View {
         Image(systemName: icon)
             .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
             .frame(width: 40, height: 40)
-            .background(Color.white.opacity(0.18), in: Circle())
+            .liquidGlass(Circle(), interactive: true)   // real iOS 26 glass
     }
+
 
     // MARK: - Video self-PiP (draggable, with flip glyph)
 

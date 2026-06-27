@@ -86,7 +86,7 @@ struct AddStorySheet: View {
                 Text(label).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
             }
             .frame(width: 110, height: 90)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))   // real iOS 26 glass
             .overlay(RoundedRectangle(cornerRadius: 20).stroke(.white.opacity(0.2), lineWidth: 0.5))
             .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
         }
