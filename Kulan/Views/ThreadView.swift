@@ -112,6 +112,8 @@ struct ThreadView: View {
                 if !repo.iBlocked { Task { await ChatService.markRead(cid) } }   // don't leak reads to a blocked user
             }
             .onChange(of: repo.messages.count) { _, _ in anchorUnread(proxy) }
+            // Always default the pinned bar to the LAST (most recent) pin; tapping then cycles.
+            .onChange(of: repo.pinnedMessageIds) { _, ids in pinIndex = max(0, ids.count - 1) }
             .onChange(of: unreadOnOpen) { _, _ in anchorUnread(proxy) }
             .onChange(of: repo.otherTyping) { _, t in
                 if t && isAtBottom { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("BOTTOM", anchor: .bottom) } }
@@ -119,7 +121,7 @@ struct ThreadView: View {
             // Floating jump-to-bottom button (our design) — appears when scrolled up,
             // with a count of messages that arrived while away.
             .overlay(alignment: .bottomTrailing) {
-                if !isAtBottom {
+                if !isAtBottom && !recordingHeld && !recordLocked {   // hide the down-arrow while recording
                     Button {
                         withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("BOTTOM", anchor: .bottom) }
                     } label: {
@@ -1397,13 +1399,20 @@ struct ThreadView: View {
         // Optimistic: show the voice bubble INSTANTLY (springs in, playable from the local
         // recording), then reconcile when the upload echoes back — no dead lag on release.
         let clientId = UUID().uuidString
+        // Bug 1: a voice note recorded while replying must carry the reply (works for photo/voice
+        // targets too), and the reply bar must clear after sending.
+        let reply = replyingTo.map {
+            ReplyRef(id: $0.id, authorId: $0.authorId,
+                     text: $0.isImage ? "📷 Photo" : ($0.isAudio ? "🎤 Voice message" : ($0.isFile ? "📄 \($0.fileName ?? "Document")" : ($0.isGif ? "GIF" : $0.text))))
+        }
         await MainActor.run {
             withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
                 repo.addPending(Message(localAudioData: data, duration: dur, waveform: wf,
                                         authorId: me, clientId: clientId, sendState: .sending))
             }
+            withAnimation(.easeInOut(duration: 0.2)) { replyingTo = nil }
         }
-        do { try await ChatService.sendAudio(cid: cid, data: data, duration: dur, waveform: wf, clientId: clientId, group: isGroup ? groupMembers : nil) }
+        do { try await ChatService.sendAudio(cid: cid, data: data, duration: dur, waveform: wf, replyTo: reply, clientId: clientId, group: isGroup ? groupMembers : nil) }
         catch { await MainActor.run { repo.markFailed(clientId: clientId) } }
     }
 

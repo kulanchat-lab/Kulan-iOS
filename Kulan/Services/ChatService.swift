@@ -423,7 +423,7 @@ enum ChatService {
 
     /// Encrypt + send a voice note. Same E2EE pipeline as photos: the m4a bytes
     /// are sealed and the ciphertext uploaded; the server never hears the audio.
-    static func sendAudio(cid: String, data: Data, duration: Double, waveform: [Int] = [], clientId: String? = nil, group: [String]? = nil) async throws {
+    static func sendAudio(cid: String, data: Data, duration: Double, waveform: [Int] = [], replyTo: ReplyRef? = nil, clientId: String? = nil, group: [String]? = nil) async throws {
         var members = group
         if members == nil, !cid.contains("_") {
             let snap = try? await db.collection("conversations").document(cid).getDocument()
@@ -445,12 +445,22 @@ enum ChatService {
         _ = try await ref.putDataAsync(cipher, metadata: sm)
         let url = try await ref.downloadURL().absoluteString
 
+        // Encrypt the reply snippet the same way as the conversation (group vs 1:1).
+        var replyEnc: [String: Any]?
+        if let r = replyTo {
+            let rc: Any
+            if let members { rc = try await Crypto.shared.encryptForGroup(r.text, members: members) }
+            else { rc = try await Crypto.shared.encryptForConversation(cid, r.text) }
+            replyEnc = ["id": r.id, "authorId": r.authorId, "text": rc]
+        }
+
         let batch = db.batch()
         var msg: [String: Any] = [
             "type": "audio", "audioUrl": url, "duration": duration, "waveform": waveform,
             "enc": meta.asDict, "text": "", "authorId": uid, "createdAt": FieldValue.serverTimestamp(),
         ]
         if let clientId { msg["clientId"] = clientId }   // reconcile the optimistic bubble in place
+        if let replyEnc { msg["replyTo"] = replyEnc }    // voice notes can be replies too (Bug 1)
         batch.setData(msg, forDocument: msgRef)
         var convUpdate: [String: Any] = [
             "lastMessage": "🎤 Voice message",

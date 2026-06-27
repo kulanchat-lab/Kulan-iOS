@@ -45,9 +45,15 @@ public struct StoryView: View {
     
     public var body: some View {
         if isPresented {
-            let down = max(0, drag.height)
+            // Explicit CGFloat math — avoids Release WMO's "ambiguous operator '/'" on Int literals.
+            let down: CGFloat = max(0, drag.height)
+            let clamped: CGFloat = min(down, 300)
+            let bgOpacity: Double = Double(1 - clamped / 600)
+            let cardScale: CGFloat = 1 - clamped / 1400
+            let cardOpacity: Double = Double(1 - clamped / 500)
+            let corner: CGFloat = down > 0 ? 28 : 0
             ZStack {
-                Color.black.ignoresSafeArea().opacity(1 - min(down, 300) / 600)
+                Color.black.ignoresSafeArea().opacity(bgOpacity)
                 TabView(selection: $viewModel.currentStoryUser) {
                     ForEach(viewModel.stories) { model in
                         StoryDetailView(
@@ -60,10 +66,10 @@ public struct StoryView: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                .scaleEffect(1 - min(down, 300) / 1400)     // shrink as you pull down
-                .clipShape(RoundedRectangle(cornerRadius: down > 0 ? 28 : 0, style: .continuous))
+                .scaleEffect(cardScale)                     // shrink as you pull down
+                .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
                 .offset(y: down)
-                .opacity(1 - min(down, 300) / 500)          // fade to reveal what's underneath
+                .opacity(cardOpacity)                       // fade to reveal what's underneath
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
