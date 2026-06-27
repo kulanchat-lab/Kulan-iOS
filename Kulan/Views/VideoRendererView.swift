@@ -19,9 +19,14 @@ struct VideoRendererView: UIViewRepresentable {
         uiView.transform = mirror ? CGAffineTransform(scaleX: -1, y: 1) : .identity
         // Re-bind only when the track actually changes (attaching twice double-renders).
         if context.coordinator.track !== track {
-            context.coordinator.track?.remove(uiView)
-            track?.add(uiView)
-            context.coordinator.track = track
+            let old = context.coordinator.track
+            context.coordinator.track = track           // claim synchronously (no double-dispatch)
+            // Attach/detach ASYNC (LiveKit pattern): doing it synchronously inside a SwiftUI update
+            // can race the WebRTC decode thread delivering frames → garbled/dropped first frames.
+            DispatchQueue.main.async {
+                old?.remove(uiView)
+                track?.add(uiView)
+            }
         }
     }
 

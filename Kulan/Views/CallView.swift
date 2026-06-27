@@ -109,13 +109,11 @@ struct CallView: View {
         let full: RTCVideoTrack? = showLocalFull ? call.localVideoTrack
                                                  : (call.isVideo ? call.remoteVideoTrack : nil)
         let canShow = full != nil && !(showLocalFull && !call.cameraOn)
-        if call.isVideo, canShow, let full {
-            ZStack {
-                Color.black
-                VideoRendererView(track: full, mirror: showLocalFull && call.usingFrontCamera)
-            }
-            .ignoresSafeArea()
-        } else {
+        // STABILITY (LiveKit pattern): never swap view-tree branches. The gradient/avatar-blur is
+        // a permanent base, and ONE Metal renderer stays mounted on top for the whole video call —
+        // we toggle it by opacity + swap its track in place (no recreate), so connect / camera-
+        // toggle / stream-swap don't tear down + rebuild the Metal view (which caused black flicker).
+        ZStack {
             ZStack {
                 if let ui = bgImage {
                     Image(uiImage: ui).resizable().scaledToFill().blur(radius: 50)
@@ -125,8 +123,13 @@ struct CallView: View {
                                startPoint: .top, endPoint: .bottom)
                     .opacity(bgImage != nil ? 0.55 : 1)
             }
-            .ignoresSafeArea()
+            if call.isVideo {
+                VideoRendererView(track: full, mirror: showLocalFull && call.usingFrontCamera)
+                    .opacity(canShow ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.2), value: canShow)
+            }
         }
+        .ignoresSafeArea()
     }
 
     // MARK: - Top bar

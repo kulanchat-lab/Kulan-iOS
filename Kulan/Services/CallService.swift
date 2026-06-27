@@ -142,7 +142,8 @@ final class CallService: NSObject {
         guard let format else { return }
         let fps = min(30, Int(format.videoSupportedFrameRateRanges.map { $0.maxFrameRate }.max() ?? 30))
         capturer.startCapture(with: device, format: format, fps: fps)
-        usingFrontCamera = front
+        // Observed @Observable state must be written on main (this runs on a background queue).
+        DispatchQueue.main.async { self.usingFrontCamera = front }
     }
 
     func toggleCamera() {
@@ -152,8 +153,13 @@ final class CallService: NSObject {
     }
 
     func switchCamera() {
-        guard cameraOn else { return }
-        startCapture(front: !usingFrontCamera)
+        guard cameraOn, let capturer = videoCapturer else { return }
+        let next = !usingFrontCamera
+        // Stop the running capture BEFORE starting the other camera — restarting a live
+        // RTCCameraVideoCapturer in place can freeze/black the local feed on flip.
+        capturer.stopCapture { [weak self] in
+            DispatchQueue.global(qos: .userInitiated).async { self?.startCapture(front: next) }
+        }
     }
 
     // MARK: - In-call controls
