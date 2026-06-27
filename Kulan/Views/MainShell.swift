@@ -161,6 +161,26 @@ struct CallsView: View {
                                     Label("Delete", systemImage: "trash")
                                 }
                             }
+                            // Long-press menu (Signal-style) — every action is real.
+                            .contextMenu {
+                                Button {
+                                    CallService.shared.startCall(to: call.otherUid, name: call.name, photo: call.photoUrl, video: false)
+                                } label: { Label("Voice Call", systemImage: "phone") }
+                                Button {
+                                    CallService.shared.startCall(to: call.otherUid, name: call.name, photo: call.photoUrl, video: true)
+                                } label: { Label("Video Call", systemImage: "video") }
+                                Button {
+                                    AppRouter.shared.pendingChatName = call.name
+                                    AppRouter.shared.pendingChatPhoto = call.photoUrl
+                                    AppRouter.shared.pendingChatId = call.cid
+                                } label: { Label("Go to Chat", systemImage: "arrow.up.right") }
+                                Button { profileTarget = call } label: { Label("Info", systemImage: "info.circle") }
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.3)) { selecting = true; selection = [call.id] }
+                                } label: { Label("Select", systemImage: "checkmark.circle") }
+                                Divider()
+                                Button(role: .destructive) { deleteCall(call) } label: { Label("Delete", systemImage: "trash") }
+                            }
                         }
                     }
                     .listStyle(.plain)
