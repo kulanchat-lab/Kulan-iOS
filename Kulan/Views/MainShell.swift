@@ -169,8 +169,10 @@ struct CallsView: View {
                                 Button(role: .destructive) { deleteCall(call) } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
+                                .tint(.red)   // force red — the app's white tint was washing it out
                             }
                             // Long-press menu (Signal-style) — every action is real.
+                            // (Tick reposition lives in ChatRow; see chat list.)
                             .contextMenu {
                                 Button {
                                     CallService.shared.startCall(to: call.otherUid, name: call.name, photo: call.photoUrl, video: false)
