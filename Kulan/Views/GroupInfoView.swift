@@ -20,7 +20,7 @@ struct GroupInfoView: View {
     private var iAmAdmin: Bool { conv?.isAdmin(me) ?? false }
 
     var body: some View {
-        NavigationStack {
+        Group {   // pushed from the chat header → uses the parent nav bar (no nested stack)
             List {
                 headerSection
                 membersSection
@@ -81,7 +81,6 @@ struct GroupInfoView: View {
     }
 
     @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) { Button("Done") { dismiss() } }
         if iAmAdmin {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Edit") { newName = conv?.title ?? ""; showRename = true }

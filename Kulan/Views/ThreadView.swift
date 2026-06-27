@@ -18,8 +18,7 @@ struct ThreadView: View {
     @State private var showCamera = false
     @State private var showLibrary = false
     @State private var showVideoSoon = false
-    @State private var showContactInfo = false   // tap avatar/name in header → profile
-    @State private var showGroupInfo = false     // groups → Group Info instead
+    @State private var showContactInfo = false   // tap avatar/name in header → profile (or Group Info for groups)
     // Hold-to-record voice gesture state (WhatsApp/Telegram-style).
     @State private var recordLocked = false        // recording continues after finger lifts
     @State private var recordDrag: CGSize = .zero   // live finger translation while holding
@@ -139,9 +138,12 @@ struct ThreadView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { chatToolbar }
         .navigationDestination(isPresented: $showContactInfo) {
-            ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
+            if isGroup {
+                GroupInfoView(cid: cid)
+            } else {
+                ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
+            }
         }
-        .sheet(isPresented: $showGroupInfo) { GroupInfoView(cid: cid) }
         .alert("Video calls", isPresented: $showVideoSoon) {
             Button("OK", role: .cancel) {}
         } message: { Text("Video calling is coming soon.") }
@@ -386,12 +388,12 @@ struct ThreadView: View {
         // left position was the explicit ask.)
         if #available(iOS 26.0, *) {
             ToolbarItem(placement: .topBarLeading) {
-                Button { if isGroup { showGroupInfo = true } else { showContactInfo = true } } label: { headerLabel }.buttonStyle(.plain)
+                Button { showContactInfo = true } label: { headerLabel }.buttonStyle(.plain)
             }
             .sharedBackgroundVisibility(.hidden)
         } else {
             ToolbarItem(placement: .topBarLeading) {
-                Button { if isGroup { showGroupInfo = true } else { showContactInfo = true } } label: { headerLabel }.buttonStyle(.plain)
+                Button { showContactInfo = true } label: { headerLabel }.buttonStyle(.plain)
             }
         }
         // 1:1 call buttons only — group calls need an SFU (not built yet), so hide them in groups.
