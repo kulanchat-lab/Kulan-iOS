@@ -257,6 +257,7 @@ struct ThreadView: View {
                                        pendingDelete: $pendingDelete, reportTarget: $reportTarget))
         .onAppear {
             repo.start()
+            recorder.prepare()                           // pre-warm so hold-to-record is instant
             if isGroup || !cid.contains("_") { startGroupCallListener() }
             AppRouter.shared.activeChatId = cid          // suppress this chat's own banners
             NotificationCleaner.clear(cid: cid)          // clear its notifications + fix the badge
@@ -1158,7 +1159,7 @@ struct ThreadView: View {
             .scaleEffect(recordingHeld ? 1.5 : 1, anchor: .center)
             .offset(recordingHeld ? clampedDrag : .zero)
             .overlay(alignment: .top) { if recordingHeld { lockHint } }
-            .gesture(recordGesture)
+            .highPriorityGesture(recordGesture)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: recordingHeld)
     }
 
@@ -1173,7 +1174,7 @@ struct ThreadView: View {
         .foregroundStyle(progress > 0.55 ? Theme.accent(dark) : .secondary)
         .padding(.vertical, 10).padding(.horizontal, 9)
         .liquidGlass(Capsule(), interactive: true)
-        .offset(y: -84 - clampedDrag.height * 0.3)
+        .offset(y: -100)   // fixed gap above the mic (moves with the mic) — no overlap with the 1.5x-scaled mic
         .opacity(0.6 + progress * 0.4)
         .transition(.opacity)
     }
@@ -1205,8 +1206,8 @@ struct ThreadView: View {
                 recordCancelArmed = false
                 if cancel {
                     recorder.cancel(); notify(.warning)                // slide-to-cancel
-                } else if recorder.elapsed < 0.6 {
-                    // Quick tap, not a real hold → DON'T send (fixes accidental one-tap voice sends).
+                } else if recorder.currentTime < 0.5 {
+                    // Quick tap, not a real hold → DON'T send (live currentTime, unified with finish()'s 0.5s).
                     recorder.cancel(); notify(.warning); flashHoldHint()
                 } else {
                     Task { await stopAndSendAudio() }; impact(.light)  // release-to-send
@@ -1666,8 +1667,7 @@ struct MessageBubble: View {
                     if message.sendState == .sending {
                         ZStack {
                             Color.black.opacity(0.18)
-                            ProgressView()
-                                .tint(.white)
+                            Spinner(size: 26, color: .white)
                                 .padding(15)
                                 .background(.ultraThinMaterial, in: Circle())
                                 .environment(\.colorScheme, .dark)

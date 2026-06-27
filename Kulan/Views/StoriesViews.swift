@@ -136,8 +136,7 @@ struct StoriesRow: View {
                 .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.black.opacity(0.25)))
 
                 ZStack {
-                    Circle().stroke(.white.opacity(0.35), lineWidth: 2.5).frame(width: 34, height: 34)
-                    ProgressView().tint(.white).scaleEffect(0.7)
+                    Spinner(size: 26, color: .white)
                 }
                 .padding(8)
             }

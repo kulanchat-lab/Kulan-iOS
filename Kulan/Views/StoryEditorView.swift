@@ -118,14 +118,12 @@ struct StoryEditorView: View {
 
             Spacer()
 
-            // Filter hint.
-            VStack(spacing: 2) {
-                Image(systemName: "chevron.up").font(.caption2)
-                Text(filterIndex == 0 ? "Swipe up for filters" : Self.filters[filterIndex].name)
-                    .font(.caption)
+            // Brief filter NAME flashes only while a filter is active (no "swipe up" prompt).
+            if filterIndex != 0 {
+                Text(Self.filters[filterIndex].name)
+                    .font(.caption).foregroundStyle(.white).shadow(radius: 3)
+                    .padding(.bottom, 10)
             }
-            .foregroundStyle(.white).shadow(radius: 3)
-            .padding(.bottom, 10)
 
             bottomBar
         }

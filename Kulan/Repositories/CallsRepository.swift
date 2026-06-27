@@ -44,8 +44,12 @@ final class CallsRepository {
             return true
         }
         guard proceed else { return }
-        guard let me = Auth.auth().currentUser?.uid else { await MainActor.run { loading = false }; return }
+        guard let me = Auth.auth().currentUser?.uid else { await MainActor.run { loading = false; hasLoaded = true }; return }
         let database = db
+
+        // Safety net: never leave the shimmer skeleton up forever if a query stalls on bad network.
+        Task { try? await Task.sleep(nanoseconds: 8_000_000_000)
+            await MainActor.run { if !self.hasLoaded { self.hasLoaded = true; self.loading = false } } }
 
         let convSnap = try? await database.collection("conversations")
             .whereField("users", arrayContains: me).getDocuments()

@@ -71,7 +71,7 @@ struct DevicesView: View {
                         }
                     }
                     .padding(20)
-                    .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                     // Linked devices list (none — single-device today).
                     VStack(alignment: .leading, spacing: 10) {
@@ -79,7 +79,7 @@ struct DevicesView: View {
                         Text("No linked devices")
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity).frame(height: 84)
-                            .liquidGlass(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
 
                     HStack(alignment: .top, spacing: 6) {

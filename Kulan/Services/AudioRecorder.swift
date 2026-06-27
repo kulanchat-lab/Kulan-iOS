@@ -12,52 +12,79 @@ final class AudioRecorder {
     private var timer: Timer?
     var isRecording = false
     var elapsed: TimeInterval = 0
+    var currentTime: TimeInterval { recorder?.currentTime ?? 0 }   // live (not the 0.05s-throttled `elapsed`)
     var levels: [Float] = []          // recent normalized levels (0…1) for the live waveform
     private var allLevels: [Float] = []
 
-    func requestAndStart() {
+    private let settings: [String: Any] = [
+        AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+        AVSampleRateKey: 44_100,
+        AVNumberOfChannelsKey: 1,
+        AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
+    ]
+
+    // Pre-warm: activate the session + build & prepareToRecord a recorder AHEAD of time, so the
+    // first hold-to-record fires `record()` with ~no latency. Call on chat open + after each send.
+    func prepare() {
+        guard recorder == nil else { return }
         AVAudioApplication.requestRecordPermission { [weak self] granted in
-            guard granted else { return }
-            // Audio-session activation + recorder setup OFF the main thread, so the first
-            // touch records instantly (no main-thread hitch / input delay). The observable
-            // UI state and the metering timer are then published back on the main thread.
-            DispatchQueue.global(qos: .userInitiated).async { self?.start() }
+            guard let self, granted else { return }
+            DispatchQueue.global(qos: .userInitiated).async {
+                let session = AVAudioSession.sharedInstance()
+                try? session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers])
+                try? session.setActive(true)
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("voice-\(UUID().uuidString).m4a")
+                guard let r = try? AVAudioRecorder(url: url, settings: self.settings) else { return }
+                r.isMeteringEnabled = true
+                r.prepareToRecord()
+                DispatchQueue.main.async { if self.recorder == nil { self.recorder = r; self.fileURL = url } }
+            }
         }
     }
 
-    private func start() {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers])
-        try? session.setActive(true)
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("voice-\(UUID().uuidString).m4a")
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 44_100,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
-        ]
-        guard let r = try? AVAudioRecorder(url: url, settings: settings) else { return }
-        r.isMeteringEnabled = true
-        r.record()   // starts immediately on this background queue
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.recorder = r
-            self.fileURL = url
-            self.isRecording = true
-            self.elapsed = 0
-            self.levels = []
-            self.allLevels = []
-            self.timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-                guard let self, let r = self.recorder else { return }
-                self.elapsed = r.currentTime
-                r.updateMeters()
-                let level = self.normalize(r.averagePower(forChannel: 0))
-                self.allLevels.append(level)
-                self.levels.append(level)
-                if self.levels.count > 48 { self.levels.removeFirst(self.levels.count - 48) }
+    func requestAndStart() {
+        if let r = recorder {
+            // Re-assert record category — VoiceMessageView playback leaves the session in .playback,
+            // which would make record() silently fail (H1). Cheap, runs on every start.
+            let s = AVAudioSession.sharedInstance()
+            try? s.setCategory(.playAndRecord, mode: .default, options: [.duckOthers])
+            try? s.setActive(true)
+            r.record(); beginMetering()   // already warmed → instant
+            return
+        }
+        // Not warmed yet (permission just granted / first launch): set up then start.
+        AVAudioApplication.requestRecordPermission { [weak self] granted in
+            guard let self, granted else { return }
+            DispatchQueue.global(qos: .userInitiated).async {
+                let session = AVAudioSession.sharedInstance()
+                try? session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers])
+                try? session.setActive(true)
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("voice-\(UUID().uuidString).m4a")
+                guard let r = try? AVAudioRecorder(url: url, settings: self.settings) else { return }
+                r.isMeteringEnabled = true
+                r.record()
+                DispatchQueue.main.async { self.recorder = r; self.fileURL = url; self.beginMetering() }
             }
         }
+    }
+
+    private func beginMetering() {
+        isRecording = true; elapsed = 0; levels = []; allLevels = []
+        timer?.invalidate()
+        // .common run-loop mode so elapsed/levels keep updating during gesture/scroll tracking.
+        let t = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self, let r = self.recorder else { return }
+            self.elapsed = r.currentTime
+            r.updateMeters()
+            let level = self.normalize(r.averagePower(forChannel: 0))
+            self.allLevels.append(level)
+            self.levels.append(level)
+            if self.levels.count > 48 { self.levels.removeFirst(self.levels.count - 48) }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
     }
 
     // dBFS (−160…0) → 0…1 with a −50 dB silence floor (Signal's threshold idea).
@@ -110,5 +137,6 @@ final class AudioRecorder {
         levels = []
         allLevels = []
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        prepare()   // re-warm so the NEXT hold-to-record is instant too
     }
 }

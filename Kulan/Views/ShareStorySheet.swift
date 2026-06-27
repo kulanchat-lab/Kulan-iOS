@@ -34,7 +34,7 @@ struct ShareStorySheet: View {
                     HStack {
                         Button { dismiss() } label: {
                             Image(systemName: "xmark").font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
-                                .frame(width: 40, height: 40).liquidGlass(Circle(), interactive: true)
+                                .frame(width: 40, height: 40).background(Color(.secondarySystemGroupedBackground), in: Circle())
                         }
                         Spacer(); Text("Share Story").font(.headline); Spacer()
                         Color.clear.frame(width: 40, height: 40)
@@ -48,7 +48,7 @@ struct ShareStorySheet: View {
                         Divider().padding(.leading, 60)
                         optionRow(2, "person.crop.circle.badge.checkmark", "Only share with", "\(included.count) included")
                     }
-                    .liquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .padding(16)
                     .animation(.spring(response: 0.3, dampingFraction: 0.7), value: mode)
 
