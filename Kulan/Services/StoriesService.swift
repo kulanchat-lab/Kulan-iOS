@@ -28,6 +28,7 @@ struct StoryGroup: Identifiable {
 
     // Unseen ⇔ I haven't viewed since the newest story (mirrors Signal's ring logic).
     var hasUnseen: Bool {
+        if isMine { return false }   // my own story is never "unseen" to me (L2: was always ringed)
         guard let newest = stories.map(\.createdAt).max() else { return false }
         guard let lv = lastViewedAt else { return true }
         return lv < newest
@@ -136,6 +137,9 @@ final class StoriesService {
     }
 
     func deleteStory(_ id: String) async {
+        // Delete the Storage media FIRST (deterministic path), then the doc — else an early
+        // delete (before expiry) leaks the image forever (cleanup only handles EXPIRED docs).
+        try? await Storage.storage().reference().child("stories/\(id)/photo.jpg").delete()
         try? await db.collection("stories").document(id).delete()
     }
 
@@ -146,7 +150,7 @@ final class StoriesService {
             "type": "story",
             "storyId": story.id,
             "authorUid": story.authorUid,
-            "reporter": uid,
+            "reporterUid": uid,   // the rule requires reporterUid (was "reporter" → create denied)
             "createdAt": FieldValue.serverTimestamp(),
         ])
     }
