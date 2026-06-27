@@ -21,6 +21,7 @@ struct GroupInfoView: View {
     @State private var memberAction: MemberAction?
     @State private var confirmLeave = false
     @State private var confirmClear = false
+    @State private var confirmReport = false
     @State private var media: [Message] = []
     @State private var showAllMedia = false
 
@@ -208,9 +209,7 @@ struct GroupInfoView: View {
             Button(role: .destructive) { confirmLeave = true } label: {
                 Label("Leave Group", systemImage: "rectangle.portrait.and.arrow.right")
             }
-            Button(role: .destructive) {
-                Task { await ChatService.report(reportedUid: conv?.admins.first ?? "", cid: cid, reason: "group") }
-            } label: {
+            Button(role: .destructive) { confirmReport = true } label: {
                 Label("Report Group", systemImage: "exclamationmark.bubble")
             }
         } footer: {
@@ -222,6 +221,12 @@ struct GroupInfoView: View {
             Button("Clear Chat", role: .destructive) { Task { await ChatService.clearMyMessages(cid) } }
             Button("Cancel", role: .cancel) {}
         }
+        .confirmationDialog("Report this group?", isPresented: $confirmReport, titleVisibility: .visible) {
+            Button("Report", role: .destructive) {
+                Task { await ChatService.report(reportedUid: conv?.admins.first ?? "", cid: cid, reason: "group") }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("The group will be reported to moderators for review.") }
     }
 
     // "Created by you · 26 Jun 2026" footer, like the reference group screens.
@@ -340,6 +345,7 @@ struct GroupMemberSheet: View {
     let iAmAdmin: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var profile: UserProfile?
+    @State private var confirmRemove = false
     private var me: String { AuthService.shared.uid ?? "" }
 
     var body: some View {
@@ -376,15 +382,20 @@ struct GroupMemberSheet: View {
                                 Task { try? await ChatService.promoteGroupAdmin(cid: cid, uid: member.id, name: member.name); dismiss() }
                             }
                         }
-                        Button("Remove from Group", role: .destructive) {
-                            Task { try? await ChatService.removeGroupMember(cid: cid, uid: member.id, name: member.name); dismiss() }
-                        }
+                        Button("Remove from Group", role: .destructive) { confirmRemove = true }
                     }
                 }
             }
             .navigationTitle("").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
             .task { profile = await ProfileStore.shared.fetch(member.id) }
+            .confirmationDialog("Remove \(member.name) from the group?",
+                                isPresented: $confirmRemove, titleVisibility: .visible) {
+                Button("Remove", role: .destructive) {
+                    Task { try? await ChatService.removeGroupMember(cid: cid, uid: member.id, name: member.name); dismiss() }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
         }
     }
 }
