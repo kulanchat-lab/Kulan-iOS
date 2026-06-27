@@ -3,6 +3,7 @@ import PhotosUI
 import UIKit
 import FirebaseFirestore
 import UniformTypeIdentifiers
+import QuickLook
 
 struct ThreadView: View {
     let cid: String
@@ -27,7 +28,7 @@ struct ThreadView: View {
     @State private var showCamera = false
     @State private var showAttachPanel = false
     @State private var showFileImporter = false
-    @State private var filePreviewURL: URL?
+    @State private var filePreview: PreviewFile?
     @State private var showLibrary = false
     @State private var showVideoSoon = false
     @State private var showContactInfo = false   // tap avatar/name in header → profile (or Group Info for groups)
@@ -195,7 +196,7 @@ struct ThreadView: View {
         .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: false) { result in
             handlePickedFile(result)
         }
-        .quickLookPreview($filePreviewURL)
+        .sheet(item: $filePreview) { FilePreview(url: $0.url).ignoresSafeArea() }
     }
 
     private var threadContent: some View {
@@ -596,7 +597,7 @@ struct ThreadView: View {
             }
             let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(message.fileName ?? "file")
             try? data.write(to: tmp)
-            await MainActor.run { filePreviewURL = tmp }
+            await MainActor.run { filePreview = PreviewFile(url: tmp) }
         }
     }
 
@@ -1747,5 +1748,26 @@ private struct RecordWaveform: View {
     var body: some View {
         LiveWaveform(levels: recorder.levels, color: color)
             .frame(maxWidth: .infinity, maxHeight: 22)
+    }
+}
+
+// Identifiable wrapper so a decrypted file can drive a .sheet(item:).
+struct PreviewFile: Identifiable { let id = UUID(); let url: URL }
+
+// Native document preview (QuickLook) for a received file.
+struct FilePreview: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let c = QLPreviewController(); c.dataSource = context.coordinator; return c
+    }
+    func updateUIViewController(_ controller: QLPreviewController, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator(url: url) }
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        let url: URL
+        init(url: URL) { self.url = url }
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+            url as NSURL
+        }
     }
 }
