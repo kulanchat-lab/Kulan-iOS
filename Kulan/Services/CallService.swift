@@ -32,7 +32,7 @@ final class CallService: NSObject {
                 connectedDate = nil; isMuted = false; isSpeaker = false
                 calleeRinging = false; recordWritten = false; minimized = false
                 endReason = .none; negotiationVersion = 0; appliedRemoteRestart = 0; handledVideoRequest = false
-                pendingRemoteCandidates = []
+                pendingRemoteCandidates = []; localCandidateBuffer = []; callDocCreated = false
                 stopRingback(); stopTone(); cancelTimers()
                 isVideo = false; cameraOn = true; usingFrontCamera = true
                 videoCapturer?.stopCapture(); videoCapturer = nil
@@ -363,7 +363,10 @@ final class CallService: NSObject {
                         "offer": ["sdp": sdp.sdp, "type": "offer"],
                         "createdAt": FieldValue.serverTimestamp(),
                     ]) { [weak self] err in
-                        if err != nil { self?.hangUp() }   // write failed -> don't leave the caller ringing into the void
+                        guard let self else { return }
+                        if err != nil { self.hangUp(); return }   // write failed -> don't leave the caller ringing into the void
+                        self.callDocCreated = true
+                        self.flushLocalCandidates()   // now the doc exists, write the buffered candidates
                     }
                 }
             }
@@ -406,9 +409,18 @@ final class CallService: NSObject {
             .whereField("callee", isEqualTo: me)
             .whereField("status", isEqualTo: "ringing")
             .addSnapshotListener { [weak self] snap, _ in
-                guard let self, self.state == .idle,
-                      let doc = snap?.documents.first else { return }
+                guard let self, let doc = snap?.documents.first else { return }
                 let d = doc.data()
+                // H3: ignore zombie ringing docs (caller crashed mid-ring) so they don't re-ring forever.
+                if let ts = (d["createdAt"] as? Timestamp)?.dateValue(), Date().timeIntervalSince(ts) > 60 { return }
+                // H4: already in a call → send this new caller a busy signal instead of dropping them silently.
+                if self.state != .idle {
+                    if doc.documentID != self.callId {
+                        self.db.collection("calls").document(doc.documentID)
+                            .updateData(["status": "ended", "endReason": EndReason.busy.rawValue])
+                    }
+                    return
+                }
                 let caller = d["caller"] as? String ?? ""
                 // Silent block: a call from someone I've blocked never rings me.
                 let cid = [self.me, caller].sorted().joined(separator: "_")
@@ -433,6 +445,11 @@ final class CallService: NSObject {
     /// Set up an incoming call from a VoIP push (app may be cold-launching) so that a
     /// subsequent CallKit answer connects. No ringing here — CallKit shows the ring.
     func prepareIncoming(callId: String, name: String, uid: String, photo: String?, video: Bool = false) {
+        // Busy: a VoIP push arriving mid-call must NOT overwrite the live call's identity/state (C3).
+        guard state == .idle else {
+            db.collection("calls").document(callId).updateData(["status": "ended", "endReason": EndReason.busy.rawValue])
+            return
+        }
         self.isVideo = video
         self.callId = callId
         self.otherName = name
@@ -447,6 +464,7 @@ final class CallService: NSObject {
     func answer() {
         guard let id = callId else { return }
         ringingWatcher?.remove(); ringingWatcher = nil   // observeCallDoc (attached below) takes over
+        callDocCreated = true   // callee: the caller already created the doc, so candidates can write now
         state = .active   // present the call screen immediately; SDP fills in below
         ensureMicPermission { [weak self] granted in
             guard let self else { return }
@@ -588,6 +606,18 @@ final class CallService: NSObject {
             .collection(isCaller ? "callerCandidates" : "calleeCandidates")
     }
 
+    // C2: the caller's setLocalDescription fires didGenerate BEFORE the call doc is committed, so
+    // those candidate writes hit a non-existent parent → rule-denied + lost. Buffer local candidates
+    // until the doc exists, then flush.
+    private var callDocCreated = false
+    private var localCandidateBuffer: [[String: Any]] = []
+    private func flushLocalCandidates() {
+        guard let col = myCandidatesCollection, !localCandidateBuffer.isEmpty else { return }
+        let buffered = localCandidateBuffer
+        localCandidateBuffer = []
+        buffered.forEach { col.addDocument(data: $0) }
+    }
+
     // MARK: - Hang up / cleanup
 
     // System-/remote-initiated end (timeout, ICE failure, remote hang up) — plays a
@@ -658,11 +688,14 @@ final class CallService: NSObject {
 
 extension CallService: RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
-        myCandidatesCollection?.addDocument(data: [
+        let data: [String: Any] = [
             "candidate": candidate.sdp,
             "sdpMLineIndex": candidate.sdpMLineIndex,
             "sdpMid": candidate.sdpMid as Any,
-        ])
+        ]
+        // Buffer until the call doc exists (else the write is rule-denied + lost — C2).
+        if callDocCreated, let col = myCandidatesCollection { col.addDocument(data: data) }
+        else { localCandidateBuffer.append(data) }
     }
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
         DispatchQueue.main.async {

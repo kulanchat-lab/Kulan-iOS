@@ -93,7 +93,7 @@ public struct StoryView: View {
                         }
                     }
             )
-            .onChange(of: viewModel.currentStoryUser) { _, new in onUserChanged?(new) }   // mark each viewed bucket
+            .onChange(of: viewModel.currentStoryUser) { new in onUserChanged?(new) }   // mark each viewed bucket (iOS14 single-arg onChange — pkg min is iOS14)
             .onAppear { startStory() }
             .onDisappear { stopVideo() }
         }
