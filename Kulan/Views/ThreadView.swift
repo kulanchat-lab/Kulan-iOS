@@ -1137,6 +1137,22 @@ struct MessageBubble: View {
         return palette[sum % palette.count]
     }
 
+    // Message body with @mentions highlighted (semibold + accent for received bubbles).
+    private var bodyText: Text {
+        var str = AttributedString(message.text)
+        str.font = .system(size: 17)
+        for uid in message.mentions {
+            let token = "@\(nameFor(uid))"
+            var idx = str.startIndex
+            while idx < str.endIndex, let r = str[idx...].range(of: token) {
+                str[r].font = .system(size: 17, weight: .semibold)
+                if !isMe { str[r].foregroundColor = .accentColor }
+                idx = r.upperBound
+            }
+        }
+        return Text(str)
+    }
+
     // Aggregate uid->emoji into (emoji, count, mine), most-popular first (Signal's logic,
     // our own pill design). Ties broken by emoji for a stable order.
     private var reactionCounts: [(emoji: String, count: Int, mine: Bool)] {
@@ -1370,8 +1386,7 @@ struct MessageBubble: View {
                 // overlap the words. Short msgs => same line; long msgs => the
                 // text wraps and the time stays at the bottom-right corner.
                 HStack(alignment: .bottom, spacing: 6) {
-                    Text(message.text)
-                        .font(.system(size: 17))
+                    bodyText
                         .foregroundColor(isMe ? Theme.onAccent(dark) : (dark ? .white : .black))
                     if isLastInCluster { metaRow.padding(.bottom, 1) }   // time once per cluster
                 }
