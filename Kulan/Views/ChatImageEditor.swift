@@ -45,8 +45,8 @@ struct ChatImageEditor: View {
                 VStack(spacing: 0) {
                     HStack {
                         Button { dismiss() } label: {
-                            Image(systemName: "xmark").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
-                                .frame(width: 40, height: 40).background(.black.opacity(0.4), in: Circle())
+                            Image(systemName: "xmark").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                                .frame(width: 48, height: 48).background(.black.opacity(0.4), in: Circle())
                         }
                         Spacer()
                         if isDrawing {
@@ -74,7 +74,7 @@ struct ChatImageEditor: View {
                     .foregroundStyle(.white).focused($captionFocused)
                 Image(systemName: "at").foregroundStyle(.white)
             }
-            .padding(.horizontal, 16).frame(height: 48)
+            .padding(.horizontal, 16).frame(height: 46)
             .background(Color.black.opacity(0.55), in: Capsule())
 
             // Tool row + green send.
@@ -85,14 +85,14 @@ struct ChatImageEditor: View {
                     tool("slider.horizontal.3", active: filterIndex != 0) { filterIndex = (filterIndex + 1) % Self.filters.count }
                     tool("4k.tv", active: hd, label: "HD") { hd.toggle() }
                 }
-                .padding(.horizontal, 12).frame(height: 48)
+                .padding(.horizontal, 12).frame(height: 40)
                 .background(Color.black.opacity(0.4), in: Capsule())
 
                 Spacer()
 
                 Button { send() } label: {
-                    Image(systemName: "paperplane.fill").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
-                        .frame(width: 52, height: 52).background(Color(.systemGreen), in: Circle())
+                    Image(systemName: "paperplane.fill").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                        .frame(width: 46, height: 46).background(Color(.systemGreen), in: Circle())
                         .shadow(color: Color(.systemGreen).opacity(0.5), radius: 8)
                 }
                 .buttonStyle(StoryPressStyle())
