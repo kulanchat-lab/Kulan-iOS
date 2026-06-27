@@ -20,6 +20,8 @@ struct GroupInfoView: View {
     @State private var showAdd = false
     @State private var memberAction: MemberAction?
     @State private var confirmLeave = false
+    @State private var media: [Message] = []
+    @State private var showAllMedia = false
 
     struct MemberAction: Identifiable { let id: String; let name: String; let isAdmin: Bool }
 
@@ -61,6 +63,7 @@ struct GroupInfoView: View {
         List {
             headerSection
             settingsSection
+            mediaSection
             membersSection
             leaveSection
         }
@@ -89,6 +92,8 @@ struct GroupInfoView: View {
                 }
             }
         }
+        .task { media = await ChatService.sharedMedia(cid) }
+        .sheet(isPresented: $showAllMedia) { SharedMediaGridView(cid: cid, media: media) }
     }
 
     private var headerSection: some View {
@@ -164,6 +169,25 @@ struct GroupInfoView: View {
         case 86_400:  return "1 day"
         case 604_800: return "1 week"
         default:      return "Off"
+        }
+    }
+
+    @ViewBuilder private var mediaSection: some View {
+        if !media.isEmpty {
+            Section("Media") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(media.prefix(12)) { m in
+                            if let url = m.imageUrl {
+                                SecureImageView(imageUrl: url, enc: m.enc, cid: cid)
+                                    .frame(width: 84, height: 84)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                        }
+                    }
+                }
+                Button("See All") { showAllMedia = true }.tint(.primary)
+            }
         }
     }
 
