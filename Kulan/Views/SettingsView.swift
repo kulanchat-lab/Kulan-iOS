@@ -224,9 +224,20 @@ struct AccountSettingsView: View {
                 .listRowBackground(Color.clear)
             }
 
-            Section("Account") {
+            Section("Your account") {
                 LabeledContent("Username", value: profile.me.map { "@\($0.handle)" } ?? "—")
-                LabeledContent("Account ID", value: String((AuthService.shared.uid ?? "").prefix(12)) + "…")
+                // Tap to copy your account ID (no phone number — Kulan uses anonymous/handle auth).
+                Button {
+                    UIPasteboard.general.string = AuthService.shared.uid ?? ""
+                } label: {
+                    HStack {
+                        Text("Account ID").foregroundStyle(.primary)
+                        Spacer()
+                        Text(String((AuthService.shared.uid ?? "").prefix(12)) + "…").foregroundStyle(.secondary)
+                        Image(systemName: "doc.on.doc").font(.footnote).foregroundStyle(.tertiary)
+                    }
+                }
+                .tint(.primary)
             }
 
             Section {
@@ -252,6 +263,7 @@ struct AccountSettingsView: View {
                 }
             }
         }
+        .listStyle(.insetGrouped)   // clean rounded cards (matches the reference)
         .navigationTitle("Account")
         .navigationBarTitleDisplayMode(.inline)
         .disabled(working)
