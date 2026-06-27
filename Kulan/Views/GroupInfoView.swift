@@ -172,6 +172,11 @@ struct GroupInfoView: View {
             Button(role: .destructive) { confirmLeave = true } label: {
                 Label("Leave Group", systemImage: "rectangle.portrait.and.arrow.right")
             }
+            Button(role: .destructive) {
+                Task { await ChatService.report(reportedUid: conv?.admins.first ?? "", cid: cid, reason: "group") }
+            } label: {
+                Label("Report Group", systemImage: "exclamationmark.bubble")
+            }
         }
     }
 
@@ -184,7 +189,9 @@ struct GroupInfoView: View {
     }
 
     @ViewBuilder private func memberActions(_ m: MemberAction) -> some View {
-        if !m.isAdmin {
+        if m.isAdmin {
+            Button("Remove as Admin") { Task { try? await ChatService.demoteGroupAdmin(cid: cid, uid: m.id, name: m.name) } }
+        } else {
             Button("Make Admin") { Task { try? await ChatService.promoteGroupAdmin(cid: cid, uid: m.id, name: m.name) } }
         }
         Button("Remove from Group", role: .destructive) {

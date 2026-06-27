@@ -181,6 +181,16 @@ enum ChatService {
         try await writeSystemMessage(cid: cid, text: "\(myName()) made \(name) an admin")
     }
 
+    /// Demote an admin back to a regular member (admin) + system message.
+    static func demoteGroupAdmin(cid: String, uid demoted: String, name: String) async throws {
+        let convRef = db.collection("conversations").document(cid)
+        try await convRef.updateData([
+            "admins": FieldValue.arrayRemove([demoted]),
+            "updatedAt": FieldValue.serverTimestamp(),
+        ])
+        try await writeSystemMessage(cid: cid, text: "\(myName()) removed \(name) as admin")
+    }
+
     private static func myName() -> String {
         let n = ProfileStore.shared.me?.name ?? ""
         return n.isEmpty ? "Someone" : n
