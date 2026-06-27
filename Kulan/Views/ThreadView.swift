@@ -157,8 +157,8 @@ struct ThreadView: View {
         }
     }
 
-    // Split into two so the body's (large) modifier chain stays under the type-checker limit.
-    private var threadContent: some View {
+    // Split into several layers so each modifier chain stays under the type-checker limit.
+    private var threadCovers: some View {
         threadScroll
         .toolbar(.hidden, for: .tabBar)
         // Native nav bar = real iOS 26 Liquid Glass + the genuine edge-swipe-back, exactly
@@ -179,6 +179,10 @@ struct ThreadView: View {
                                                         set: { if !$0 { sendError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: { Text(sendError ?? "") }
+    }
+
+    private var threadPickers: some View {
+        threadCovers
         .fullScreenCover(item: $viewerImage) { msg in
             ImageViewerView(message: msg, cid: cid)
         }
@@ -192,6 +196,10 @@ struct ThreadView: View {
             handlePickedFile(result)
         }
         .quickLookPreview($filePreviewURL)
+    }
+
+    private var threadContent: some View {
+        threadPickers
         .sheet(item: $morePickerTarget) { m in EmojiMorePicker { emoji in react(m, emoji) } }
         .sheet(item: $reactorsTarget) { m in
             ReactorsSheet(reactions: m.reactions, nameFor: { personName($0) })
