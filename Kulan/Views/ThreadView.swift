@@ -2,6 +2,7 @@ import SwiftUI
 import PhotosUI
 import UIKit
 import FirebaseFirestore
+import UniformTypeIdentifiers
 
 struct ThreadView: View {
     let cid: String
@@ -24,6 +25,9 @@ struct ThreadView: View {
     @State private var viewerImage: Message?
     @State private var sendError: String?
     @State private var showCamera = false
+    @State private var showAttachPanel = false
+    @State private var showFileImporter = false
+    @State private var filePreviewURL: URL?
     @State private var showLibrary = false
     @State private var showVideoSoon = false
     @State private var showContactInfo = false   // tap avatar/name in header → profile (or Group Info for groups)
@@ -182,6 +186,11 @@ struct ThreadView: View {
             CameraPicker { data in Task { await sendCaptured(data) } }
                 .ignoresSafeArea()
         }
+        .sheet(isPresented: $showAttachPanel) { attachPanel.presentationDetents([.height(230)]) }
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: false) { result in
+            handlePickedFile(result)
+        }
+        .quickLookPreview($filePreviewURL)
         .sheet(item: $morePickerTarget) { m in EmojiMorePicker { emoji in react(m, emoji) } }
         .sheet(item: $reactorsTarget) { m in
             ReactorsSheet(reactions: m.reactions, nameFor: { personName($0) })
@@ -443,6 +452,7 @@ struct ThreadView: View {
                                 id: uid, name: personName(uid), isAdmin: conversation?.isAdmin(uid) ?? false)
                         },
                         canPin: !isGroup || (conversation?.isAdmin(me) ?? false),
+                        onOpenFile: { m in openFile(m) },
                         onResend: { m in resend(m) },
                         onJumpTo: { id in jump(to: id, proxy) },
                         isHighlighted: msg.id == highlightId,
@@ -534,6 +544,65 @@ struct ThreadView: View {
             }
     }
 
+    // Custom attach panel (Telegram/WhatsApp-style) — slides up from the + button.
+    private var attachPanel: some View {
+        VStack(spacing: 0) {
+            Capsule().fill(.secondary.opacity(0.4)).frame(width: 38, height: 5).padding(.top, 8)
+            HStack(spacing: 18) {
+                attachTile("camera.fill", "Camera", .blue) { showCamera = true }
+                attachTile("photo.fill", "Photos", .green) { showLibrary = true }
+                attachTile("doc.fill", "File", .orange) { showFileImporter = true }
+            }
+            .padding(.top, 26)
+            Spacer()
+        }
+    }
+    private func attachTile(_ icon: String, _ label: String, _ color: Color, _ action: @escaping () -> Void) -> some View {
+        Button {
+            showAttachPanel = false
+            // Let the sheet finish dismissing before presenting the next picker (avoids a clash).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { action() }
+        } label: {
+            VStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 24)).foregroundStyle(.white)
+                    .frame(width: 64, height: 64)
+                    .background(color, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                Text(label).font(.caption).foregroundStyle(.primary)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    // Download the encrypted file, decrypt it, write to a temp file, and preview it (QuickLook).
+    private func openFile(_ message: Message) {
+        guard let s = message.fileUrl, let url = URL(string: s), let meta = message.enc else { return }
+        Task {
+            guard let (cipher, _) = try? await URLSession.shared.data(from: url),
+                  let data = await Crypto.shared.decryptBytes(cid, cipher: cipher, meta: meta) else {
+                await MainActor.run { sendError = "Couldn't open the file." }; return
+            }
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(message.fileName ?? "file")
+            try? data.write(to: tmp)
+            await MainActor.run { filePreviewURL = tmp }
+        }
+    }
+
+    private func handlePickedFile(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, let url = urls.first else { return }
+        Task { await sendDocument(url) }
+    }
+    private func sendDocument(_ url: URL) async {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else { return }
+        guard data.count <= 25 * 1024 * 1024 else {
+            await MainActor.run { sendError = "File too large (max 25 MB)." }; return
+        }
+        let name = url.lastPathComponent
+        do { try await ChatService.sendFile(cid: cid, data: data, fileName: name, group: isGroup ? groupMembers : nil) }
+        catch { await MainActor.run { sendError = "Couldn't send the file. Try again." } }
+    }
+
     // Avatar + name + presence shown in the chat header (kept glass-free — see chatToolbar).
     private var headerLabel: some View {
         HStack(spacing: 9) {
@@ -587,7 +656,7 @@ struct ThreadView: View {
         input = ""
         let reply = replyingTo.map {
             ReplyRef(id: $0.id, authorId: $0.authorId,
-                     text: $0.isImage ? "📷 Photo" : ($0.isAudio ? "🎤 Voice message" : $0.text))
+                     text: $0.isImage ? "📷 Photo" : ($0.isAudio ? "🎤 Voice message" : ($0.isFile ? "📄 \($0.fileName ?? "Document")" : $0.text)))
         }
         replyingTo = nil
         typingSent = false
@@ -923,10 +992,7 @@ struct ThreadView: View {
         composerGlassContainer {
         HStack(alignment: .bottom, spacing: 8) {   // "+" outside-left, everything else in the field
             if !recordingHeld {
-                Menu {
-                    Button { showCamera = true } label: { Label("Camera", systemImage: "camera") }
-                    Button { showLibrary = true } label: { Label("Photo Library", systemImage: "photo") }
-                } label: {
+                Button { showAttachPanel = true } label: {
                     Image(systemName: sendingPhoto ? "ellipsis" : "plus")
                         .font(.system(size: 20, weight: .regular))
                         .foregroundStyle(.primary)
@@ -1189,7 +1255,15 @@ struct MessageBubble: View {
     var isGroup: Bool = false   // drives per-sender name labels above others' bubbles in groups
     var onTapReactions: () -> Void = {}
     var onTapSender: (String) -> Void = { _ in }
+    var onOpenFile: (Message) -> Void = { _ in }
     var canPin: Bool = true
+
+    private var fileSizeLabel: String {
+        guard let b = message.fileSize else { return "Document" }
+        if b >= 1_048_576 { return String(format: "%.1f MB", Double(b) / 1_048_576) }
+        if b >= 1024 { return String(format: "%.0f KB", Double(b) / 1024) }
+        return "\(b) B"
+    }
     var onLongPress: (Message) -> Void = { _ in }
     var onResend: (Message) -> Void = { _ in }
     var onJumpTo: (String) -> Void = { _ in }
@@ -1420,6 +1494,26 @@ struct MessageBubble: View {
             }
             .padding(.horizontal, 13)
             .padding(.vertical, 9)
+            .background(isMe ? Theme.accent(dark) : Theme.received(dark))
+            .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
+        } else if message.isFile {
+            VStack(alignment: .leading, spacing: 4) {
+                replyQuote
+                Button { onOpenFile(message) } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "doc.fill").font(.system(size: 26))
+                            .foregroundStyle(isMe ? Theme.onAccent(dark) : Color.accentColor)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(message.fileName ?? "Document")
+                                .font(.system(size: 15, weight: .medium)).lineLimit(1)
+                            Text(fileSizeLabel).font(.caption)
+                                .foregroundStyle(isMe ? Theme.onAccent(dark).opacity(0.8) : .secondary)
+                        }
+                    }
+                }
+                .foregroundStyle(isMe ? Theme.onAccent(dark) : (dark ? .white : .black))
+            }
+            .padding(.horizontal, 13).padding(.vertical, 10)
             .background(isMe ? Theme.accent(dark) : Theme.received(dark))
             .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
         } else if message.isImage {

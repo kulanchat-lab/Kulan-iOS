@@ -467,6 +467,48 @@ enum ChatService {
         try await batch.commit()
     }
 
+    /// Encrypt + send a document/file. Contents are E2EE (same pipeline as photos); the file
+    /// NAME is metadata stored in the clear (like image dimensions) so the bubble can label it.
+    static func sendFile(cid: String, data rawData: Data, fileName: String, clientId: String? = nil, group: [String]? = nil) async throws {
+        var members = group
+        if members == nil, !cid.contains("_") {
+            let snap = try? await db.collection("conversations").document(cid).getDocument()
+            members = snap?.data()?["users"] as? [String]
+        }
+        let convRef = db.collection("conversations").document(cid)
+        let cipher: Data, meta: EncMeta
+        if let members {
+            (cipher, meta) = try await Crypto.shared.encryptBytesForGroup(rawData, members: members)
+        } else {
+            (cipher, meta) = try await Crypto.shared.encryptBytes(cid, rawData)
+            let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+            try await convRef.setData(["users": [uid, other], "updatedAt": FieldValue.serverTimestamp()], merge: true)
+        }
+        let msgRef = convRef.collection("messages").document()
+        let ref = Storage.storage().reference().child("chat/\(cid)/\(msgRef.documentID).file.enc")
+        let sm = StorageMetadata(); sm.contentType = "application/octet-stream"
+        _ = try await ref.putDataAsync(cipher, metadata: sm)
+        let url = try await ref.downloadURL().absoluteString
+        let batch = db.batch()
+        var msg: [String: Any] = [
+            "type": "file", "fileUrl": url, "fileName": fileName, "fileSize": rawData.count,
+            "enc": meta.asDict, "text": "", "authorId": uid, "createdAt": FieldValue.serverTimestamp(),
+        ]
+        if let clientId { msg["clientId"] = clientId }
+        batch.setData(msg, forDocument: msgRef)
+        var convUpdate: [String: Any] = [
+            "lastMessage": "📄 File", "lastSender": uid, "updatedAt": FieldValue.serverTimestamp(),
+        ]
+        if let members {
+            for m in members where m != uid { convUpdate["unreadCount.\(m)"] = FieldValue.increment(Int64(1)) }
+        } else {
+            let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+            convUpdate["unreadCount.\(other)"] = FieldValue.increment(Int64(1))
+        }
+        batch.updateData(convUpdate, forDocument: convRef)
+        try await batch.commit()
+    }
+
     /// Forward an existing message into another conversation. Because every chat is
     /// E2EE with its own key, media is decrypted from the source chat and re-encrypted
     /// for the target by reusing the normal send pipeline (never re-uses source ciphertext).

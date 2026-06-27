@@ -36,9 +36,12 @@ struct Message: Identifiable, Equatable {
     let id: String
     var authorId: String
     var text: String          // DECRYPTED for display
-    var type: String?         // "image" for photos, "audio" for voice notes
+    var type: String?         // "image" for photos, "audio" for voice notes, "file" for documents
     var imageUrl: String?
     var audioUrl: String?
+    var fileUrl: String?      // encrypted document (type == "file")
+    var fileName: String?     // original document name
+    var fileSize: Int?        // bytes (for the "1.2 MB" label)
     var duration: Double?     // voice note length (seconds)
     var waveform: [Int] = []  // tiny amplitude bars (0…100) for the voice-note UI
     var enc: EncMeta?
@@ -59,6 +62,7 @@ struct Message: Identifiable, Equatable {
 
     var isImage: Bool { (type == "image" && (imageUrl?.isEmpty == false)) || localImageData != nil }
     var isAudio: Bool { (type == "audio" && (audioUrl?.isEmpty == false)) || localAudioData != nil }
+    var isFile: Bool { type == "file" && (fileUrl?.isEmpty == false) }
     var isCall: Bool { type == "call" }
     var isSystem: Bool { type == "system" }   // group event ("X added Y"), shown centered
 
@@ -117,6 +121,9 @@ struct Message: Identifiable, Equatable {
         self.type = data["type"] as? String
         self.imageUrl = data["imageUrl"] as? String
         self.audioUrl = data["audioUrl"] as? String
+        self.fileUrl = data["fileUrl"] as? String
+        self.fileName = data["fileName"] as? String
+        self.fileSize = (data["fileSize"] as? NSNumber)?.intValue
         self.duration = (data["duration"] as? NSNumber)?.doubleValue
         self.waveform = (data["waveform"] as? [Int])
             ?? (data["waveform"] as? [NSNumber])?.map { $0.intValue } ?? []
