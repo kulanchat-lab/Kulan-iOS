@@ -71,6 +71,8 @@ targets:
         product: FirebaseStorage
       - package: Firebase
         product: FirebaseMessaging
+      - package: Firebase
+        product: FirebaseFunctions
       - package: Sodium
         product: Sodium
       - package: WebRTC
