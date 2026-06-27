@@ -4,6 +4,7 @@ import SwiftUI
 // actions (add / remove / promote), and Leave. Reads live from ConversationsRepository.
 struct GroupInfoView: View {
     let cid: String
+    init(cid: String) { self.cid = cid }
     @Environment(\.dismiss) private var dismiss
     private var repo = ConversationsRepository.shared
     private var me: String { AuthService.shared.uid ?? "" }
