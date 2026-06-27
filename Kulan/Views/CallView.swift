@@ -147,7 +147,13 @@ struct CallView: View {
     // MARK: - Top bar
 
     private func topBar(safeTop: CGFloat) -> some View {
-        HStack {
+        // safeTop from GeometryReader can return 0 when fullScreenCover doesn't propagate
+        // the correct safe-area context (known SwiftUI bug on some iOS versions). Fall back
+        // to 59pt — the Dynamic Island height on modern iPhones — so the header never
+        // overlaps the status bar regardless of the presentation context.
+        let resolvedTop = safeTop > 20 ? safeTop : 59
+
+        return HStack {
             // The ONLY way to minimize the call (swipe-to-minimize removed — screen is locked).
             Button { withAnimation(.easeInOut(duration: 0.25)) { call.minimized = true } } label: {
                 topCircle("chevron.down")
@@ -168,7 +174,7 @@ struct CallView: View {
             .buttonStyle(CallControlStyle())
         }
         .padding(.horizontal, 16)
-        .padding(.top, safeTop + 14)   // clear the iOS status-bar call indicator (green pill)
+        .padding(.top, resolvedTop + 14)
     }
 
     private func topCircle(_ icon: String) -> some View {
@@ -238,8 +244,12 @@ struct CallView: View {
                 callCircle(call.cameraOn ? "video.fill" : "video.slash.fill", active: !call.cameraOn) { call.toggleCamera() }
                 callCircle("arrow.triangle.2.circlepath", active: false) { call.switchCamera() }
             } else {
-                // Seamless upgrade: turn this voice call into a video call (renegotiates, no hang-up).
+                // Upgrade voice → video when the call is connected (renegotiates, no hang-up).
+                // Disabled and dimmed while ringing/connecting so the user gets clear feedback.
+                let canUpgrade = call.state == .active
                 callCircle("video.fill", active: false) { call.upgradeToVideo() }
+                    .opacity(canUpgrade ? 1 : 0.4)
+                    .allowsHitTesting(canUpgrade)
             }
             callCircle(call.isSpeaker ? "speaker.wave.2.fill" : "speaker.slash.fill", active: call.isSpeaker) { call.toggleSpeaker() }
             endCircle
