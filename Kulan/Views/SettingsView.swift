@@ -645,7 +645,7 @@ struct EditProfileView: View {
         let h = ChatService.sanitizeHandle(handle)
         guard !n.isEmpty else { error = "Enter your name"; return }
         guard ChatService.isValidHandle(h) else {
-            error = "Username: letters, numbers and _ only, 3–24 characters"; return
+            error = "Username: letters, numbers and _ only, 3–30 characters"; return
         }
         saving = true; error = nil
         do {
@@ -699,7 +699,7 @@ struct UsernameEditView: View {
                     }
                     .padding(.horizontal, 18).padding(.vertical, 16)
                     .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    Text("Letters, numbers and _ only. 3–24 characters.")
+                    Text("Letters, numbers and _ only. 3–30 characters.")
                         .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 4)
                 }
                 .padding(16)

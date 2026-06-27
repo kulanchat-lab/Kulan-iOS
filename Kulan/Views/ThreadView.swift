@@ -194,7 +194,7 @@ struct ThreadView: View {
         .fullScreenCover(item: $viewerImage) { msg in
             ImageViewerView(message: msg, cid: cid)
         }
-        .photosPicker(isPresented: $showLibrary, selection: $photoItems, maxSelectionCount: 10, matching: .images)
+        .photosPicker(isPresented: $showLibrary, selection: $photoItems, maxSelectionCount: Limits.mediaPerMessage, matching: .images)
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker { data in if let ui = UIImage(data: data) { editImage = EditImageWrap(image: ui) } }
                 .ignoresSafeArea()
@@ -499,9 +499,9 @@ struct ThreadView: View {
                         onPin: { m in
                             if repo.pinnedMessageIds.contains(m.id) {
                                 Task { await ChatService.removePinnedMessage(cid, m.id) }
-                            } else if repo.pinnedMessageIds.count < 5 {
+                            } else if repo.pinnedMessageIds.count < Limits.pinnedMessagesPerChat {
                                 Task { await ChatService.addPinnedMessage(cid, m.id) }
-                            }   // already at the 5-pin max → ignore
+                            }   // already at the pin max → ignore
                         },
                         onForward: { forwardTarget = $0 },
                         onEdit: { editTarget = $0 },
