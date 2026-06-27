@@ -313,10 +313,14 @@ struct ThreadView: View {
         !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    // Resolving Calendar.current re-reads the user's locale/calendar each call; these helpers run
+    // ~4-5x per row per render, so cache one instance.
+    private static let cal = Calendar.current
+
     private func shouldShowDate(at index: Int) -> Bool {
         let items = repo.items
         guard index > 0, index < items.count else { return true }
-        return !Calendar.current.isDate(items[index - 1].createdAt, inSameDayAs: items[index].createdAt)
+        return !Self.cal.isDate(items[index - 1].createdAt, inSameDayAs: items[index].createdAt)
     }
 
     // Grouping: tight (2pt) inside a same-sender cluster, standard (14pt) on a new
@@ -342,13 +346,13 @@ struct ThreadView: View {
         let items = repo.items
         guard index >= 0, index < items.count - 1 else { return true }
         let next = items[index + 1], cur = items[index]
-        if !Calendar.current.isDate(cur.createdAt, inSameDayAs: next.createdAt) { return true }
+        if !Self.cal.isDate(cur.createdAt, inSameDayAs: next.createdAt) { return true }
         if next.authorId != cur.authorId { return true }
         return next.createdAt.timeIntervalSince(cur.createdAt) > Self.clusterGap
     }
 
     private func dayLabel(_ d: Date) -> String {
-        let cal = Calendar.current
+        let cal = Self.cal
         if cal.isDateInToday(d) { return "Today" }
         if cal.isDateInYesterday(d) { return "Yesterday" }
         return d.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())

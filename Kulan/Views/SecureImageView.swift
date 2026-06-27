@@ -15,12 +15,15 @@ struct SecureImageView: View {
     @State private var failed = false
 
     var body: some View {
-        ZStack {
-            if let image {
+        // Synchronous memory-cache read so an already-cached image renders on the FIRST frame
+        // (the async path caused a one-frame skeleton flash even on a pure memory hit).
+        let shown = image ?? DiskImageCache.shared.memoryImage(imageUrl)
+        return ZStack {
+            if let shown {
                 if fill {
-                    Image(uiImage: image).resizable().scaledToFill()
+                    Image(uiImage: shown).resizable().scaledToFill()
                 } else {
-                    Image(uiImage: image).resizable().scaledToFit()
+                    Image(uiImage: shown).resizable().scaledToFit()
                 }
             } else if failed {
                 Rectangle().fill(Color.gray.opacity(0.18))

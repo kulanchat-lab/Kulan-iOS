@@ -47,9 +47,12 @@ final class DiskImageCache {
         return await withCheckedContinuation { cont in
             io.async {
                 let f = self.fileURL(url)
-                guard let data = try? Data(contentsOf: f), let img = UIImage(data: data) else {
+                guard let data = try? Data(contentsOf: f), let raw = UIImage(data: data) else {
                     cont.resume(returning: nil); return
                 }
+                // Force the bitmap decode NOW (off-main) — UIImage(data:) is lazy and would
+                // otherwise decode on the main thread at draw time, causing scroll hitches.
+                let img = raw.preparingForDisplay() ?? raw
                 self.mem.setObject(img, forKey: url as NSString)
                 // Touch the file so LRU trimming keeps recently-viewed media.
                 try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: f.path)
