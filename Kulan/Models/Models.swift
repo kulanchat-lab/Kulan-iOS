@@ -169,6 +169,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
     var disappearSeconds: Int          // auto-delete timer (0 = off), shared by both members
     var convType: String               // "group" = group chat; "" / "direct" = 1:1
     var title: String                  // group name (groups only)
+    var groupDescription: String       // group description / "about" (groups only)
     var avatarUrl: String?             // group photo (groups only)
     var admins: [String]               // uids allowed to manage the group
     var updatedAtMillis: Double
@@ -195,6 +196,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
         self.disappearSeconds = (data["disappearSeconds"] as? NSNumber)?.intValue ?? 0
         self.convType = data["type"] as? String ?? ""
         self.title = data["title"] as? String ?? ""
+        self.groupDescription = data["desc"] as? String ?? ""
         self.avatarUrl = data["avatarUrl"] as? String
         self.admins = data["admins"] as? [String] ?? []
         if let ts = data["updatedAt"] as? Timestamp {

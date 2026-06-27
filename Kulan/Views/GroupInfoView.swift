@@ -12,6 +12,8 @@ struct GroupInfoView: View {
 
     @State private var showRename = false
     @State private var newName = ""
+    @State private var showDescEdit = false
+    @State private var descText = ""
     @State private var avatarItem: PhotosPickerItem?
     @State private var showAdd = false
     @State private var memberAction: MemberAction?
@@ -35,6 +37,11 @@ struct GroupInfoView: View {
             .alert("Rename group", isPresented: $showRename) {
                 TextField("Group name", text: $newName)
                 Button("Save") { let t = newName; Task { try? await ChatService.renameGroup(cid: cid, title: t) } }
+                Button("Cancel", role: .cancel) {}
+            }
+            .alert("Group description", isPresented: $showDescEdit) {
+                TextField("Description", text: $descText)
+                Button("Save") { let t = descText; Task { try? await ChatService.setGroupDescription(cid: cid, text: t) } }
                 Button("Cancel", role: .cancel) {}
             }
             .confirmationDialog(memberAction?.name ?? "",
@@ -80,6 +87,15 @@ struct GroupInfoView: View {
                 }
                 Text(conv?.title ?? "Group").font(.title2.weight(.bold))
                 Text(conv?.memberCountLabel ?? "").font(.subheadline).foregroundStyle(.secondary)
+                // Description (tap to add/edit if admin) — like Signal/Telegram group info.
+                if let d = conv?.groupDescription, !d.isEmpty {
+                    Text(d).font(.footnote).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .onTapGesture { if iAmAdmin { descText = d; showDescEdit = true } }
+                } else if iAmAdmin {
+                    Button("Add group description…") { descText = ""; showDescEdit = true }
+                        .font(.footnote)
+                }
             }
             .frame(maxWidth: .infinity)
             .listRowBackground(Color.clear)

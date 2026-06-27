@@ -154,6 +154,14 @@ enum ChatService {
         ])
     }
 
+    /// Set the group description / "about" (admin). No system message (low-signal change).
+    static func setGroupDescription(cid: String, text: String) async throws {
+        try await db.collection("conversations").document(cid).updateData([
+            "desc": text.trimmingCharacters(in: .whitespacesAndNewlines),
+            "updatedAt": FieldValue.serverTimestamp(),
+        ])
+    }
+
     /// Rename a group (admin) + system message.
     static func renameGroup(cid: String, title: String) async throws {
         let t = title.trimmingCharacters(in: .whitespaces)

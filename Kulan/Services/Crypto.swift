@@ -36,8 +36,17 @@ struct MissingRecipientKeyError: Error {
 struct EncMeta: Codable, Equatable, Hashable {
     let v: Int       // always 1
     let n: String    // b64 secretbox nonce (the file data)
-    let k: String    // b64 file key, wrapped to the recipient with box
-    let kn: String   // b64 nonce used to wrap the file key
+    let k: String    // b64 file key, wrapped to the recipient with box (1:1)
+    let kn: String   // b64 nonce used to wrap the file key (1:1)
+    var w: [String: String]? = nil   // group: per-member wrapped file keys ("keyB64.nonceB64")
+    var a: String? = nil             // group: author uid (whose key sealed the wraps)
+
+    var asDict: [String: Any] {
+        var d: [String: Any] = ["v": v, "n": n, "k": k, "kn": kn]
+        if let w { d["w"] = w }
+        if let a { d["a"] = a }
+        return d
+    }
 }
 
 final class Crypto {
