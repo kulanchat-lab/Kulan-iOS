@@ -112,6 +112,13 @@ struct StoriesRow: View {
                  unseen: repo.mine?.hasUnseen ?? false, onBadge: onCompose) {
                 if let m = repo.mine { onOpen(m) } else { onCompose() }
             }
+            .contextMenu {
+                if let last = repo.mine?.stories.last {   // delete my most recent status (H5 UI)
+                    Button(role: .destructive) {
+                        Task { await StoriesService.shared.deleteStory(last.id); await repo.load(force: true) }
+                    } label: { Label("Delete", systemImage: "trash") }
+                }
+            }
         }
     }
 

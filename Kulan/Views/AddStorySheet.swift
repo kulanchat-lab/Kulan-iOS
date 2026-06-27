@@ -13,6 +13,8 @@ struct AddStorySheet: View {
     @State private var openAlbum: AlbumInfo?
     @State private var editorImage: EditorImage?
     @State private var pendingCapture: UIImage?   // camera shot held until the camera cover dismisses
+    @State private var pendingTextStory: StoryShareData?   // text story held until the composer cover dismisses
+    @State private var shareTextStory: StoryShareData?     // then shown to the audience sheet
     @State private var showCamera = false
     @State private var showText = false
 
@@ -46,11 +48,15 @@ struct AddStorySheet: View {
                                 onClose: { showCamera = false },
                                 onTextMode: { showCamera = false; showText = true })
             }
-            .fullScreenCover(isPresented: $showText) {
-                StoryTextComposer(onShare: { d in
-                    StoriesService.shared.postStoryBackground(image: d)
-                    onPosted(); dismiss()
-                }, onClose: { showText = false })
+            // Text story → audience sheet (was posting straight to "everyone", ignoring audience — M4).
+            .fullScreenCover(isPresented: $showText, onDismiss: {
+                if let s = pendingTextStory { pendingTextStory = nil; shareTextStory = s }
+            }) {
+                StoryTextComposer(onShare: { d in pendingTextStory = StoryShareData(data: d); showText = false },
+                                  onClose: { showText = false })
+            }
+            .sheet(item: $shareTextStory) { s in
+                ShareStorySheet(image: s.data, onPosted: { onPosted(); dismiss() })
             }
             .task { store.load(); store.loadAlbums() }
         }
