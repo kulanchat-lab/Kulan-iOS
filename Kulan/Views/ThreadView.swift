@@ -310,7 +310,14 @@ struct ThreadView: View {
     }
 
     private var presenceSubtitle: String? {
-        if isGroup { return conversation?.memberCountLabel }   // groups: "7 members", not presence
+        if isGroup {
+            // Show who's typing in the group; otherwise the member count.
+            if typingPref, repo.otherTyping, !repo.typingNames.isEmpty {
+                let first = repo.typingNames.first ?? "Someone"
+                return repo.typingNames.count == 1 ? "\(first) is typing…" : "\(repo.typingNames.count) people typing…"
+            }
+            return conversation?.memberCountLabel
+        }
         if repo.iBlocked { return nil }   // blocked: don't reveal their typing/online/last-seen
         if typingPref && repo.otherTyping { return "typing…" }   // reciprocal: only if I share typing
         if lastSeenPref {                                        // reciprocal: only if I share last-seen

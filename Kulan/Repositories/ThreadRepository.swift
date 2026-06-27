@@ -30,6 +30,7 @@ final class ThreadRepository {
     private(set) var didInitialLoad = false
 
     var otherTyping = false
+    var typingNames: [String] = []   // group: who is currently typing
     var otherOnline = false
     var otherLastActive: Date?
     var otherLastReadMillis: Double = 0
@@ -74,9 +75,25 @@ final class ThreadRepository {
                 // Typing + lastRead are hot fields (fire on every keystroke / incoming
                 // message) but never change which messages are visible — update directly,
                 // skip the O(N log N) rebuild.
-                self.otherTyping = (d?["typing"] as? [String: Any])?[other] as? Bool ?? false
-                if let ts = (d?["lastRead"] as? [String: Any])?[other] as? Timestamp {
-                    self.otherLastReadMillis = ts.dateValue().timeIntervalSince1970 * 1000
+                if isOneToOne {
+                    self.otherTyping = (d?["typing"] as? [String: Any])?[other] as? Bool ?? false
+                    if let ts = (d?["lastRead"] as? [String: Any])?[other] as? Timestamp {
+                        self.otherLastReadMillis = ts.dateValue().timeIntervalSince1970 * 1000
+                    }
+                } else {
+                    // Group: typing = ANY other member typing; "read" = the SLOWEST other reader
+                    // (a message shows read only once everyone has read it, matching the list).
+                    let others = (d?["users"] as? [String] ?? []).filter { $0 != uid }
+                    let typingMap = d?["typing"] as? [String: Any] ?? [:]
+                    let names = d?["names"] as? [String: String] ?? [:]
+                    let typers = others.filter { (typingMap[$0] as? Bool) == true }
+                    self.otherTyping = !typers.isEmpty
+                    self.typingNames = typers.map { names[$0] ?? "Someone" }
+                    if !others.isEmpty {
+                        let readMap = d?["lastRead"] as? [String: Any] ?? [:]
+                        let times = others.map { (readMap[$0] as? Timestamp)?.dateValue().timeIntervalSince1970 ?? 0 }
+                        self.otherLastReadMillis = (times.min() ?? 0) * 1000
+                    }
                 }
                 // Only rebuild when a field that actually FILTERS the list changes.
                 let newBlocked   = (d?["blockedBy"]      as? [String: Any])?[uid] as? Bool ?? false
