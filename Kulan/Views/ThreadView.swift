@@ -19,6 +19,7 @@ struct ThreadView: View {
     @State private var showLibrary = false
     @State private var showVideoSoon = false
     @State private var showContactInfo = false   // tap avatar/name in header → profile
+    @State private var showGroupInfo = false     // groups → Group Info instead
     // Hold-to-record voice gesture state (WhatsApp/Telegram-style).
     @State private var recordLocked = false        // recording continues after finger lifts
     @State private var recordDrag: CGSize = .zero   // live finger translation while holding
@@ -140,6 +141,7 @@ struct ThreadView: View {
         .navigationDestination(isPresented: $showContactInfo) {
             ContactInfoView(cid: cid, name: title, photoUrl: photoUrl)
         }
+        .sheet(isPresented: $showGroupInfo) { GroupInfoView(cid: cid) }
         .alert("Video calls", isPresented: $showVideoSoon) {
             Button("OK", role: .cancel) {}
         } message: { Text("Video calling is coming soon.") }
@@ -323,7 +325,9 @@ struct ThreadView: View {
                         .padding(.vertical, 8)
                 }
                 if msg.id == firstUnreadId { unreadDivider }
-                if msg.isCall {
+                if msg.isSystem {
+                    systemRow(msg).id(msg.id)
+                } else if msg.isCall {
                     callRow(msg).padding(.top, 8).id(msg.id)
                 } else {
                     MessageBubble(
@@ -381,12 +385,12 @@ struct ThreadView: View {
         // left position was the explicit ask.)
         if #available(iOS 26.0, *) {
             ToolbarItem(placement: .topBarLeading) {
-                Button { showContactInfo = true } label: { headerLabel }.buttonStyle(.plain)
+                Button { if isGroup { showGroupInfo = true } else { showContactInfo = true } } label: { headerLabel }.buttonStyle(.plain)
             }
             .sharedBackgroundVisibility(.hidden)
         } else {
             ToolbarItem(placement: .topBarLeading) {
-                Button { showContactInfo = true } label: { headerLabel }.buttonStyle(.plain)
+                Button { if isGroup { showGroupInfo = true } else { showContactInfo = true } } label: { headerLabel }.buttonStyle(.plain)
             }
         }
         // 1:1 call buttons only — group calls need an SFU (not built yet), so hide them in groups.
@@ -495,6 +499,18 @@ struct ThreadView: View {
 
     // Call record as a WhatsApp-style message bubble. Outgoing = right-aligned accent
     // bubble; incoming & missed = left-aligned received bubble. Inside: a circular call
+    // Centered gray system event ("X added Y", "Z left", "renamed to…") — group only.
+    private func systemRow(_ m: Message) -> some View {
+        Text(m.text)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 12).padding(.vertical, 5)
+            .background(Theme.received(dark).opacity(0.7), in: Capsule())
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+    }
+
     // icon, bold status, a muted subtitle (duration or "Tap to call back"), and the
     // timestamp bottom-right. Tap anywhere to call back.
     private func callRow(_ m: Message) -> some View {

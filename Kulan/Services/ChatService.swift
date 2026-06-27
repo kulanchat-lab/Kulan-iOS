@@ -81,6 +81,99 @@ enum ChatService {
         return ref.documentID
     }
 
+    // MARK: - Group management (each writes a system event message + updates the conv)
+
+    /// Add members + a "X added Y" system message. New members can't read prior history
+    /// (their per-message wraps don't exist) — honest and expected, like sender keys.
+    static func addGroupMembers(cid: String, add: [String]) async throws {
+        let newOnes = add.filter { !$0.isEmpty }
+        guard !newOnes.isEmpty else { return }
+        let convRef = db.collection("conversations").document(cid)
+        var update: [String: Any] = [
+            "users": FieldValue.arrayUnion(newOnes),
+            "updatedAt": FieldValue.serverTimestamp(),
+        ]
+        var addedNames: [String] = []
+        for u in newOnes {
+            if let p = await ProfileStore.shared.fetch(u) {
+                let nm = p.name.isEmpty ? p.handle : p.name
+                update["names.\(u)"] = nm
+                addedNames.append(nm)
+                if let ph = p.photoUrl, !ph.isEmpty { update["photos.\(u)"] = ph }
+            }
+            update["unreadCount.\(u)"] = 0
+        }
+        try await convRef.updateData(update)
+        try await writeSystemMessage(cid: cid, text: "\(myName()) added \(addedNames.joined(separator: ", "))")
+    }
+
+    /// Remove a member (admin) + system message.
+    static func removeGroupMember(cid: String, uid removed: String, name: String) async throws {
+        let convRef = db.collection("conversations").document(cid)
+        try await writeSystemMessage(cid: cid, text: "\(myName()) removed \(name)")
+        try await convRef.updateData([
+            "users": FieldValue.arrayRemove([removed]),
+            "admins": FieldValue.arrayRemove([removed]),
+            "updatedAt": FieldValue.serverTimestamp(),
+        ])
+    }
+
+    /// Leave a group (remove self). Writes the system message FIRST (while still a member,
+    /// so the message-create rule passes), then removes self.
+    static func leaveGroup(cid: String) async throws {
+        let convRef = db.collection("conversations").document(cid)
+        try await writeSystemMessage(cid: cid, text: "\(myName()) left")
+        try await convRef.updateData([
+            "users": FieldValue.arrayRemove([uid]),
+            "admins": FieldValue.arrayRemove([uid]),
+            "updatedAt": FieldValue.serverTimestamp(),
+        ])
+    }
+
+    /// Rename a group (admin) + system message.
+    static func renameGroup(cid: String, title: String) async throws {
+        let t = title.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        let convRef = db.collection("conversations").document(cid)
+        try await convRef.updateData(["title": t, "updatedAt": FieldValue.serverTimestamp()])
+        try await writeSystemMessage(cid: cid, text: "\(myName()) renamed the group to “\(t)”")
+    }
+
+    /// Promote a member to admin (admin) + system message.
+    static func promoteGroupAdmin(cid: String, uid promoted: String, name: String) async throws {
+        let convRef = db.collection("conversations").document(cid)
+        try await convRef.updateData([
+            "admins": FieldValue.arrayUnion([promoted]),
+            "updatedAt": FieldValue.serverTimestamp(),
+        ])
+        try await writeSystemMessage(cid: cid, text: "\(myName()) made \(name) an admin")
+    }
+
+    private static func myName() -> String {
+        let n = ProfileStore.shared.me?.name ?? ""
+        return n.isEmpty ? "Someone" : n
+    }
+
+    /// A system-event message: PLAINTEXT (membership/rename events aren't private content),
+    /// shown centered in the thread. Also updates the chat-list preview.
+    private static func writeSystemMessage(cid: String, text: String) async throws {
+        let convRef = db.collection("conversations").document(cid)
+        let msgRef = convRef.collection("messages").document()
+        let batch = db.batch()
+        batch.setData([
+            "text": text,
+            "authorId": uid,
+            "type": "system",
+            "createdAt": FieldValue.serverTimestamp(),
+        ], forDocument: msgRef)
+        batch.updateData([
+            "lastMessage": text,
+            "lastSender": uid,
+            "updatedAt": FieldValue.serverTimestamp(),
+        ], forDocument: convRef)
+        try await batch.commit()
+    }
+
     /// Encrypt + send a text message and bump the conversation. Throws
     /// MissingRecipientKeyError if the recipient has no key yet (never sends plaintext).
     static func sendText(cid: String, text: String, replyTo: ReplyRef? = nil, clientId: String? = nil, group: [String]? = nil) async throws {

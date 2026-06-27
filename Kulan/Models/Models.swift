@@ -59,6 +59,7 @@ struct Message: Identifiable, Equatable {
     var isImage: Bool { (type == "image" && (imageUrl?.isEmpty == false)) || localImageData != nil }
     var isAudio: Bool { (type == "audio" && (audioUrl?.isEmpty == false)) || localAudioData != nil }
     var isCall: Bool { type == "call" }
+    var isSystem: Bool { type == "system" }   // group event ("X added Y"), shown centered
 
     /// Stable list identity: an optimistic message and its server echo share the
     /// same clientId, so the row updates in place (no delete+insert blink) on confirm.
