@@ -32,6 +32,7 @@ final class CallService: NSObject {
                 connectedDate = nil; isMuted = false; isSpeaker = false
                 calleeRinging = false; recordWritten = false; minimized = false
                 endReason = .none; negotiationVersion = 0; appliedRemoteRestart = 0; handledVideoRequest = false
+                pendingRemoteCandidates = []
                 stopRingback(); stopTone(); cancelTimers()
                 isVideo = false; cameraOn = true; usingFrontCamera = true
                 videoCapturer?.stopCapture(); videoCapturer = nil
@@ -462,6 +463,7 @@ final class CallService: NSObject {
                 guard let pc = self.pc else { self.hangUp(); return }
                 let remote = RTCSessionDescription(type: .offer, sdp: sdp)
                 pc.setRemoteDescription(remote) { _ in
+                    self.flushPendingCandidates()   // caller's candidates were buffered until now (C1)
                     let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
                     pc.answer(for: constraints) { answerSdp, _ in
                         guard let answerSdp else { return }
@@ -502,7 +504,9 @@ final class CallService: NSObject {
                self.pc?.remoteDescription == nil {
                 self.noAnswerWork?.cancel()
                 self.stopRingback()
-                self.pc?.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { _ in }
+                self.pc?.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { _ in
+                    self.flushPendingCandidates()
+                }
                 self.state = .active
                 CallKitManager.shared.reportConnected()
             }
@@ -513,6 +517,7 @@ final class CallService: NSObject {
                let pc = self.pc {
                 self.appliedRemoteRestart = v
                 pc.setRemoteDescription(RTCSessionDescription(type: .offer, sdp: sdp)) { _ in
+                    self.flushPendingCandidates()
                     let c = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
                     pc.answer(for: c) { ans, _ in
                         guard let ans else { return }
@@ -528,7 +533,7 @@ final class CallService: NSObject {
                let v = (ra["version"] as? NSNumber)?.intValue,
                v == self.negotiationVersion, v > self.appliedRemoteRestart, let pc = self.pc {
                 self.appliedRemoteRestart = v
-                pc.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { _ in }
+                pc.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: sdp)) { _ in self.flushPendingCandidates() }
             }
             // Caller: the callee tapped video mid-call → add a recv-only video transceiver so their
             // track has an m-line to land on, flip our UI to video, and drive the re-offer.
@@ -543,6 +548,22 @@ final class CallService: NSObject {
         listeners.append(l)
     }
 
+    // Trickle-ICE buffer: libwebrtc DROPS candidates added before the remote description is set,
+    // so we queue them and flush after every setRemoteDescription (C1 — fixes flaky connect / one-way audio).
+    private var pendingRemoteCandidates: [RTCIceCandidate] = []
+
+    private func addOrBuffer(_ candidate: RTCIceCandidate) {
+        guard let pc, pc.remoteDescription != nil else { pendingRemoteCandidates.append(candidate); return }
+        pc.add(candidate) { err in if let err { print("call: addIceCandidate failed:", err) } }
+    }
+
+    func flushPendingCandidates() {
+        guard let pc, pc.remoteDescription != nil, !pendingRemoteCandidates.isEmpty else { return }
+        let pending = pendingRemoteCandidates
+        pendingRemoteCandidates = []
+        for c in pending { pc.add(c) { err in if let err { print("call: flush addIceCandidate failed:", err) } } }
+    }
+
     private func observeRemoteCandidates(_ col: CollectionReference) {
         let l = col.addSnapshotListener { [weak self] snap, _ in
             guard let self else { return }
@@ -555,7 +576,7 @@ final class CallService: NSObject {
                     sdpMLineIndex: Int32((c["sdpMLineIndex"] as? NSNumber)?.intValue ?? 0),
                     sdpMid: c["sdpMid"] as? String
                 )
-                self.pc?.add(candidate) { _ in }
+                self.addOrBuffer(candidate)   // buffer until remote SDP is set, then flush
             }
         }
         listeners.append(l)
