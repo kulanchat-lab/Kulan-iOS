@@ -12,7 +12,6 @@ import UIKit
 struct CallView: View {
     private var call = CallService.shared
     @State private var now = Date()
-    @State private var dragY: CGFloat = 0
     @State private var pipOffset = CGSize.zero
     @State private var pipBase = CGSize.zero
     @State private var ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -64,19 +63,17 @@ struct CallView: View {
                         .padding(.bottom, geo.safeAreaInsets.bottom + 22)
                 }
             }
-            .offset(y: dragY)
-            .cornerRadius(dragY > 0 ? 38 : 0)
-            .opacity(Double(max(0.6, 1 - dragY / 900)))
             .onReceive(ticker) { now = $0 }
             .animation(.easeInOut(duration: 0.25), value: call.state)
             .animation(.easeInOut(duration: 0.2), value: call.cameraOn)
+            // Swipe down to minimize — detect the fling ONLY (no live offset tracking, which was
+            // the source of the stuck/broken half-states). Taps still pass through to controls,
+            // and the PiP keeps its own higher-priority drag.
             .simultaneousGesture(
-                DragGesture(minimumDistance: 16)
-                    .onChanged { v in dragY = max(0, v.translation.height) }
+                DragGesture(minimumDistance: 44)
                     .onEnded { v in
-                        withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.78)) {
-                            if v.translation.height > 150 { call.minimized = true }
-                            dragY = 0
+                        if v.translation.height > 90 && abs(v.translation.width) < 140 {
+                            withAnimation(.easeInOut(duration: 0.28)) { call.minimized = true }
                         }
                     }
             )
@@ -130,7 +127,7 @@ struct CallView: View {
             .buttonStyle(CallControlStyle())
         }
         .padding(.horizontal, 16)
-        .padding(.top, safeTop + 6)
+        .padding(.top, safeTop + 14)   // clear the iOS status-bar call indicator (green pill)
     }
 
     private func topCircle(_ icon: String) -> some View {

@@ -13,12 +13,14 @@ struct StoryImage: View {
         Group {
             if let image {
                 Image(uiImage: image).resizable().scaledToFill()
+                    .transition(.opacity)
             } else if failed {
                 ZStack { Color.black; Image(systemName: "photo").font(.largeTitle).foregroundStyle(.white.opacity(0.5)) }
             } else {
                 SkeletonFill()
             }
         }
+        .animation(.easeOut(duration: 0.25), value: image != nil)   // fade in when loaded
         .task(id: url) { await load() }
     }
     @MainActor private func load() async {

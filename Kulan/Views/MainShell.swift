@@ -989,6 +989,7 @@ struct ChatRow: View {
                     if unread > 0 {
                         Text("\(min(unread, 99))")
                             .font(.caption2.bold()).foregroundColor(Theme.onAccent(dark))
+                            .contentTransition(.numericText())   // count rolls instead of snapping
                             .padding(.horizontal, 5)
                             .frame(minWidth: 19, minHeight: 19)   // 19×19 min badge
                             .background(Theme.accent(dark)).clipShape(Capsule())

@@ -1388,9 +1388,11 @@ struct MessageBubble: View {
                 case nil:
                     Image(systemName: (isRead && readReceiptsPref) ? "checkmark.circle.fill" : "checkmark")
                         .font(.system(size: 9, weight: .semibold))
+                        .contentTransition(.symbolEffect(.replace))   // tick "turns read" with a morph
                 }
             }
         }
+        .animation(.easeInOut(duration: 0.25), value: isRead)
         .foregroundStyle(isMe ? Theme.onAccent(dark).opacity(0.7) : Color.secondary)
     }
 

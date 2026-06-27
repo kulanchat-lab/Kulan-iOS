@@ -107,12 +107,14 @@ struct AvatarView: View {
             if let image {
                 // Cached image -> instant, no AsyncImage reload flash; scaledToFill before clip.
                 Image(uiImage: image).resizable().scaledToFill()
+                    .transition(.opacity)
             } else {
                 fallback
             }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
+        .animation(.easeOut(duration: 0.25), value: image != nil)   // cross-fade in on load (no blink)
         .task(id: photoUrl) { await load() }
     }
 
