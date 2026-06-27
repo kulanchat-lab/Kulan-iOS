@@ -182,8 +182,7 @@ struct CallsView: View {
                                     AppRouter.shared.pendingChatName = call.name
                                     AppRouter.shared.pendingChatPhoto = call.photoUrl
                                     AppRouter.shared.pendingChatId = call.cid
-                                } label: { Label("Go to Chat", systemImage: "arrow.up.right") }
-                                Button { profileTarget = call } label: { Label("Info", systemImage: "info.circle") }
+                                } label: { Label("Chats", systemImage: "bubble.left.and.bubble.right") }
                                 Button {
                                     withAnimation(.easeInOut(duration: 0.3)) { selecting = true; selection = [call.id] }
                                 } label: { Label("Select", systemImage: "checkmark.circle") }
