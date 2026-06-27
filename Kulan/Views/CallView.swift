@@ -1,45 +1,32 @@
 import SwiftUI
 import UIKit
 
-// Full-screen in-app call UI — voice OR video, Instagram/FaceTime feel.
-// Voice: blurred avatar backdrop, large avatar, Mute / Speaker / End.
-// Video: full-screen remote feed, draggable local PiP, Mute / Camera / Flip / Speaker / End.
+// Full-screen in-app call UI — rebuilt from scratch to match the reference:
+//   • Top bar: back (minimize) · centered name + timer · ⋯ menu
+//   • Voice: purple gradient + centered avatar
+//   • Video: full-screen remote feed + draggable bottom-right self-PiP (with flip glyph)
+//   • Bottom: dark frosted control capsule (icon-only circular buttons, red end)
+// NOTE: only the UI is new. All bindings go to CallService.shared exactly as before — no call
+// logic, WebRTC, signaling, or CallKit code was touched. Controls shown match what actually
+// works per mode (no dead buttons): voice = mic·speaker·end, video = mic·camera·flip·speaker·end.
 struct CallView: View {
     private var call = CallService.shared
     @State private var now = Date()
     @State private var dragY: CGFloat = 0
-    @State private var controlsShown = true
-    @State private var hideWork: DispatchWorkItem?
     @State private var pipOffset = CGSize.zero
-    @State private var pipBase   = CGSize.zero
+    @State private var pipBase = CGSize.zero
     @State private var ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-
-    // Auto-hide chrome after 4 s during active video.
-    private func scheduleHide() {
-        hideWork?.cancel()
-        guard call.isVideo, call.state == .active else { return }
-        let work = DispatchWorkItem {
-            withAnimation(.easeInOut(duration: 0.3)) { controlsShown = false }
-        }
-        hideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
-    }
-    private func revealControls() {
-        withAnimation(.easeInOut(duration: 0.3)) { controlsShown = true }
-        scheduleHide()
-    }
 
     private var statusText: String {
         switch call.state {
         case .outgoing:     return call.calleeRinging ? "Ringing…" : "Calling…"
-        case .incoming:     return "Incoming call…"
+        case .incoming:     return "Incoming…"
         case .active:       return durationText
         case .reconnecting: return "Reconnecting…"
         case .ended:        return endedText
         default:            return ""
         }
     }
-
     private var endedText: String {
         switch call.endReason {
         case .declined, .busy: return "Declined"
@@ -48,13 +35,11 @@ struct CallView: View {
         default:               return "Call ended"
         }
     }
-
     private var durationText: String {
         guard let start = call.connectedDate else { return "Connected" }
         let s = max(0, Int(now.timeIntervalSince(start)))
-        return String(format: "%d:%02d", s / 60, s % 60)
+        return String(format: "%02d:%02d", s / 60, s % 60)
     }
-
     private var bgImage: UIImage? {
         guard let url = call.otherPhotoUrl, !url.isEmpty else { return nil }
         return DiskImageCache.shared.memoryImage(url)
@@ -62,88 +47,34 @@ struct CallView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let safeTop    = geo.safeAreaInsets.top
-            let safeBottom = geo.safeAreaInsets.bottom
-
             ZStack {
-                // Background / video layer.
-                if call.isVideo { videoLayer(geo: geo) } else { voiceBackground }
+                background(geo)
+                if call.isVideo { pipLayer(geo) }
 
-                // Chrome overlay (header + centre info + controls).
                 VStack(spacing: 0) {
-                    // ── Header: minimize (left) · name+status (centre) · add-person/chat/flip (right) ──
-                    HStack(alignment: .top) {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.25)) { call.minimized = true }
-                        } label: { headerCircle("chevron.down") }
-                        .buttonStyle(CallControlStyle())
-
-                        Spacer(minLength: 8)
-
-                        VStack(spacing: 3) {
-                            Text(call.otherName)
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundStyle(.white).lineLimit(1)
-                            HStack(spacing: 4) {
-                                Image(systemName: "lock.fill").font(.system(size: 9))
-                                Text(statusText).monospacedDigit()
-                            }
-                            .font(.system(size: 14))
-                            .foregroundStyle(.white.opacity(0.85))
-                        }
-                        .padding(.top, 2)
-
-                        Spacer(minLength: 8)
-
-                        VStack(spacing: 12) {
-                            Button { } label: { headerCircle("person.badge.plus") }
-                                .buttonStyle(CallControlStyle())
-                            Button { } label: { headerCircle("message.fill") }
-                                .buttonStyle(CallControlStyle())
-                            if call.isVideo {
-                                Button { call.switchCamera() } label: { headerCircle("arrow.triangle.2.circlepath") }
-                                    .buttonStyle(CallControlStyle())
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.top, safeTop + 4)
-
+                    topBar(safeTop: geo.safeAreaInsets.top)
                     Spacer()
-
-                    // Voice: large centred avatar (the name now lives in the header, like WhatsApp).
                     if !call.isVideo {
-                        AvatarView(name: call.otherName, photoUrl: call.otherPhotoUrl, size: 150)
+                        AvatarView(name: call.otherName, photoUrl: call.otherPhotoUrl, size: 180)
                             .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
-                            .shadow(color: .black.opacity(0.4), radius: 24, y: 8)
+                            .shadow(color: .black.opacity(0.45), radius: 26, y: 10)
                         Spacer()
                     }
-
-                    // ── Controls ──
-                    controls(safeBottom: safeBottom)
+                    controlBar
+                        .padding(.bottom, geo.safeAreaInsets.bottom + 22)
                 }
-                // Video: chrome auto-hides; tap anywhere to reveal.
-                .opacity(call.isVideo && !controlsShown ? 0 : 1)
-                .allowsHitTesting(call.isVideo ? controlsShown : true)
             }
-            // Swipe-down-to-minimize: slide the whole card straight down, tracking the finger
-            // 1:1 (FaceTime/Telegram). NO scaleEffect — scaling the Metal video layer makes it
-            // zoom/distort, which was the bug. Just an offset + rounding + a gentle fade.
             .offset(y: dragY)
             .cornerRadius(dragY > 0 ? 38 : 0)
             .opacity(Double(max(0.6, 1 - dragY / 900)))
             .onReceive(ticker) { now = $0 }
-            .onTapGesture { if call.isVideo { revealControls() } }
-            .onChange(of: call.state) { _, s in if s == .active, call.isVideo { revealControls() } }
-            .onAppear { if call.isVideo { scheduleHide() } }
-            .animation(.easeInOut(duration: 0.3), value: call.isVideo)
             .animation(.easeInOut(duration: 0.25), value: call.state)
             .animation(.easeInOut(duration: 0.2), value: call.cameraOn)
             .simultaneousGesture(
-                DragGesture(minimumDistance: 14)
+                DragGesture(minimumDistance: 16)
                     .onChanged { v in dragY = max(0, v.translation.height) }
                     .onEnded { v in
-                        withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.75)) {
+                        withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.78)) {
                             if v.translation.height > 150 { call.minimized = true }
                             dragY = 0
                         }
@@ -153,206 +84,143 @@ struct CallView: View {
         .ignoresSafeArea()
     }
 
-    // MARK: - Voice background
+    // MARK: - Background (voice gradient or remote video)
 
-    private var voiceBackground: some View {
-        ZStack {
-            if let ui = bgImage {
-                Image(uiImage: ui).resizable().scaledToFill()
-                    .blur(radius: 40)
-                    .overlay(Color.black.opacity(0.55))
-            } else {
-                LinearGradient(
-                    colors: [Color(hex: 0x202028), .black],
-                    startPoint: .top, endPoint: .bottom
-                )
-            }
-        }
-        .ignoresSafeArea()
-    }
-
-    // MARK: - Video layer
-
-    // Remote feed full-screen + gradient scrims + draggable local PiP.
-    private func videoLayer(geo: GeometryProxy) -> some View {
-        let safeTop    = geo.safeAreaInsets.top
-        let safeBottom = geo.safeAreaInsets.bottom
-
-        return ZStack {
-            Color.black.ignoresSafeArea()
-
-            // Remote feed (or blurred avatar while waiting to connect).
-            if let remote = call.remoteVideoTrack {
-                VideoRendererView(track: remote).ignoresSafeArea()
-            } else {
-                voiceBackground
-            }
-
-            // Top + bottom scrims so chrome is legible.
-            VStack {
-                LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
-                    .frame(height: safeTop + 100)
-                Spacer()
-                LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: safeBottom + 200)
+    @ViewBuilder private func background(_ geo: GeometryProxy) -> some View {
+        if call.isVideo, let remote = call.remoteVideoTrack {
+            ZStack {
+                Color.black
+                VideoRendererView(track: remote)
             }
             .ignoresSafeArea()
-            .allowsHitTesting(false)
-            .opacity(controlsShown ? 1 : 0)
-            .animation(.easeInOut(duration: 0.3), value: controlsShown)
+        } else {
+            ZStack {
+                if let ui = bgImage, !call.isVideo {
+                    Image(uiImage: ui).resizable().scaledToFill().blur(radius: 50)
+                        .overlay(Color.black.opacity(0.4))
+                }
+                LinearGradient(colors: [Color(hex: 0x4A3B7A), Color(hex: 0x191222)],
+                               startPoint: .top, endPoint: .bottom)
+                    .opacity(bgImage != nil && !call.isVideo ? 0.55 : 1)
+            }
+            .ignoresSafeArea()
+        }
+    }
 
-            // Local camera PiP — positioned safely below the Dynamic Island / notch.
+    // MARK: - Top bar
+
+    private func topBar(safeTop: CGFloat) -> some View {
+        HStack {
+            Button { withAnimation(.easeInOut(duration: 0.25)) { call.minimized = true } } label: {
+                topCircle("chevron.left")
+            }
+            .buttonStyle(CallControlStyle())
+
+            Spacer()
+            VStack(spacing: 2) {
+                Text(call.otherName).font(.system(size: 18, weight: .bold)).foregroundStyle(.white).lineLimit(1)
+                Text(statusText).font(.system(size: 14)).monospacedDigit().foregroundStyle(.white.opacity(0.7))
+            }
+            Spacer()
+
+            Menu {
+                Button { withAnimation { call.minimized = true } } label: { Label("Minimize", systemImage: "arrow.down.right.and.arrow.up.left") }
+                Button(role: .destructive) { CallKitManager.shared.end() } label: { Label("End Call", systemImage: "phone.down.fill") }
+            } label: { topCircle("ellipsis") }
+            .buttonStyle(CallControlStyle())
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, safeTop + 6)
+    }
+
+    private func topCircle(_ icon: String) -> some View {
+        Image(systemName: icon)
+            .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+            .frame(width: 40, height: 40)
+            .background(Color.white.opacity(0.18), in: Circle())
+    }
+
+    // MARK: - Video self-PiP (draggable, with flip glyph)
+
+    private func pipLayer(_ geo: GeometryProxy) -> some View {
+        let safeBottom = geo.safeAreaInsets.bottom
+        return Group {
             if call.cameraOn, let local = call.localVideoTrack {
-                VideoRendererView(track: local, mirror: call.usingFrontCamera)
-                    .frame(width: 108, height: 150)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(.white.opacity(0.25), lineWidth: 1)
-                    )
-                    .shadow(color: .black.opacity(0.45), radius: 14, y: 5)
-                    .offset(pipOffset)
-                    .gesture(
-                        DragGesture()
-                            .onChanged { v in
-                                let w = pipBase.width  + v.translation.width
-                                let h = pipBase.height + v.translation.height
-                                let maxLeft = -(geo.size.width  - 108 - 28)
-                                let maxDown =   geo.size.height - 300 - safeBottom
-                                pipOffset = CGSize(
-                                    width:  min(0,       max(maxLeft, w)),
-                                    height: min(maxDown, max(0,       h))
-                                )
-                            }
-                            .onEnded { _ in pipBase = pipOffset }
-                    )
-                    // Start in the top-right corner, safely below the Dynamic Island.
-                    .padding(.top,     safeTop + 8)
-                    .padding(.trailing, 14)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                ZStack(alignment: .topTrailing) {
+                    VideoRendererView(track: local, mirror: call.usingFrontCamera)
+                        .frame(width: 104, height: 150)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(.white.opacity(0.25), lineWidth: 1))
+                    Button { call.switchCamera() } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath.camera.fill")
+                            .font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                            .padding(6).background(.black.opacity(0.45), in: Circle())
+                    }
+                    .padding(6)
+                }
+                .shadow(color: .black.opacity(0.45), radius: 14, y: 5)
+                .offset(pipOffset)
+                .gesture(
+                    DragGesture()
+                        .onChanged { v in
+                            let w = pipBase.width + v.translation.width
+                            let h = pipBase.height + v.translation.height
+                            let maxLeft = -(geo.size.width - 104 - 28)
+                            let maxDown =  geo.size.height - 300 - safeBottom
+                            pipOffset = CGSize(width: min(0, max(maxLeft, w)), height: min(maxDown, max(0, h)))
+                        }
+                        .onEnded { _ in pipBase = pipOffset }
+                )
+                .padding(.top, geo.safeAreaInsets.top + 70)
+                .padding(.trailing, 14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
         }
     }
 
-    // MARK: - Controls
+    // MARK: - Control capsule (dark, icon-only, red end)
 
-    @ViewBuilder
-    private func controls(safeBottom: CGFloat) -> some View {
-        if call.isVideo {
-            videoControls
-                .padding(.bottom, safeBottom + 24)
-        } else {
-            voiceControls
-                .padding(.bottom, safeBottom + 36)
+    private var controlBar: some View {
+        HStack(spacing: 14) {
+            callCircle(call.isMuted ? "mic.slash.fill" : "mic.fill", active: call.isMuted) { call.toggleMute() }
+            if call.isVideo {
+                callCircle(call.cameraOn ? "video.fill" : "video.slash.fill", active: !call.cameraOn) { call.toggleCamera() }
+                callCircle("arrow.triangle.2.circlepath", active: false) { call.switchCamera() }
+            }
+            callCircle(call.isSpeaker ? "speaker.wave.2.fill" : "speaker.slash.fill", active: call.isSpeaker) { call.toggleSpeaker() }
+            endCircle
         }
-    }
-
-    // ── Voice controls: More · Video · Speaker · Mute · End (frosted capsule, like WhatsApp) ──
-    private var voiceControls: some View {
-        HStack(spacing: 10) {
-            controlButton(icon: "ellipsis", label: "More", highlighted: false, size: 54) { }
-            controlButton(icon: "video.fill", label: "Video", highlighted: false, size: 54) { }   // switch-to-video (coming soon)
-            controlButton(
-                icon: call.isSpeaker ? "speaker.wave.2.fill" : "speaker.slash.fill",
-                label: "Speaker", highlighted: call.isSpeaker, size: 54
-            ) { call.toggleSpeaker() }
-            controlButton(
-                icon: call.isMuted ? "mic.slash.fill" : "mic.fill",
-                label: call.isMuted ? "Unmute" : "Mute", highlighted: call.isMuted, size: 54
-            ) { call.toggleMute() }
-            endButton(size: 54)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16).padding(.vertical, 12)
         .background {
-            Capsule()
-                .fill(.ultraThinMaterial)
-                .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
+            Capsule().fill(.ultraThinMaterial).environment(\.colorScheme, .dark)
+                .overlay(Capsule().fill(Color.black.opacity(0.25)))
+                .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 1))
         }
+        .padding(.horizontal, 18)
     }
 
-    // ── Video controls: More · Camera · Speaker · Mute · End (flip is in the header) ──
-    private var videoControls: some View {
-        HStack(spacing: 10) {
-            controlButton(icon: "ellipsis", label: "More", highlighted: false, size: 54) { }
-            controlButton(
-                icon: call.cameraOn ? "video.fill" : "video.slash.fill",
-                label: call.cameraOn ? "Camera" : "No Camera", highlighted: !call.cameraOn, size: 54
-            ) { call.toggleCamera() }
-            controlButton(
-                icon: call.isSpeaker ? "speaker.wave.2.fill" : "speaker.slash.fill",
-                label: "Speaker", highlighted: call.isSpeaker, size: 54
-            ) { call.toggleSpeaker() }
-            controlButton(
-                icon: call.isMuted ? "mic.slash.fill" : "mic.fill",
-                label: call.isMuted ? "Unmute" : "Mute", highlighted: call.isMuted, size: 54
-            ) { call.toggleMute() }
-            endButton(size: 54)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background {
-            Capsule()
-                .fill(.ultraThinMaterial)
-                .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 1))
-        }
-    }
-
-    // Top-bar circular action button (native ultraThinMaterial, 44pt HIG target).
-    private func headerCircle(_ icon: String) -> some View {
-        Image(systemName: icon)
-            .font(.system(size: 17, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 44, height: 44)
-            .background(.ultraThinMaterial, in: Circle())
-    }
-
-    // A single round control button with a text label below.
-    private func controlButton(icon: String, label: String, highlighted: Bool,
-                               size: CGFloat, action: @escaping () -> Void) -> some View {
+    private func callCircle(_ icon: String, active: Bool, _ action: @escaping () -> Void) -> some View {
         Button {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             action()
         } label: {
-            VStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: size * 0.36, weight: .semibold))
-                    .foregroundStyle(highlighted ? .black : .white)
-                    .frame(width: size, height: size)
-                    .background(
-                        highlighted
-                            ? AnyShapeStyle(.white)
-                            : AnyShapeStyle(Color.white.opacity(0.18)),
-                        in: Circle()
-                    )
-                if !label.isEmpty {
-                    Text(label)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.8))
-                        .lineLimit(1)
-                }
-            }
+            Image(systemName: icon)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(active ? .black : .white)
+                .frame(width: 52, height: 52)
+                .background(active ? AnyShapeStyle(.white) : AnyShapeStyle(Color.white.opacity(0.16)), in: Circle())
         }
         .buttonStyle(CallControlStyle())
     }
 
-    // Red hang-up button — always the same (no label needed, universal).
-    private func endButton(size: CGFloat) -> some View {
+    private var endCircle: some View {
         Button {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             CallKitManager.shared.end()
         } label: {
-            VStack(spacing: 6) {
-                Image(systemName: "phone.down.fill")
-                    .font(.system(size: size * 0.38, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: size, height: size)
-                    .background(.red, in: Circle())
-                // Invisible label so height matches sibling buttons.
-                Text(" ")
-                    .font(.system(size: 11))
-                    .hidden()
-            }
+            Image(systemName: "phone.down.fill")
+                .font(.system(size: 21, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 52, height: 52).background(.red, in: Circle())
         }
         .buttonStyle(CallControlStyle())
     }
