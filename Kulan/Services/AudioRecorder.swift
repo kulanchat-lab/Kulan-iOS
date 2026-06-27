@@ -45,12 +45,19 @@ final class AudioRecorder {
 
     func requestAndStart() {
         if let r = recorder {
-            // Re-assert record category — VoiceMessageView playback leaves the session in .playback,
-            // which would make record() silently fail (H1). Cheap, runs on every start.
-            let s = AVAudioSession.sharedInstance()
-            try? s.setCategory(.playAndRecord, mode: .default, options: [.duckOthers])
-            try? s.setActive(true)
-            r.record(); beginMetering()   // already warmed → instant
+            // Session is already active and in .playAndRecord from prepare() — calling
+            // setCategory/setActive here blocks the main thread for 50-200 ms and is the
+            // primary cause of the "slow to start" feel. Skip it when the session is live.
+            // Exception: if playback left the session in .playback mode, recover async so
+            // we never block the UI thread.
+            let session = AVAudioSession.sharedInstance()
+            if session.category != .playAndRecord {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    try? session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers])
+                    try? session.setActive(true)
+                }
+            }
+            r.record(); beginMetering()   // already warmed → zero-latency start
             return
         }
         // Not warmed yet (permission just granted / first launch): set up then start.
@@ -136,7 +143,10 @@ final class AudioRecorder {
         recorder = nil
         levels = []
         allLevels = []
-        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        // Keep the AVAudioSession active — deactivating and re-activating between recordings
+        // is the main source of the "delay on second press" feel (setActive costs 50-200 ms
+        // on the main thread). The session stays in .playAndRecord; prepare() will build a
+        // new pre-warmed recorder in the background for the next hold.
         prepare()   // re-warm so the NEXT hold-to-record is instant too
     }
 }
