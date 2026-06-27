@@ -57,16 +57,20 @@ struct CallView: View {
 
                 VStack(spacing: 0) {
                     topBar(safeTop: geo.safeAreaInsets.top)
+                        .frame(maxWidth: .infinity)        // full-width header (centered name/status)
                     Spacer()
                     if showAvatar {
                         AvatarView(name: call.otherName, photoUrl: call.otherPhotoUrl, size: 180)
                             .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
                             .shadow(color: .black.opacity(0.45), radius: 26, y: 10)
+                            .frame(maxWidth: .infinity)    // guarantee horizontal centering
                         Spacer()
                     }
                     controlBar
+                        .frame(maxWidth: .infinity)        // centered control pill
                         .padding(.bottom, geo.safeAreaInsets.bottom + 22)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)   // fill the screen (never collapse/offset)
             }
             .onReceive(ticker) { now = $0 }
             .animation(.easeInOut(duration: 0.25), value: call.state)
@@ -125,10 +129,18 @@ struct CallView: View {
             }
             if call.isVideo {
                 VideoRendererView(track: full, mirror: showLocalFull && call.usingFrontCamera)
+                    // Pin to the screen size: RTCMTLVideoView reports an intrinsic size (the video's
+                    // natural dimensions) that can exceed the screen and oversize the ZStack, which
+                    // GeometryReader then top-leading-aligns — pushing the centered avatar/controls
+                    // off the right/bottom edges (the reported layout break). Framing + clipping fixes it.
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
                     .opacity(canShow ? 1 : 0)
                     .animation(.easeInOut(duration: 0.2), value: canShow)
             }
         }
+        .frame(width: geo.size.width, height: geo.size.height)
+        .clipped()
         .ignoresSafeArea()
     }
 
