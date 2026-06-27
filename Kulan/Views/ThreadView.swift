@@ -274,7 +274,12 @@ struct ThreadView: View {
         }
         .modifier(MessageActionDialogs(cid: cid, title: title,
                                        pendingDelete: $pendingDelete, reportTarget: $reportTarget))
+        .onChange(of: ConversationsRepository.shared.conversations) { _, list in
+            let resolved = list.first { $0.id == cid }   // O(n) ONCE per change, not per render
+            if resolved != cachedConv { cachedConv = resolved }
+        }
         .onAppear {
+            cachedConv = ConversationsRepository.shared.conversations.first { $0.id == cid }
             repo.start()
             recorder.prepare()                           // pre-warm so hold-to-record is instant
             // Gate animated auto-scroll until the push transition + first chunked load settle,
@@ -433,10 +438,11 @@ struct ThreadView: View {
         cid.split(separator: "_").map(String.init).first { $0 != me } ?? ""
     }
 
-    // Live conversation (for group awareness — header + send fan-out).
-    private var conversation: Conversation? {
-        ConversationsRepository.shared.conversations.first { $0.id == cid }
-    }
+    // Cached conversation: resolved once + refreshed only when it changes (onAppear + onChange
+    // below), so reading it per render is O(1) instead of an O(n) scan of the whole conversations
+    // singleton on every body pass (and a body re-eval on unrelated chats stays cheap).
+    @State private var cachedConv: Conversation?
+    private var conversation: Conversation? { cachedConv }
     private var isGroup: Bool { conversation?.isGroup ?? false }
     private var groupMembers: [String] { conversation?.users ?? [] }
 

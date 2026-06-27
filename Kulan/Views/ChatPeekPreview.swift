@@ -125,7 +125,11 @@ struct ChatPeekPreview: View {
     // Shown until the recent messages load (never empty).
     private var fallbackBubble: some View {
         Text({
-            let d = Crypto.shared.decrypt(conv.lastMessageCipher, cid: conv.id)
+            // Group last-message is sealed by its sender → decrypt with the sender's key (cached),
+            // not the cid pair (which would show raw ciphertext for groups).
+            let d = conv.isGroup
+                ? Crypto.shared.decryptGroupCached(conv.lastMessageCipher, cid: conv.id, authorId: conv.lastSender)
+                : Crypto.shared.decryptCached(conv.lastMessageCipher, cid: conv.id)
             return d.isEmpty ? "Say hello 👋" : d
         }())
         .font(.system(size: 15)).lineLimit(4)
@@ -136,12 +140,18 @@ struct ChatPeekPreview: View {
 
     // Fetch the last few messages (newest at the bottom) and decrypt for the snapshot.
     private func loadRecent() async {
-        _ = await Crypto.shared.preloadKey(conv.otherUid(me))
         guard let snap = try? await Firestore.firestore()
             .collection("conversations").document(conv.id).collection("messages")
             .order(by: "createdAt", descending: true)
             .limit(to: 5)
             .getDocuments() else { return }
+        // Warm the right keys before building Messages: each author in a group, else the 1:1 peer.
+        if conv.isGroup {
+            let authors = Set(snap.documents.compactMap { $0.data()["authorId"] as? String })
+            for a in authors where a != me { _ = await Crypto.shared.preloadKey(a) }
+        } else {
+            _ = await Crypto.shared.preloadKey(conv.otherUid(me))
+        }
         let recent = snap.documents
             .map { Message(id: $0.documentID, data: $0.data(), cid: conv.id, crypto: Crypto.shared) }
             .reversed()

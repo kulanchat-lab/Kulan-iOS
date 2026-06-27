@@ -249,6 +249,17 @@ final class Crypto {
         return out
     }
 
+    // Cached GROUP preview decrypt: the 3-arg decrypt routes group ciphers through decryptGroup
+    // (base64 + JSON + sodium), which is expensive to run on the main thread per render. Memoize
+    // it (the cid|author|cipher tuple is stable) so chat-list/peek group previews don't re-decrypt.
+    func decryptGroupCached(_ raw: String, cid: String, authorId: String) -> String {
+        let key = "g|\(cid)|\(authorId)|\(raw)" as NSString
+        if let hit = previewCache.object(forKey: key) { return hit as String }
+        let out = decrypt(raw, cid: cid, authorId: authorId)
+        if out != "…" && out != "🔒" { previewCache.setObject(out as NSString, forKey: key) }
+        return out
+    }
+
     // MARK: - Files / images
 
     /// Encrypt raw file bytes. The file is sealed with a fresh secretbox key; that

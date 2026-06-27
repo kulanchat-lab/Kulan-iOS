@@ -272,16 +272,28 @@ enum MessageSearch {
             for c in convs {
                 group.addTask {
                     if Task.isCancelled { return [] }
-                    _ = await Crypto.shared.preloadKey(c.otherUid(me))
                     guard let snap = try? await db.collection("conversations").document(c.id)
                         .collection("messages")
                         .order(by: "createdAt", descending: true)
                         .limit(to: perChatLimit)
                         .getDocuments() else { return [] }
+                    // Warm the keys needed to decrypt: the 1:1 peer, or EVERY author in a group
+                    // (group messages are sealed per-sender). Without this, group search indexed
+                    // raw ciphertext and could never match plaintext.
+                    let isGroup = c.isGroup
+                    if isGroup {
+                        let authors = Set(snap.documents.compactMap { $0.data()["authorId"] as? String })
+                        for a in authors where a != me { _ = await Crypto.shared.preloadKey(a) }
+                    } else {
+                        _ = await Crypto.shared.preloadKey(c.otherUid(me))
+                    }
                     let name = c.name(for: me), photo = c.photoUrl(for: me)
                     return snap.documents.compactMap { doc -> SearchableMessage? in
                         let data = doc.data()
-                        let text = Crypto.shared.decrypt(data["text"] as? String ?? "", cid: c.id)
+                        let author = data["authorId"] as? String ?? ""
+                        let text = isGroup
+                            ? Crypto.shared.decrypt(data["text"] as? String ?? "", cid: c.id, authorId: author)
+                            : Crypto.shared.decrypt(data["text"] as? String ?? "", cid: c.id)
                         guard !text.isEmpty else { return nil }
                         let date = (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
                         return SearchableMessage(id: doc.documentID, cid: c.id, chatName: name,

@@ -634,6 +634,7 @@ struct ChatsView: View {
                                                    photo: conv.displayPhoto(me)))
                         } label: {
                             ChatRow(conv: conv, me: me, dark: dark)
+                                .equatable()   // skip rebuild when this conversation is unchanged
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())   // whole row tappable (incl. empty space)
                         }
@@ -912,16 +913,21 @@ private struct ChatRowPressStyle: ButtonStyle {
     }
 }
 
-struct ChatRow: View {
+struct ChatRow: View, Equatable {
     let conv: Conversation
     let me: String
     let dark: Bool
+
+    // Skip re-rendering a row whose conversation is unchanged, even when the parent body re-runs on
+    // every snapshot (typing/unread/presence on OTHER chats). Conversation is Equatable → covers
+    // lastMessage/unread/updatedAt/pinned/muted/etc.; decryption/avatars/time only recompute on change.
+    static func == (l: ChatRow, r: ChatRow) -> Bool { l.conv == r.conv && l.me == r.me && l.dark == r.dark }
 
     private var decodedLast: String {
         if conv.leaksBlocked(me) { return "" }   // don't leak a blocked person's message into the list
         // Group last-message is sealed by its sender → decrypt with the sender's key, not the cid pair.
         if conv.isGroup {
-            return Crypto.shared.decrypt(conv.lastMessageCipher, cid: conv.id, authorId: conv.lastSender)
+            return Crypto.shared.decryptGroupCached(conv.lastMessageCipher, cid: conv.id, authorId: conv.lastSender)   // memoized
         }
         return Crypto.shared.decryptCached(conv.lastMessageCipher, cid: conv.id)   // memoized: no re-decrypt per render
     }
