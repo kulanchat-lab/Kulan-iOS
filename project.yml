@@ -25,6 +25,10 @@ packages:
   LiveKit:
     url: https://github.com/livekit/client-sdk-swift
     from: "2.0.0"
+  # Story viewer (MIT) — native swipe / progress bars / tap-to-advance / reply+emoji bar.
+  StoryUI:
+    url: https://github.com/tiskender2/StoryUI
+    exactVersion: "1.6.1"
 
 targets:
   Kulan:
@@ -79,3 +83,5 @@ targets:
         product: WebRTC
       - package: LiveKit
         product: LiveKit
+      - package: StoryUI
+        product: StoryUI

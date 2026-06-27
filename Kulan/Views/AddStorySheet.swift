@@ -164,12 +164,14 @@ struct StoryThumb: View {
     }
 }
 
-struct AlbumInfo: Identifiable {
+struct AlbumInfo: Identifiable, Hashable {
     let id: String
     let collection: PHAssetCollection
     let title: String
     let count: Int
     let cover: PHAsset?
+    static func == (l: AlbumInfo, r: AlbumInfo) -> Bool { l.id == r.id }
+    func hash(into h: inout Hasher) { h.combine(id) }
 }
 
 @MainActor
