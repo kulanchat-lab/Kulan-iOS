@@ -38,9 +38,6 @@ struct SettingsView: View {
                     NavigationLink { AccountSettingsView(onSignOut: onSignOut) } label: {
                         Label("Account", systemImage: "person.crop.circle")
                     }
-                    NavigationLink { MyProfileView() } label: {
-                        Label("My Profile", systemImage: "person.text.rectangle")
-                    }
                     NavigationLink { DevicesView() } label: {
                         Label("Linked Devices", systemImage: "laptopcomputer.and.iphone")
                     }

@@ -48,49 +48,57 @@ struct NotificationsSettingsView: View {
 
 struct DevicesView: View {
     @State private var showAddInfo = false
-    @State private var showTerminateInfo = false
 
     var body: some View {
-        List {
-            // Native iOS Settings styling: standard section headers, default fonts,
-            // standard rows (no custom hero icon / bordered button / bold overrides).
-            Section("This Device") {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(UIDevice.current.name)
-                    Text("Kulan iOS \(appVersion) · \(UIDevice.current.systemName) \(UIDevice.current.systemVersion)")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                LabeledContent("Status") { Text("Online").foregroundStyle(.secondary) }
-            }
+        ZStack {
+            Color(.systemGroupedBackground).ignoresSafeArea()
+            ScrollView {
+                VStack(spacing: 26) {
+                    // Hero card (matches the reference): illustration + caption + Link button.
+                    VStack(spacing: 16) {
+                        Image(systemName: "laptopcomputer.and.iphone")
+                            .font(.system(size: 60))
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.blue)
+                            .padding(.top, 10)
+                        (Text("Use Kulan on desktop or iPad. ").foregroundStyle(.secondary)
+                            + Text("Learn More").foregroundStyle(.blue))
+                            .font(.subheadline).multilineTextAlignment(.center)
+                        Button { showAddInfo = true } label: {
+                            Text("Link a New Device").font(.headline).foregroundStyle(.white)
+                                .frame(maxWidth: .infinity).frame(height: 50)
+                                .background(.blue, in: Capsule())
+                        }
+                    }
+                    .padding(20)
+                    .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
-            Section("Other Sessions") {
-                // Honest: anonymous login = one device per account, so none to list yet.
-                Text("No other devices are signed in.").foregroundStyle(.secondary)
-            }
+                    // Linked devices list (none — single-device today).
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Linked Devices").font(.title3.weight(.bold)).padding(.horizontal, 4)
+                        Text("No linked devices")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity).frame(height: 84)
+                            .liquidGlass(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
 
-            Section {
-                Button { showAddInfo = true } label: {
-                    Label("Add Device", systemImage: "plus")
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "lock.fill").font(.caption)
+                        Text("Messages and chat info are protected by end-to-end encryption on all devices")
+                    }
+                    .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
                 }
-                .tint(.primary)
-                Button(role: .destructive) { showTerminateInfo = true } label: {
-                    Label("Terminate All Other Sessions", systemImage: "rectangle.portrait.and.arrow.right")
-                }
-            } footer: {
-                Text("Adding a device isn't available yet. Terminate logs out all devices except this one.")
+                .padding(16)
             }
         }
-        .navigationTitle("Devices")
+        .navigationTitle("Linked Devices")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Linked devices", isPresented: $showAddInfo) {
+        // Honest: there's no companion app to link yet, so the button explains instead of faking.
+        .alert("Coming soon", isPresented: $showAddInfo) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Using Kulan on more than one device isn't available yet. Each account currently runs on a single device.")
-        }
-        .alert("No other sessions", isPresented: $showTerminateInfo) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("This is your only active session, so there's nothing else to log out.")
+            Text("Kulan on desktop and iPad is coming soon. Right now each account runs on a single device.")
         }
     }
 }
