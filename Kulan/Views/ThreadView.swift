@@ -1003,7 +1003,7 @@ struct MessageBubble: View {
     var onEdit: (Message) -> Void = { _ in }
     var onReport: (Message) -> Void = { _ in }
     var onReactMore: (Message) -> Void = { _ in }
-    var isGroup: Bool = false   // reactions/edit not yet supported in groups → hidden
+    var isGroup: Bool = false   // drives per-sender name labels above others' bubbles in groups
     var onTapReactions: () -> Void = {}
     var onLongPress: (Message) -> Void = { _ in }
     var onResend: (Message) -> Void = { _ in }
