@@ -71,10 +71,9 @@ struct GroupInfoView: View {
         .navigationTitle("Group Info")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
-        .confirmationDialog(memberAction?.name ?? "",
-                            isPresented: Binding(get: { memberAction != nil }, set: { if !$0 { memberAction = nil } }),
-                            titleVisibility: .visible, presenting: memberAction) { m in
-            memberActions(m)
+        .sheet(item: $memberAction) { m in
+            GroupMemberSheet(cid: cid, member: m, iAmAdmin: iAmAdmin)
+                .presentationDetents([.medium, .large])
         }
         .confirmationDialog("Leave this group?", isPresented: $confirmLeave, titleVisibility: .visible) {
             Button("Leave", role: .destructive) {
@@ -242,17 +241,6 @@ struct GroupInfoView: View {
         }
     }
 
-    @ViewBuilder private func memberActions(_ m: MemberAction) -> some View {
-        if m.isAdmin {
-            Button("Remove as Admin") { Task { try? await ChatService.demoteGroupAdmin(cid: cid, uid: m.id, name: m.name) } }
-        } else {
-            Button("Make Admin") { Task { try? await ChatService.promoteGroupAdmin(cid: cid, uid: m.id, name: m.name) } }
-        }
-        Button("Remove from Group", role: .destructive) {
-            Task { try? await ChatService.removeGroupMember(cid: cid, uid: m.id, name: m.name) }
-        }
-        Button("Cancel", role: .cancel) {}
-    }
 
     private var sortedMembers: [String] {
         (conv?.users ?? []).sorted { a, b in
@@ -270,9 +258,9 @@ struct GroupInfoView: View {
 
     @ViewBuilder private func memberRow(_ uid: String) -> some View {
         let isAdmin = conv?.isAdmin(uid) ?? false
-        let canManage = iAmAdmin && uid != me
+        // Anyone can tap a member to view their profile; the sheet gates admin actions.
         Button {
-            if canManage { memberAction = MemberAction(id: uid, name: conv?.names[uid] ?? "User", isAdmin: isAdmin) }
+            memberAction = MemberAction(id: uid, name: conv?.names[uid] ?? "User", isAdmin: isAdmin)
         } label: {
             HStack(spacing: 12) {
                 AvatarView(name: name(uid), photoUrl: conv?.photos[uid], size: 40)
@@ -281,7 +269,6 @@ struct GroupInfoView: View {
                 if isAdmin { Text("Admin").font(.caption).foregroundStyle(.secondary) }
             }
         }
-        .disabled(!canManage)
     }
 }
 
@@ -343,5 +330,61 @@ struct AddMembersSheet: View {
 
     private func toggle(_ id: String) {
         if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
+    }
+}
+
+// Tap a group member → see their profile (avatar, name, @handle, about) + admin actions.
+struct GroupMemberSheet: View {
+    let cid: String
+    let member: GroupInfoView.MemberAction
+    let iAmAdmin: Bool
+    @Environment(\.dismiss) private var dismiss
+    @State private var profile: UserProfile?
+    private var me: String { AuthService.shared.uid ?? "" }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    VStack(spacing: 10) {
+                        AvatarView(name: member.name, photoUrl: profile?.photoUrl, size: 88)
+                        Text(member.name).font(.title2.weight(.bold))
+                        if let h = profile?.handle, !h.isEmpty {
+                            Text("@\(h)").font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        if member.isAdmin {
+                            Text("Admin").font(.caption.weight(.semibold))
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Color.accentColor.opacity(0.15), in: Capsule())
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        if let a = profile?.about, !a.isEmpty {
+                            Text(a).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                }
+                if iAmAdmin && member.id != me {
+                    Section {
+                        if member.isAdmin {
+                            Button("Remove as Admin") {
+                                Task { try? await ChatService.demoteGroupAdmin(cid: cid, uid: member.id, name: member.name); dismiss() }
+                            }
+                        } else {
+                            Button("Make Admin") {
+                                Task { try? await ChatService.promoteGroupAdmin(cid: cid, uid: member.id, name: member.name); dismiss() }
+                            }
+                        }
+                        Button("Remove from Group", role: .destructive) {
+                            Task { try? await ChatService.removeGroupMember(cid: cid, uid: member.id, name: member.name); dismiss() }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .task { profile = await ProfileStore.shared.fetch(member.id) }
+        }
     }
 }
