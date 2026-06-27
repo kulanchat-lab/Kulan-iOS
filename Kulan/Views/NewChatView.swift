@@ -45,14 +45,17 @@ struct NewChatView: View {
                     if query.isEmpty {
                         Button { showNewGroup = true } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: "person.3.fill")
-                                    .font(.system(size: 16))
+                                Image(systemName: "person.2.fill")
+                                    .font(.system(size: 15, weight: .semibold))
                                     .foregroundStyle(.white)
                                     .frame(width: 44, height: 44)
-                                    .background(Color.accentColor, in: Circle())
-                                Text("New Group").foregroundStyle(.primary)
+                                    .background(Color.green, in: Circle())   // visible (was accent-on-accent = blank)
+                                Text("New Group").font(.body.weight(.medium)).foregroundStyle(.primary)
                             }
+                            .padding(.vertical, 4)
                         }
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                     }
                     if let error { Text(error).foregroundStyle(.red) }
 
@@ -63,6 +66,8 @@ struct NewChatView: View {
                                     personRow(name: user.name.isEmpty ? user.handle : user.name,
                                               handle: user.handle, photo: user.photoUrl)
                                 }
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
                             }
                             if results.isEmpty {
                                 if searching {
@@ -84,6 +89,8 @@ struct NewChatView: View {
                                     } label: {
                                         personRow(name: conv.name(for: me), handle: nil, photo: conv.photoUrl(for: me))
                                     }
+                                    .listRowSeparator(.hidden)
+                                    .listRowBackground(Color.clear)
                                 }
                             }
                             .id(section.letter)
@@ -148,12 +155,15 @@ struct NewChatView: View {
         HStack(spacing: 12) {
             AvatarView(name: name, photoUrl: photo, size: 44)
             VStack(alignment: .leading, spacing: 1) {
-                Text(name).foregroundStyle(.primary)
+                Text(name).font(.body.weight(.medium)).foregroundStyle(.primary)
                 if let handle, !handle.isEmpty {
                     Text("@\(handle)").font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            Spacer()
         }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     // The conversation ID is deterministic, so open the thread INSTANTLY and
