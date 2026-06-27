@@ -85,7 +85,9 @@ final class Crypto {
         }
         do { try await task.value }
         catch {
-            lock.withLock { if readyTask === task { readyTask = nil } }   // allow retry after failure
+            // Only one task is ever created (atomic check-and-set above), so the failed one is the
+            // current readyTask — clear it so the next ensureReady retries. (Task is a struct → no ===.)
+            lock.withLock { readyTask = nil }
             throw error
         }
     }
