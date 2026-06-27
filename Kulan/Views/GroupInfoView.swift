@@ -134,6 +134,7 @@ struct GroupInfoView: View {
 struct AddMembersSheet: View {
     let cid: String
     let existing: Set<String>
+    init(cid: String, existing: Set<String>) { self.cid = cid; self.existing = existing }
     @Environment(\.dismiss) private var dismiss
     private var convRepo = ConversationsRepository.shared
     private var me: String { AuthService.shared.uid ?? "" }
