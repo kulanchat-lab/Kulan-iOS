@@ -287,6 +287,8 @@ struct AddMembersSheet: View {
     private var convRepo = ConversationsRepository.shared
     private var me: String { AuthService.shared.uid ?? "" }
     @State private var selected = Set<String>()
+    @State private var query = ""
+    @State private var results: [UserProfile] = []
 
     private var candidates: [(id: String, name: String, photo: String?)] {
         convRepo.conversations
@@ -302,22 +304,21 @@ struct AddMembersSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                if candidates.isEmpty {
-                    Text("Everyone you've chatted with is already in this group.")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(candidates, id: \.id) { p in
-                    Button { toggle(p.id) } label: {
-                        HStack(spacing: 12) {
-                            AvatarView(name: p.name, photoUrl: p.photo, size: 40)
-                            Text(p.name).foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: selected.contains(p.id) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(selected.contains(p.id) ? Color.accentColor : .secondary)
-                        }
+                if !query.isEmpty {
+                    let found = results.filter { $0.id != me && !existing.contains($0.id) }
+                    if found.isEmpty { Text("No users found.").foregroundStyle(.secondary) }
+                    ForEach(found) { p in
+                        memberPickRow(p.id, p.name.isEmpty ? p.handle : p.name, p.photoUrl)
                     }
+                } else {
+                    if candidates.isEmpty {
+                        Text("Search by name or username to add anyone.").foregroundStyle(.secondary)
+                    }
+                    ForEach(candidates, id: \.id) { p in memberPickRow(p.id, p.name, p.photo) }
                 }
             }
+            .searchable(text: $query, prompt: "Name or username")
+            .onChange(of: query) { _, q in search(q) }
             .navigationTitle("Add Members")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -331,6 +332,28 @@ struct AddMembersSheet: View {
                     .disabled(selected.isEmpty).fontWeight(.semibold)
                 }
             }
+        }
+    }
+
+    @ViewBuilder private func memberPickRow(_ id: String, _ name: String, _ photo: String?) -> some View {
+        Button { toggle(id) } label: {
+            HStack(spacing: 12) {
+                AvatarView(name: name, photoUrl: photo, size: 40)
+                Text(name).foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: selected.contains(id) ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selected.contains(id) ? Color.accentColor : .secondary)
+            }
+        }
+    }
+
+    private func search(_ q: String) {
+        let trimmed = q.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { results = []; return }
+        Task {
+            var r = await ChatService.searchUsers(prefix: trimmed)
+            if r.isEmpty, let exact = await ChatService.findByHandle(trimmed) { r = [exact] }
+            await MainActor.run { results = r }
         }
     }
 
