@@ -36,7 +36,7 @@ final class CallPiPController: NSObject {
         vc.preferredContentSize = CGSize(width: 9, height: 16)
         vc.view.backgroundColor = .black
         displayLayer.frame = vc.view.bounds
-        displayLayer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        displayLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         vc.view.layer.addSublayer(displayLayer)
         callVC = vc
 
