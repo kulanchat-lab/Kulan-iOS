@@ -247,51 +247,54 @@ struct StoryViewer: View {
                     HStack(spacing: 4) {
                         ForEach(group.stories.indices, id: \.self) { i in
                             GeometryReader { bar in
-                                Capsule().fill(.white.opacity(0.35))
+                                Capsule().fill(.white.opacity(0.3))
                                     .overlay(alignment: .leading) {
                                         Capsule().fill(.white)
                                             .frame(width: bar.size.width * fill(i))
                                             .animation(.linear(duration: 0.02), value: progress)
                                     }
                             }
-                            .frame(height: 2)
+                            .frame(height: 2.5)
                         }
                     }
                     .padding(.horizontal, 12)
                     .padding(.top, safeTop + 6)
 
                     HStack(spacing: 10) {
-                        AvatarView(name: group.name, photoUrl: group.photoUrl, size: 34)
-                        VStack(alignment: .leading, spacing: 1) {
+                        AvatarView(name: group.name, photoUrl: group.photoUrl, size: 36)
+                        HStack(spacing: 5) {
                             Text(group.name)
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
                             if let s = story {
+                                Text("·").foregroundStyle(.white.opacity(0.7))
                                 Text(timeAgo(s.createdAt))
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.white.opacity(0.75))
+                                    .font(.subheadline)
+                                    .foregroundStyle(.white.opacity(0.7))
                             }
                         }
                         Spacer()
-                        Button { menuOpen = true } label: {   // pauses the story while open
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
+                        HStack(spacing: 16) {
+                            Button { menuOpen = true } label: {   // pauses the story while open
+                                Image(systemName: "ellipsis")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Button(action: onClose) {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
-                        Button(action: onClose) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 12)
-                    .padding(.top, 8)
+                    .padding(.top, 10)
 
                     Spacer()
 
@@ -311,7 +314,7 @@ struct StoryViewer: View {
                             }
                             .padding(.horizontal, 8)
 
-                            HStack(spacing: 10) {
+                            HStack(spacing: 16) {
                                 HStack {
                                     TextField("Send message…", text: $replyText)
                                         .focused($replyFocused)
@@ -327,14 +330,15 @@ struct StoryViewer: View {
                                         }
                                 }
                                 .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
-                                .background(Capsule().stroke(.white.opacity(0.5), lineWidth: 1.5))
+                                .frame(height: 46)
+                                .background(Capsule().fill(Color.black.opacity(0.25)))
+                                .overlay(Capsule().stroke(.white.opacity(0.3), lineWidth: 0.8))
 
                                 Button {
                                     sendToAuthor(s, "❤️")
                                 } label: {
                                     Image(systemName: "heart")
-                                        .font(.system(size: 26))
+                                        .font(.system(size: 24))
                                         .foregroundStyle(.white)
                                         .frame(width: 44, height: 44)
                                         .contentShape(Rectangle())
@@ -347,8 +351,8 @@ struct StoryViewer: View {
                                     replyText = ""; replyFocused = false
                                     sendToAuthor(s, t)
                                 } label: {
-                                    Image(systemName: "paperplane.fill")
-                                        .font(.system(size: 22))
+                                    Image(systemName: "paperplane")
+                                        .font(.system(size: 24))
                                         .foregroundStyle(replyText.trimmingCharacters(in: .whitespaces).isEmpty
                                                          ? .white.opacity(0.4) : .white)
                                         .frame(width: 44, height: 44)
