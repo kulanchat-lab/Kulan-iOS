@@ -1,13 +1,16 @@
 import SwiftUI
 import Photos
 
-// Premium "Add Story" picker (screen 1): close + a Text quick-card + a 4-column grid whose first
-// slot is a Camera tile and the rest are recent photos. Picking a photo (or capturing one) opens
-// the premium StoryEditorView. Albums/Music/Layout are intentionally omitted (not faked).
+// "Add to Story" picker — clean + minimalist with a Photos / Albums top tab.
+//  • Photos: a Text card + Camera tile + a 4-col grid of recent photos.
+//  • Albums: your photo albums; tap one to browse its grid.
+// Picking/capturing opens StoryEditorView.
 struct AddStorySheet: View {
     var onPosted: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     @StateObject private var store = PhotoGridStore()
+    @State private var tab = 0                 // 0 = Photos, 1 = Albums
+    @State private var openAlbum: AlbumInfo?
     @State private var editorImage: EditorImage?
     @State private var showCamera = false
     @State private var showText = false
@@ -16,31 +19,20 @@ struct AddStorySheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                // Quick action card row (only the real one — Text).
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        quickCard("Aa", "Text", .green) { showText = true }
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 8)
+            VStack(spacing: 0) {
+                Picker("", selection: $tab) {
+                    Text("Photos").tag(0)
+                    Text("Albums").tag(1)
                 }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16).padding(.vertical, 8)
 
-                LazyVGrid(columns: cols, spacing: 2) {
-                    cameraTile
-                    ForEach(store.assets, id: \.localIdentifier) { asset in
-                        StoryThumb(asset: asset, store: store)
-                            .aspectRatio(1, contentMode: .fill)
-                            .clipped()
-                            .onTapGesture {
-                                Task { if let ui = await store.fullImage(asset) { editorImage = EditorImage(ui) } }
-                            }
-                    }
-                }
-                .padding(.horizontal, 2)
+                if tab == 0 { photosTab } else { albumsTab }
             }
             .navigationTitle("Add to Story")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "xmark") } } }
+            .navigationDestination(item: $openAlbum) { album in albumGrid(album) }
             .fullScreenCover(item: $editorImage) { item in
                 StoryEditorView(source: item.image, onPosted: { onPosted(); dismiss() })
             }
@@ -51,12 +43,72 @@ struct AddStorySheet: View {
             }
             .fullScreenCover(isPresented: $showText) {
                 StoryTextComposer(onShare: { d in
-                    StoriesService.shared.postStoryBackground(image: d)   // background upload, pop to chat
+                    StoriesService.shared.postStoryBackground(image: d)
                     onPosted(); dismiss()
                 }, onClose: { showText = false })
             }
-            .task { store.load() }
+            .task { store.load(); store.loadAlbums() }
         }
+    }
+
+    // MARK: - Photos tab
+    private var photosTab: some View {
+        ScrollView {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    quickCard("Aa", "Text", .green) { showText = true }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+            }
+            LazyVGrid(columns: cols, spacing: 2) {
+                cameraTile
+                ForEach(store.assets, id: \.localIdentifier) { asset in tile(asset) }
+            }
+            .padding(.horizontal, 2)
+        }
+    }
+
+    // MARK: - Albums tab
+    private var albumsTab: some View {
+        List(store.albums) { album in
+            Button { openAlbum = album } label: {
+                HStack(spacing: 12) {
+                    if let cover = album.cover {
+                        StoryThumb(asset: cover, store: store)
+                            .frame(width: 54, height: 54).clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        RoundedRectangle(cornerRadius: 8).fill(Color(.systemGray5)).frame(width: 54, height: 54)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(album.title).foregroundStyle(.primary).lineLimit(1)
+                        Text("\(album.count)").font(.footnote).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.footnote).foregroundStyle(.tertiary)
+                }
+            }
+            .buttonStyle(.plain)
+        }
+        .listStyle(.plain)
+        .overlay { if store.albums.isEmpty { ProgressView() } }
+    }
+
+    private func albumGrid(_ album: AlbumInfo) -> some View {
+        ScrollView {
+            LazyVGrid(columns: cols, spacing: 2) {
+                ForEach(store.assets(in: album.collection), id: \.localIdentifier) { asset in tile(asset) }
+            }
+            .padding(.horizontal, 2)
+        }
+        .navigationTitle(album.title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func tile(_ asset: PHAsset) -> some View {
+        StoryThumb(asset: asset, store: store)
+            .aspectRatio(1, contentMode: .fill)
+            .clipped()
+            .onTapGesture { Task { if let ui = await store.fullImage(asset) { editorImage = EditorImage(ui) } } }
     }
 
     struct EditorImage: Identifiable { let id = UUID(); let image: UIImage; init(_ i: UIImage) { image = i } }
@@ -84,9 +136,8 @@ struct AddStorySheet: View {
                 Text(label).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
             }
             .frame(width: 110, height: 90)
-            .liquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))   // real iOS 26 glass
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(.white.opacity(0.2), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(.primary.opacity(0.08), lineWidth: 0.5))
         }
         .buttonStyle(.plain)
     }
@@ -113,9 +164,18 @@ struct StoryThumb: View {
     }
 }
 
+struct AlbumInfo: Identifiable {
+    let id: String
+    let collection: PHAssetCollection
+    let title: String
+    let count: Int
+    let cover: PHAsset?
+}
+
 @MainActor
 final class PhotoGridStore: ObservableObject {
     @Published var assets: [PHAsset] = []
+    @Published var albums: [AlbumInfo] = []
     private let manager = PHCachingImageManager()
 
     func load() {
@@ -132,9 +192,40 @@ final class PhotoGridStore: ObservableObject {
         }
     }
 
+    func loadAlbums() {
+        PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
+            guard status == .authorized || status == .limited else { return }
+            var out: [AlbumInfo] = []
+            let imgOpts = PHFetchOptions()
+            imgOpts.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+            func collect(_ collections: PHFetchResult<PHAssetCollection>) {
+                collections.enumerateObjects { coll, _, _ in
+                    let assets = PHAsset.fetchAssets(in: coll, options: imgOpts)
+                    guard assets.count > 0 else { return }
+                    out.append(AlbumInfo(id: coll.localIdentifier, collection: coll,
+                                         title: coll.localizedTitle ?? "Album",
+                                         count: assets.count, cover: assets.firstObject))
+                }
+            }
+            collect(PHAssetCollection.fetchAssetCollections(with: .smartAlbum, subtype: .any, options: nil))
+            collect(PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: nil))
+            Task { @MainActor in self.albums = out }
+        }
+    }
+
+    func assets(in collection: PHAssetCollection) -> [PHAsset] {
+        let opts = PHFetchOptions()
+        opts.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+        opts.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+        let result = PHAsset.fetchAssets(in: collection, options: opts)
+        var arr: [PHAsset] = []
+        result.enumerateObjects { a, _, _ in arr.append(a) }
+        return arr
+    }
+
     func thumbnail(_ asset: PHAsset, size: CGSize) async -> UIImage? {
         let opts = PHImageRequestOptions()
-        opts.deliveryMode = .highQualityFormat   // fires once (no opportunistic double-callback)
+        opts.deliveryMode = .highQualityFormat
         opts.resizeMode = .fast
         opts.isNetworkAccessAllowed = true
         return await withCheckedContinuation { cont in
