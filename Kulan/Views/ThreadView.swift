@@ -169,7 +169,7 @@ struct ThreadView: View {
         }
         .sheet(item: $editTarget) { m in
             EditMessageSheet(original: m.text) { newText in
-                Task { try? await ChatService.editMessage(cid: cid, messageId: m.id, newText: newText) }
+                Task { try? await ChatService.editMessage(cid: cid, messageId: m.id, newText: newText, group: isGroup ? groupMembers : nil) }
             }
         }
         .sheet(item: $forwardTarget) { m in
@@ -342,7 +342,7 @@ struct ThreadView: View {
                         onReply: { m in withAnimation(.easeInOut(duration: 0.22)) { replyingTo = m } },
                         onDelete: { pendingDelete = $0 },   // confirm dialog, not instant
                         onTapImage: { viewerImage = $0 },
-                        onReact: { emoji in Task { await ChatService.setReaction(cid: cid, messageId: msg.id, emoji: emoji) } },
+                        onReact: { emoji in Task { await ChatService.setReaction(cid: cid, messageId: msg.id, emoji: emoji, group: isGroup ? groupMembers : nil) } },
                         onPin: { m in Task { await ChatService.setPinnedMessage(cid, m.id) } },
                         onForward: { forwardTarget = $0 },
                         onEdit: { editTarget = $0 },
@@ -1131,11 +1131,9 @@ struct MessageBubble: View {
                         if !message.isImage && !message.text.isEmpty {
                             Button { UIPasteboard.general.string = message.text } label: { Label("Copy", systemImage: "doc.on.doc") }
                         }
-                        if !isGroup {   // reactions not yet wired for groups (per-author crypto, later iteration)
-                            Button { onReactMore(message) } label: { Label("React…", systemImage: "face.smiling") }
-                        }
+                        Button { onReactMore(message) } label: { Label("React…", systemImage: "face.smiling") }
                         Button { onPin(message) } label: { Label("Pin", systemImage: "pin") }
-                        if isMe && !isGroup && !message.isImage && !message.isAudio && !message.isCall && message.sendState == nil {
+                        if isMe && !message.isImage && !message.isAudio && !message.isCall && message.sendState == nil {
                             Button { onEdit(message) } label: { Label("Edit", systemImage: "pencil") }
                         }
                         Divider()
@@ -1147,7 +1145,6 @@ struct MessageBubble: View {
                     }
                     // Double-tap to quick-react with a heart (iMessage/WhatsApp-style).
                     .highPriorityGesture(TapGesture(count: 2).onEnded {
-                        guard !isGroup else { return }   // group reactions not wired yet
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         onReact(myReaction == "❤️" ? nil : "❤️")
                     })

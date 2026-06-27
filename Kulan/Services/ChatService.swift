@@ -471,16 +471,24 @@ enum ChatService {
 
     /// Set or clear my emoji reaction on a message. The emoji is E2E-encrypted
     /// (same as text) so the server never sees the reaction.
-    static func setReaction(cid: String, messageId: String, emoji: String?) async {
+    static func setReaction(cid: String, messageId: String, emoji: String?, group: [String]? = nil) async {
         let ref = db.collection("conversations").document(cid)
             .collection("messages").document(messageId)
-        if let emoji, let enc = try? await Crypto.shared.encryptForConversation(cid, emoji) {
-            // Dotted field update (matches the delete path) — only touches my own key,
-            // so concurrent reactions from both users never clobber each other.
-            try? await ref.updateData(["reactions.\(uid)": enc])
-        } else {
+        guard let emoji else {
             try? await ref.updateData(["reactions.\(uid)": FieldValue.delete()])
+            return
         }
+        // Group reactions are sealed for ALL members (so everyone sees the emoji); 1:1 to the other.
+        var members = group
+        if members == nil, !cid.contains("_") {
+            let snap = try? await db.collection("conversations").document(cid).getDocument()
+            members = snap?.data()?["users"] as? [String]
+        }
+        let enc: String?
+        if let members { enc = try? await Crypto.shared.encryptForGroup(emoji, members: members) }
+        else { enc = try? await Crypto.shared.encryptForConversation(cid, emoji) }
+        // Dotted field update — only touches my own key, so concurrent reactions never clobber.
+        if let enc { try? await ref.updateData(["reactions.\(uid)": enc]) }
     }
 
     /// Write ONE call record into the shared chat, keyed by callId so both ends can't
@@ -511,10 +519,18 @@ enum ChatService {
 
     /// Edit a text message in place: re-encrypt the new text and flag it edited.
     /// Server still never sees plaintext (same E2EE path as sendText).
-    static func editMessage(cid: String, messageId: String, newText: String) async throws {
+    static func editMessage(cid: String, messageId: String, newText: String, group: [String]? = nil) async throws {
         let t = newText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
-        let cipher = try await Crypto.shared.encryptForConversation(cid, t)
+        var members = group
+        if members == nil, !cid.contains("_") {
+            let snap = try? await db.collection("conversations").document(cid).getDocument()
+            members = snap?.data()?["users"] as? [String]
+        }
+        // Re-seal for the group (author = me, since only the author may edit) or the 1:1 pair.
+        let cipher = members != nil
+            ? try await Crypto.shared.encryptForGroup(t, members: members!)
+            : try await Crypto.shared.encryptForConversation(cid, t)
         try await db.collection("conversations").document(cid)
             .collection("messages").document(messageId)
             .updateData(["text": cipher, "edited": true])

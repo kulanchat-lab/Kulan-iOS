@@ -128,8 +128,13 @@ struct Message: Identifiable, Equatable {
         self.clientId = data["clientId"] as? String
         self.enc = (data["enc"] as? [String: Any]).flatMap(EncMeta.init(map:))
         // Drop entries that fail to decrypt (empty) so a broken record can't render a garbage badge.
+        // Each reaction is sealed by ITS reactor (the map key), so decrypt with that uid as
+        // the author — group reactions (encg1) need it; 1:1 ignores authorId.
         self.reactions = (data["reactions"] as? [String: String])?
-            .compactMapValues { c in let e = crypto.decrypt(c, cid: cid); return e.isEmpty ? nil : e } ?? [:]
+            .reduce(into: [String: String]()) { acc, kv in
+                let e = crypto.decrypt(kv.value, cid: cid, authorId: kv.key)
+                if !e.isEmpty { acc[kv.key] = e }
+            } ?? [:]
         if let r = data["replyTo"] as? [String: Any] {
             self.replyTo = ReplyRef(
                 id: r["id"] as? String ?? "",
