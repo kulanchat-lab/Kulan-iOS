@@ -23,6 +23,8 @@ struct ThreadView: View {
     @State private var replyingTo: Message?
     @State private var photoItem: PhotosPickerItem?
     @State private var photoItems: [PhotosPickerItem] = []
+    @State private var editImage: EditImageWrap?     // single picked/captured photo → chat editor
+    struct EditImageWrap: Identifiable { let id = UUID(); let image: UIImage }
     @State private var sendingPhoto = false
     @State private var typingSent = false
     @State private var viewerImage: Message?
@@ -194,8 +196,19 @@ struct ThreadView: View {
         }
         .photosPicker(isPresented: $showLibrary, selection: $photoItems, maxSelectionCount: 10, matching: .images)
         .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { data in Task { await sendCaptured(data) } }
+            CameraPicker { data in if let ui = UIImage(data: data) { editImage = EditImageWrap(image: ui) } }
                 .ignoresSafeArea()
+        }
+        .fullScreenCover(item: $editImage) { wrap in
+            ChatImageEditor(source: wrap.image) { data, caption, _ in
+                Task {
+                    await sendPhoto(data)
+                    let c = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !c.isEmpty {
+                        try? await ChatService.sendText(cid: cid, text: c, group: isGroup ? groupMembers : nil)
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showAttachPanel) { attachPanel.presentationDetents([.height(230)]) }
         .sheet(isPresented: $showGifPicker) {
@@ -478,6 +491,7 @@ struct ThreadView: View {
                     MessageBubble(
                         message: msg, isMe: msg.authorId == me, dark: dark, cid: cid,
                         nameFor: { personName($0) },
+                        avatarFor: { conversation?.photos[$0] },
                         onReply: { m in withAnimation(.easeInOut(duration: 0.22)) { replyingTo = m } },
                         onDelete: { pendingDelete = $0 },   // confirm dialog, not instant
                         onTapImage: { viewerImage = $0 },
@@ -930,6 +944,12 @@ struct ThreadView: View {
         guard !items.isEmpty else { return }
         let picked = items
         await MainActor.run { photoItems = [] }
+        // A single pick opens the editor (crop/draw/adjust/caption); multiple send directly.
+        if picked.count == 1, let data = try? await picked[0].loadTransferable(type: Data.self),
+           let ui = UIImage(data: data) {
+            await MainActor.run { editImage = EditImageWrap(image: ui) }
+            return
+        }
         for item in picked {
             if let data = try? await item.loadTransferable(type: Data.self) {
                 await sendPhoto(data)
@@ -1348,6 +1368,7 @@ struct MessageBubble: View {
     let dark: Bool
     let cid: String
     var nameFor: (String) -> String = { _ in "" }
+    var avatarFor: (String) -> String? = { _ in nil }
     var onReply: (Message) -> Void = { _ in }
     var onDelete: (Message) -> Void = { _ in }
     var onTapImage: (Message) -> Void = { _ in }
@@ -1564,8 +1585,18 @@ struct MessageBubble: View {
     }
 
     var body: some View {
-        HStack {
+        HStack(alignment: .bottom, spacing: 6) {
             if isMe { Spacer(minLength: 0) }
+            // Group: sender avatar on the LEFT of others' messages (shown once, on the last
+            // bubble of the cluster; space reserved above so the cluster stays aligned).
+            if isGroup && !isMe {
+                if isLastInCluster {
+                    AvatarView(name: nameFor(message.authorId), photoUrl: avatarFor(message.authorId), size: 28)
+                        .onTapGesture { onTapSender(message.authorId) }
+                } else {
+                    Color.clear.frame(width: 28, height: 1)
+                }
+            }
             VStack(alignment: isMe ? .trailing : .leading, spacing: 3) {
                 // Sender name above others' messages in a group (colored, once per cluster).
                 if isGroup && !isMe && isFirstInCluster {
