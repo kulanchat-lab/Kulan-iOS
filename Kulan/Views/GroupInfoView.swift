@@ -24,6 +24,7 @@ struct GroupInfoView: View {
     @State private var confirmReport = false
     @State private var media: [Message] = []
     @State private var showAllMedia = false
+    @State private var uploadingAvatar = false
 
     struct MemberAction: Identifiable { let id: String; let name: String; let isAdmin: Bool }
 
@@ -88,9 +89,11 @@ struct GroupInfoView: View {
         .onChange(of: avatarItem) { _, item in
             guard let item else { return }
             Task {
+                await MainActor.run { uploadingAvatar = true }
                 if let d = try? await item.loadTransferable(type: Data.self) {
                     try? await ChatService.uploadGroupAvatar(cid: cid, data: d)
                 }
+                await MainActor.run { uploadingAvatar = false }
             }
         }
         .task { media = await ChatService.sharedMedia(cid) }
@@ -104,12 +107,16 @@ struct GroupInfoView: View {
                     PhotosPicker(selection: $avatarItem, matching: .images) {
                         ZStack(alignment: .bottomTrailing) {
                             AvatarView(name: conv?.title ?? "Group", photoUrl: conv?.avatarUrl, size: 88)
+                                .overlay { if uploadingAvatar {
+                                    ZStack { Circle().fill(.black.opacity(0.35)); ProgressView().tint(.white) }
+                                } }
                             Image(systemName: "camera.circle.fill")
                                 .font(.system(size: 26)).symbolRenderingMode(.palette)
                                 .foregroundStyle(.white, Color.accentColor)
                         }
                     }
                     .buttonStyle(.plain)
+                    .disabled(uploadingAvatar)
                 } else {
                     AvatarView(name: conv?.title ?? "Group", photoUrl: conv?.avatarUrl, size: 88)
                 }

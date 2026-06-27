@@ -193,15 +193,16 @@ enum ChatService {
 
     /// Set the group description / "about" (admin). No system message (low-signal change).
     static func setGroupDescription(cid: String, text: String) async throws {
+        let desc = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(500))
         try await db.collection("conversations").document(cid).updateData([
-            "desc": text.trimmingCharacters(in: .whitespacesAndNewlines),
+            "desc": desc,
             "updatedAt": FieldValue.serverTimestamp(),
         ])
     }
 
     /// Rename a group (admin) + system message.
     static func renameGroup(cid: String, title: String) async throws {
-        let t = title.trimmingCharacters(in: .whitespaces)
+        let t = String(title.trimmingCharacters(in: .whitespaces).prefix(100))
         guard !t.isEmpty else { return }
         let convRef = db.collection("conversations").document(cid)
         try await convRef.updateData(["title": t, "updatedAt": FieldValue.serverTimestamp()])
