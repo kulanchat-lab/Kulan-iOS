@@ -134,7 +134,9 @@ struct Message: Identifiable, Equatable {
             self.replyTo = ReplyRef(
                 id: r["id"] as? String ?? "",
                 authorId: r["authorId"] as? String ?? "",
-                text: crypto.decrypt(r["text"] as? String ?? "", cid: cid, authorId: r["authorId"] as? String ?? "")
+                // The reply snippet was sealed by the ENCLOSING message's sender, so decrypt
+                // with that author (group). 1:1 ignores authorId (symmetric cid-pair key).
+                text: crypto.decrypt(r["text"] as? String ?? "", cid: cid, authorId: data["authorId"] as? String ?? "")
             )
         }
         if let ts = data["createdAt"] as? Timestamp {

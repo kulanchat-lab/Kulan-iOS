@@ -122,6 +122,13 @@ enum ChatService {
     /// so the message-create rule passes), then removes self.
     static func leaveGroup(cid: String) async throws {
         let convRef = db.collection("conversations").document(cid)
+        // If I'm the LAST admin, promote a remaining member first (while I'm still an admin)
+        // so the group never ends up with no one who can manage it.
+        if let conv = ConversationsRepository.shared.conversations.first(where: { $0.id == cid }),
+           conv.admins.filter({ $0 != uid }).isEmpty,
+           let heir = conv.users.first(where: { $0 != uid }) {
+            try? await convRef.updateData(["admins": FieldValue.arrayUnion([heir])])
+        }
         try await writeSystemMessage(cid: cid, text: "\(myName()) left")
         try await convRef.updateData([
             "users": FieldValue.arrayRemove([uid]),
@@ -180,7 +187,15 @@ enum ChatService {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
         // Group path: per-member encryption + unread fan-out. 1:1 path below is untouched.
-        if let members = group {
+        // Resolve members even if the caller didn't pass them (e.g. the very first message
+        // right after creation, before the conversations listener has the doc). A group cid
+        // is a random id with no "_", so that distinguishes it from a 1:1 "uidA_uidB" cid.
+        var members = group
+        if members == nil, !cid.contains("_") {
+            let snap = try? await db.collection("conversations").document(cid).getDocument()
+            members = snap?.data()?["users"] as? [String]
+        }
+        if let members {
             try await sendGroupText(cid: cid, members: members, text: t, replyTo: replyTo, clientId: clientId)
             return
         }

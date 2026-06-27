@@ -61,7 +61,9 @@ final class ThreadRepository {
 
     func start() {
         guard let uid = Auth.auth().currentUser?.uid else { return }
-        let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+        // 1:1 cid is "uidA_uidB"; a group cid is a random doc id (no underscore).
+        let isOneToOne = cid.contains("_")
+        let other = isOneToOne ? (cid.split(separator: "_").map(String.init).first { $0 != uid } ?? "") : ""
         otherUid = other
         stop()
         // Conversation doc: the other person's typing flag + their read timestamp.
@@ -94,13 +96,15 @@ final class ThreadRepository {
                 self.disappearSeconds       = newDisappear
                 if needsRebuild { self.rebuild() }
             }
-        // The other user's presence (online / last active).
-        userListener = db.collection("users").document(other)
-            .addSnapshotListener { [weak self] snap, _ in
-                let d = snap?.data()
-                self?.otherOnline = d?["online"] as? Bool ?? false
-                if let ts = d?["lastActive"] as? Timestamp { self?.otherLastActive = ts.dateValue() }
-            }
+        // The other user's presence (online / last active) — 1:1 only (no single "other" in a group).
+        if isOneToOne, !other.isEmpty {
+            userListener = db.collection("users").document(other)
+                .addSnapshotListener { [weak self] snap, _ in
+                    let d = snap?.data()
+                    self?.otherOnline = d?["online"] as? Bool ?? false
+                    if let ts = d?["lastActive"] as? Timestamp { self?.otherLastActive = ts.dateValue() }
+                }
+        }
         expiryTimer?.invalidate()
         expiryTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             self?.sweepExpired()
@@ -125,13 +129,32 @@ final class ThreadRepository {
         // arrives, re-decrypt the current window (existing chats may briefly show "…").
         Task {
             try? await Crypto.shared.ensureReady()
-            _ = await Crypto.shared.preloadKey(other)
+            // Preload EVERY member's public key (groups), not just a cid-derived "other" —
+            // group messages can only be decrypted with their author's key, so all members'
+            // keys must be cached or their messages render as "…".
+            let members = await Self.memberUids(cid: cid, fallbackOther: other)
+            await withTaskGroup(of: Void.self) { g in
+                for m in members where m != uid { g.addTask { _ = await Crypto.shared.preloadKey(m) } }
+            }
             await MainActor.run {
                 guard !self.lastDocs.isEmpty else { return }   // new chat: nothing to re-decrypt
                 self.byId.removeAll(); self.rawReactions.removeAll()
                 self.applyLiveSnapshot(self.lastDocs)
             }
         }
+    }
+
+    // All member uids for a cid: prefer the loaded conversation; fall back to fetching the
+    // doc (a just-created group may not be in the repo yet); else the 1:1 "other".
+    private static func memberUids(cid: String, fallbackOther: String) async -> [String] {
+        if let conv = ConversationsRepository.shared.conversations.first(where: { $0.id == cid }) {
+            return conv.users
+        }
+        if let snap = try? await Firestore.firestore().collection("conversations").document(cid).getDocument(),
+           let users = snap.data()?["users"] as? [String] {
+            return users
+        }
+        return fallbackOther.isEmpty ? [] : [fallbackOther]
     }
 
     // Build a message, reusing the cached copy unless its reactions changed.

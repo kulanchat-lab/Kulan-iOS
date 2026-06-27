@@ -302,15 +302,21 @@ final class Crypto {
                 sodium.secretBox.seal(message: Bytes(text.utf8), secretKey: msgKey) else {
             throw NSError(domain: "Crypto", code: 9, userInfo: [NSLocalizedDescriptionKey: "group seal failed"])
         }
+        let me = currentUid() ?? ""
         var wraps: [String: String] = [:]
         for uid in Set(members) {
-            guard let pub = await preloadKey(uid) else { throw MissingRecipientKeyError(uid: uid) }
+            // Skip members who haven't published a key yet — they'll see "…" until they do.
+            // One keyless member must NOT block the whole group (unlike a 1:1 chat).
+            guard let pub = await preloadKey(uid) else { continue }
             guard let w: (authenticatedCipherText: Bytes, nonce: Box.Nonce) =
-                    sodium.box.seal(message: msgKey, recipientPublicKey: pub, senderSecretKey: sk) else {
-                throw NSError(domain: "Crypto", code: 10, userInfo: [NSLocalizedDescriptionKey: "group wrap failed"])
-            }
+                    sodium.box.seal(message: msgKey, recipientPublicKey: pub, senderSecretKey: sk) else { continue }
             wraps[uid] = Data(w.authenticatedCipherText).base64EncodedString()
                        + "." + Data(w.nonce).base64EncodedString()
+        }
+        // Need at least one recipient besides me; otherwise there's no one to deliver to
+        // (queue, like 1:1, rather than sending into the void).
+        guard wraps.keys.contains(where: { $0 != me }) else {
+            throw MissingRecipientKeyError(uid: members.first { $0 != me } ?? "")
         }
         let payload: [String: Any] = [
             "n": Data(sealed.nonce).base64EncodedString(),
