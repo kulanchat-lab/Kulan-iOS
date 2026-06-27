@@ -194,6 +194,14 @@ final class StoriesRepository {
         }
     }
 
+    // Optimistically clear the unseen ring the instant a bucket is viewed, so it doesn't stay
+    // "unseen" while the serverTimestamp write races the forced reload (H8).
+    @MainActor func markSeenLocally(_ authorUid: String) {
+        let now = Date()
+        if let i = others.firstIndex(where: { $0.authorUid == authorUid }) { others[i].lastViewedAt = now }
+        if mine?.authorUid == authorUid { mine?.lastViewedAt = now }
+    }
+
     func load(force: Bool = false) async {
         guard let me = Auth.auth().currentUser?.uid else { return }
         // Throttle: ChatsView re-appears often; skip a reload within 20s unless forced (e.g. post-upload).

@@ -285,6 +285,7 @@ struct StoryViewer: View {
     // one person's story no longer clears everyone's unseen ring.
     private func markSeen(authorUid: String) {
         guard !anonymous, let g = groups.first(where: { $0.authorUid == authorUid }) else { return }
+        StoriesRepository.shared.markSeenLocally(authorUid)   // clear the ring immediately (H8 race fix)
         Task { for s in g.stories { await StoriesService.shared.markViewed(s) } }
     }
 

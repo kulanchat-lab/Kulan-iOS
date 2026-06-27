@@ -694,7 +694,8 @@ struct ChatsView: View {
                 AddStorySheet { Task { await StoriesRepository.shared.load(force: true) } }
             }
             .fullScreenCover(item: $viewerGroup) { g in
-                let others = StoriesRepository.shared.others
+                // Match the row: don't let swiping land on a HIDDEN person's story (M1).
+                let others = StoriesRepository.shared.others.filter { !StoryPrefs.isHidden($0.authorUid) }
                 let close: () -> Void = {
                     viewerGroup = nil
                     Task { await StoriesRepository.shared.load(force: true) }   // refresh seen rings
