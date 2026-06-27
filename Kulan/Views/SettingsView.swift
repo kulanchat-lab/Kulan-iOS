@@ -505,7 +505,8 @@ struct StorySettingsView: View {
 struct EditProfileView: View {
     @Environment(\.dismiss) private var dismiss
     private var profile = ProfileStore.shared
-    @State private var name = ""
+    @State private var firstName = ""
+    @State private var lastName = ""
     @State private var handle = ""
     @State private var about = ""
     @State private var photoItem: PhotosPickerItem?
@@ -513,75 +514,108 @@ struct EditProfileView: View {
     @State private var uploading = false
     @State private var saving = false
     @State private var error: String?
+    @State private var showUsername = false
+
+    private var cardBG: Color { Color(.secondarySystemGroupedBackground) }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        Spacer()
-                        PhotosPicker(selection: $photoItem, matching: .images) {
-                            ZStack(alignment: .bottomTrailing) {
-                                AvatarView(name: name, photoUrl: profile.me?.photoUrl, size: 96)
-                                if uploading {
-                                    ProgressView().padding(8).background(.thinMaterial, in: Circle())
-                                } else {
-                                    Image(systemName: "camera.fill")
-                                        .font(.caption).padding(7)
-                                        .background(.thinMaterial, in: Circle())
-                                }
-                            }
-                        }
-                        Spacer()
-                    }
-                    .listRowBackground(Color.clear)
-                }
+        ZStack {
+            Color(.systemGroupedBackground).ignoresSafeArea()
+            VStack(spacing: 0) {
+                topBar
+                ScrollView {
+                    VStack(spacing: 22) {
+                        avatarBlock
 
-                Section("Name") {
-                    TextField("Your name", text: $name).textInputAutocapitalization(.words)
-                        .onChange(of: name) { _, v in if v.count > 40 { name = String(v.prefix(40)) } }
-                }
-                Section {
-                    // "@" prefix so the username field is clearly distinct from the name.
-                    HStack(spacing: 1) {
-                        Text("@").foregroundStyle(.secondary)
-                        TextField("username", text: $handle)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .onChange(of: handle) { _, v in
-                                let clean = ChatService.sanitizeHandle(v)
-                                if clean != v { handle = clean }   // block spaces/symbols as you type
+                        // Name card (first + last → stored as one name).
+                        VStack(spacing: 0) {
+                            nameField("First name", text: $firstName)
+                            Divider().padding(.leading, 18)
+                            nameField("Last Name", text: $lastName)
+                        }
+                        .background(cardBG, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                        // Username row → pushes the dedicated username editor.
+                        Button { showUsername = true } label: {
+                            HStack {
+                                Text("Username").foregroundStyle(.primary)
+                                Spacer()
+                                Text(handle.isEmpty ? "Set" : "@\(handle)").foregroundStyle(.secondary)
+                                Image(systemName: "chevron.right").font(.footnote).foregroundStyle(.tertiary)
                             }
+                            .padding(.horizontal, 18).padding(.vertical, 16)
+                            .background(cardBG, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+
+                        // Bio card.
+                        TextField("A few words about you", text: $about, axis: .vertical)
+                            .lineLimit(1...4)
+                            .padding(.horizontal, 18).padding(.vertical, 16)
+                            .background(cardBG, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .onChange(of: about) { _, v in if v.count > 140 { about = String(v.prefix(140)) } }
+
+                        if let error { Text(error).foregroundStyle(.red).font(.footnote) }
                     }
-                } header: {
-                    Text("Username")
-                } footer: {
-                    Text("Letters, numbers and _ only. 3–24 characters.")
+                    .padding(.horizontal, 16).padding(.top, 12)
                 }
-                Section("Bio") {
-                    TextField("A few words about you", text: $about, axis: .vertical)
-                        .onChange(of: about) { _, v in if v.count > 140 { about = String(v.prefix(140)) } }
-                        .lineLimit(1...4)
-                }
-                if let error { Text(error).foregroundStyle(.red) }
-            }
-            .navigationTitle("Edit Profile")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "xmark") }.tint(.primary) }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Save") { Task { await save() } }.disabled(saving).fontWeight(.semibold)
-                }
-            }
-            .onAppear {
-                name = profile.me?.name ?? ""
-                handle = profile.me?.handle ?? ""
-                about = profile.me?.about ?? ""
-            }
-            .onChange(of: photoItem) { _, item in
-                uploadTask?.cancel()                       // rapid re-picks don't stack concurrent uploads
-                uploadTask = Task { await upload(item) }
             }
         }
+        .onAppear {
+            let parts = (profile.me?.name ?? "").split(separator: " ", maxSplits: 1).map(String.init)
+            firstName = parts.first ?? ""
+            lastName = parts.count > 1 ? parts[1] : ""
+            handle = profile.me?.handle ?? ""
+            about = profile.me?.about ?? ""
+        }
+        .onChange(of: photoItem) { _, item in
+            uploadTask?.cancel()
+            uploadTask = Task { await upload(item) }
+        }
+        .sheet(isPresented: $showUsername) { UsernameEditView(handle: $handle) }
+    }
+
+    private var topBar: some View {
+        HStack {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark").font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
+                    .frame(width: 40, height: 40).background(cardBG, in: Circle())
+            }
+            Spacer()
+            Text("Edit Profile").font(.headline)
+            Spacer()
+            Button { Task { await save() } } label: {
+                Text("Save").font(.headline).foregroundStyle(saving ? .secondary : .primary)
+                    .padding(.horizontal, 18).padding(.vertical, 9)
+                    .background(cardBG, in: Capsule())
+            }
+            .disabled(saving)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+    }
+
+    private var avatarBlock: some View {
+        VStack(spacing: 12) {
+            PhotosPicker(selection: $photoItem, matching: .images) {
+                AvatarView(name: firstName, photoUrl: profile.me?.photoUrl, size: 130)
+                    .overlay { if uploading { ZStack { Circle().fill(.black.opacity(0.3)); ProgressView().tint(.white) } } }
+            }
+            .buttonStyle(.plain)
+            PhotosPicker(selection: $photoItem, matching: .images) {
+                Text("Change").font(.subheadline.weight(.medium)).foregroundStyle(.blue)
+                    .padding(.horizontal, 14).padding(.vertical, 6)
+                    .background(Color.blue.opacity(0.12), in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 8)
+    }
+
+    private func nameField(_ placeholder: String, text: Binding<String>) -> some View {
+        TextField(placeholder, text: text)
+            .textInputAutocapitalization(.words)
+            .padding(.horizontal, 18).padding(.vertical, 16)
+            .onChange(of: text.wrappedValue) { _, v in if v.count > 40 { text.wrappedValue = String(v.prefix(40)) } }
     }
 
     private func upload(_ item: PhotosPickerItem?) async {
@@ -598,7 +632,7 @@ struct EditProfileView: View {
     }
 
     private func save() async {
-        let n = name.trimmingCharacters(in: .whitespaces)
+        let n = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
         let h = ChatService.sanitizeHandle(handle)
         guard !n.isEmpty else { error = "Enter your name"; return }
         guard ChatService.isValidHandle(h) else {
@@ -615,5 +649,54 @@ struct EditProfileView: View {
             self.error = "Could not save: \(error.localizedDescription)"
         }
         saving = false
+    }
+}
+
+// Dedicated username editor (matches the reference: X · "Username" · blue check, one @field + helper).
+struct UsernameEditView: View {
+    @Binding var handle: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+    private var cardBG: Color { Color(.secondarySystemGroupedBackground) }
+
+    var body: some View {
+        ZStack {
+            Color(.systemGroupedBackground).ignoresSafeArea()
+            VStack(spacing: 0) {
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark").font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
+                            .frame(width: 40, height: 40).background(cardBG, in: Circle())
+                    }
+                    Spacer()
+                    Text("Username").font(.headline)
+                    Spacer()
+                    Button {
+                        handle = ChatService.sanitizeHandle(draft); dismiss()
+                    } label: {
+                        Image(systemName: "checkmark").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+                            .frame(width: 40, height: 40).background(.blue, in: Circle())
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 1) {
+                        Text("@").foregroundStyle(.secondary)
+                        TextField("username", text: $draft)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled().focused($focused)
+                            .onChange(of: draft) { _, v in let c = ChatService.sanitizeHandle(v); if c != v { draft = c } }
+                    }
+                    .padding(.horizontal, 18).padding(.vertical, 16)
+                    .background(cardBG, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    Text("Letters, numbers and _ only. 3–24 characters.")
+                        .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 4)
+                }
+                .padding(16)
+                Spacer()
+            }
+        }
+        .onAppear { draft = handle; focused = true }
     }
 }
