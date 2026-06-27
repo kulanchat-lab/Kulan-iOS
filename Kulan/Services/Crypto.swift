@@ -232,7 +232,9 @@ final class Crypto {
         let key = "\(cid)|\(raw)" as NSString
         if let hit = previewCache.object(forKey: key) { return hit as String }
         let out = decrypt(raw, cid: cid)
-        previewCache.setObject(out as NSString, forKey: key)
+        // Don't memoize failure sentinels — the recipient's key may just not be warm yet.
+        // Caching "…"/"🔒" would freeze the chat-list preview until a new message arrives.
+        if out != "…" && out != "🔒" { previewCache.setObject(out as NSString, forKey: key) }
         return out
     }
 

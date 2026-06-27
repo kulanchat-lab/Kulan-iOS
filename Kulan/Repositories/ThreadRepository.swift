@@ -302,5 +302,5 @@ final class ThreadRepository {
         expiryTimer?.invalidate(); expiryTimer = nil
     }
 
-    deinit { listener?.remove(); convListener?.remove(); userListener?.remove() }
+    deinit { listener?.remove(); convListener?.remove(); userListener?.remove(); expiryTimer?.invalidate() }
 }

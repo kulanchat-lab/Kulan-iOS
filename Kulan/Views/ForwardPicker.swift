@@ -12,6 +12,7 @@ struct ForwardPicker: View {
     @State private var query = ""
     @State private var selected = Set<String>()
     @State private var sending = false
+    @State private var forwardError = false
     private var me: String { AuthService.shared.uid ?? "" }
 
     private var people: [Conversation] {
@@ -58,6 +59,9 @@ struct ForwardPicker: View {
                 }
             }
             .searchable(text: $query, prompt: "Search")
+            .alert("Couldn't forward", isPresented: $forwardError) {
+                Button("OK", role: .cancel) {}
+            } message: { Text("Some messages didn't send. Check your connection and try again.") }
             .navigationTitle("Forward to…")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -83,10 +87,12 @@ struct ForwardPicker: View {
 
     private func sendAll() async {
         sending = true
+        var failed = false
         for cid in selected {
-            try? await ChatService.forwardMessage(message, from: sourceCid, to: cid)
+            do { try await ChatService.forwardMessage(message, from: sourceCid, to: cid) }
+            catch { failed = true }
         }
         sending = false
-        dismiss()
+        if failed { forwardError = true } else { dismiss() }   // don't pretend it sent
     }
 }

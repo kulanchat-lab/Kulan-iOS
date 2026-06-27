@@ -26,6 +26,11 @@ struct MainShell: View {
                 legacyTabView
             }
         }
+        // A pending chat (from a notification tap or the Calls "Go to Chat" menu) must
+        // foreground the Chats tab — otherwise it opens on a hidden tab and looks like a no-op.
+        .onChange(of: AppRouter.shared.pendingChatId) { _, id in
+            if id != nil { tab = 0 }
+        }
         // Call UI is mounted at the root (CallContainer in RootView) so it survives all
         // navigation. Here we only start listening for incoming calls.
         .onAppear { call.observeIncoming() }

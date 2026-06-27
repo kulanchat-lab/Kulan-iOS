@@ -559,6 +559,13 @@ enum ChatService {
                   let (cipher, _) = try? await URLSession.shared.data(from: url),
                   let dec = await Crypto.shared.decryptBytes(sourceCid, cipher: cipher, meta: meta) else { return }
             try await sendAudio(cid: targetCid, data: dec, duration: m.duration ?? 0, waveform: m.waveform)
+        } else if m.isGif {
+            try await sendGif(cid: targetCid, url: m.imageUrl ?? "", width: m.width ?? 200, height: m.height ?? 200)
+        } else if m.isFile {
+            guard let s = m.fileUrl, let url = URL(string: s), let meta = m.enc,
+                  let (cipher, _) = try? await URLSession.shared.data(from: url),
+                  let dec = await Crypto.shared.decryptBytes(sourceCid, cipher: cipher, meta: meta) else { return }
+            try await sendFile(cid: targetCid, data: dec, fileName: m.fileName ?? "File")
         } else {
             try await sendText(cid: targetCid, text: m.text)
         }

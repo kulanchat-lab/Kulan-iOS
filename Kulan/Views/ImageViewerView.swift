@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Photos
 
 // Full-screen photo viewer (Telegram-style): pinch to zoom, drag down to dismiss.
 struct ImageViewerView: View {
@@ -10,6 +11,7 @@ struct ImageViewerView: View {
     @State private var scale: CGFloat = 1
     @State private var dragOffset: CGSize = .zero
     @State private var saved = false
+    @State private var saveError = false
 
     var body: some View {
         ZStack {
@@ -57,13 +59,27 @@ struct ImageViewerView: View {
                 Spacer()
             }
         }
+        .alert("Couldn't save photo", isPresented: $saveError) {
+            Button("OK", role: .cancel) {}
+        } message: { Text("Check Photos permission and try again.") }
     }
 
-    // Save the already-decrypted image (from cache) to the camera roll.
+    // Save the decrypted image to the camera roll — disk fallback + REAL success/failure.
     private func save() {
-        guard let url = message.imageUrl,
-              let ui = DiskImageCache.shared.memoryImage(url) else { return }
-        UIImageWriteToSavedPhotosAlbum(ui, nil, nil, nil)
-        withAnimation { saved = true }
+        Task {
+            var ui = message.imageUrl.flatMap { DiskImageCache.shared.memoryImage($0) }
+            if ui == nil, let u = message.imageUrl { ui = await DiskImageCache.shared.image(for: u) }
+            guard let image = ui else { await MainActor.run { saveError = true }; return }
+            let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+            guard status == .authorized || status == .limited else { await MainActor.run { saveError = true }; return }
+            do {
+                try await PHPhotoLibrary.shared().performChanges {
+                    PHAssetChangeRequest.creationRequestForAsset(from: image)
+                }
+                await MainActor.run { withAnimation { saved = true } }
+            } catch {
+                await MainActor.run { saveError = true }
+            }
+        }
     }
 }
