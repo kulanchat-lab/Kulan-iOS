@@ -20,6 +20,11 @@ packages:
   WebRTC:
     url: https://github.com/stasel/WebRTC
     from: "120.0.0"
+  # Group calls. LiveKit ships its own LK-prefixed WebRTC, so it coexists with stasel/WebRTC
+  # (used for 1:1). Binary comes from GitHub releases — fine on this CI (like the Firebase mirror).
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    from: "2.0.0"
 
 targets:
   Kulan:
@@ -70,3 +75,5 @@ targets:
         product: Sodium
       - package: WebRTC
         product: WebRTC
+      - package: LiveKit
+        product: LiveKit
