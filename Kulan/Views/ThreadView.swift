@@ -535,8 +535,11 @@ struct ThreadView: View {
                         isHighlighted: msg.id == highlightId,
                         isFirstInCluster: isFirstInCluster(at: index),
                         isLastInCluster: isLastInCluster(at: index),
-                        otherLastRead: repo.iBlocked ? 0 : repo.otherLastReadMillis   // don't show read ticks to a blocked user
+                        // Read-tick only matters on MY messages; incoming bubbles get a constant 0 so a
+                        // read-receipt update never re-renders them (H2). Combined with .equatable() below.
+                        otherLastRead: (msg.authorId == me && !repo.iBlocked) ? repo.otherLastReadMillis : 0
                     )
+                    .equatable()   // skip re-rendering bubbles whose value-inputs are unchanged (H2/H3/M1)
                     .padding(.top, topGap(at: index))   // tight when grouped, wider on sender change
                     .id(msg.id)
                     .transition(.move(edge: .bottom).combined(with: .opacity))   // Signal-style slide-in
@@ -1423,7 +1426,18 @@ struct ThreadView: View {
     }
 }
 
-struct MessageBubble: View {
+struct MessageBubble: View, Equatable {
+    // Equatable so SwiftUI skips re-rendering a bubble whose VALUE inputs are unchanged, even when
+    // the parent re-evaluates and passes fresh closures (the re-render storm from typing / read
+    // receipts / chat-list churn). Closures + @State are intentionally NOT compared.
+    static func == (l: MessageBubble, r: MessageBubble) -> Bool {
+        l.message == r.message && l.isMe == r.isMe && l.dark == r.dark && l.cid == r.cid
+            && l.isGroup == r.isGroup && l.canPin == r.canPin && l.isPinned == r.isPinned
+            && l.isHighlighted == r.isHighlighted
+            && l.isFirstInCluster == r.isFirstInCluster && l.isLastInCluster == r.isLastInCluster
+            && l.otherLastRead == r.otherLastRead
+    }
+
     let message: Message
     let isMe: Bool
     let dark: Bool
