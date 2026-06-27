@@ -122,7 +122,9 @@ struct ThreadView: View {
             }
             .floatingBottomBar {
                 Group {
-                    if repo.iBlocked {
+                    if notAMember {
+                        removedBar.transition(.opacity.combined(with: .move(edge: .bottom)))
+                    } else if repo.iBlocked {
                         blockedBar.transition(.opacity.combined(with: .move(edge: .bottom)))
                     } else {
                         composerArea.transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -647,6 +649,22 @@ struct ThreadView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
         .background(.bar)
+    }
+
+    // A group I'm no longer in (removed by an admin, or left on another device): the conv is
+    // still cached but I'm not in `users`. Show a non-interactive bar instead of the composer.
+    private var notAMember: Bool {
+        guard !cid.contains("_") else { return false }       // 1:1 chats are never "removed"
+        guard let conv = conversation else { return false }  // not loaded yet → don't assume
+        return !conv.users.contains(AuthService.shared.uid ?? "")
+    }
+
+    private var removedBar: some View {
+        Text("You're no longer a member of this group")
+            .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(.bar)
     }
 
     // The reply preview now nests INSIDE the input capsule (see inputRow).
