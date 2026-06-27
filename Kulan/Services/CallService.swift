@@ -168,11 +168,15 @@ final class CallService: NSObject {
     /// channel). The peer's didAdd(rtpReceiver) fires for the new video track → their UI flips.
     /// NOTE: mid-call SDP renegotiation needs a real 2-device test; not verifiable in the simulator.
     func upgradeToVideo() {
-        guard let pc, state == .active, !isVideo, localVideoTrack == nil else { return }
+        guard let pc, state == .active, !isVideo else { return }
         isVideo = true
         cameraOn = true
         if !isSpeaker { toggleSpeaker() }
-        addLocalVideo(to: pc)        // inject my video track into the live session
+        if localVideoTrack == nil {
+            addLocalVideo(to: pc)    // first upgrade: inject a fresh camera track
+        } else {
+            localVideoTrack?.isEnabled = true   // track existed but was disabled — re-enable it
+        }
         renegotiateMedia()
     }
 
