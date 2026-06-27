@@ -8,7 +8,7 @@ struct AddStorySheet: View {
     var onPosted: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     @StateObject private var store = PhotoGridStore()
-    @State private var editorImage: UIImage?
+    @State private var editorImage: EditorImage?
     @State private var showCamera = false
     @State private var showText = false
 
@@ -32,7 +32,7 @@ struct AddStorySheet: View {
                             .aspectRatio(1, contentMode: .fill)
                             .clipped()
                             .onTapGesture {
-                                Task { editorImage = await store.fullImage(asset) }
+                                Task { if let ui = await store.fullImage(asset) { editorImage = EditorImage(ui) } }
                             }
                     }
                 }
@@ -41,11 +41,11 @@ struct AddStorySheet: View {
             .navigationTitle("Add to Story")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "xmark") } } }
-            .fullScreenCover(item: imageItem) { item in
+            .fullScreenCover(item: $editorImage) { item in
                 StoryEditorView(source: item.image, onPosted: { onPosted(); dismiss() })
             }
             .fullScreenCover(isPresented: $showCamera) {
-                StoryCameraView(onCapture: { d in if let ui = UIImage(data: d) { editorImage = ui } },
+                StoryCameraView(onCapture: { d in if let ui = UIImage(data: d) { editorImage = EditorImage(ui) } },
                                 onClose: { showCamera = false },
                                 onTextMode: { showCamera = false; showText = true })
             }
@@ -57,10 +57,6 @@ struct AddStorySheet: View {
         }
     }
 
-    // Bridge editorImage (UIImage?) to a .fullScreenCover(item:).
-    private var imageItem: Binding<EditorImage?> {
-        Binding(get: { editorImage.map(EditorImage.init) }, set: { editorImage = $0?.image })
-    }
     struct EditorImage: Identifiable { let id = UUID(); let image: UIImage; init(_ i: UIImage) { image = i } }
 
     private var cameraTile: some View {

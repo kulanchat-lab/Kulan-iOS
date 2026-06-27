@@ -18,8 +18,12 @@ struct StoryEditorView: View {
     @State private var drawing = PKDrawing()
     @State private var isDrawing = false
     @State private var filterIndex = 0
+    @State private var filteredCache: UIImage?       // recomputed only when the filter changes
+    @State private var canvasSize: CGSize = .zero    // on-screen size, so the export matches WYSIWYG
     @State private var posting = false
     @State private var postError = false
+
+    private static let ciContext = CIContext()       // one shared context (cheap reuse)
 
     struct TextOverlay: Identifiable { let id = UUID(); var text: String; var pos: CGPoint }
 
@@ -28,7 +32,7 @@ struct StoryEditorView: View {
         ("Fade", "CIPhotoEffectFade"), ("Chrome", "CIPhotoEffectChrome"), ("Instant", "CIPhotoEffectInstant"),
     ]
 
-    private var displayImage: UIImage { Self.apply(Self.filters[filterIndex].ci, to: source) }
+    private var displayImage: UIImage { filterIndex == 0 ? source : (filteredCache ?? source) }
 
     var body: some View {
         GeometryReader { geo in
@@ -44,7 +48,14 @@ struct StoryEditorView: View {
                     .allowsHitTesting(isDrawing)
                     .ignoresSafeArea()
 
-                // Draggable text overlays.
+                // Swipe up to cycle filters — BELOW the text + controls so those stay tappable.
+                Color.clear.contentShape(Rectangle()).ignoresSafeArea()
+                    .gesture(DragGesture(minimumDistance: 30).onEnded { v in
+                        if v.translation.height < -40 { cycleFilter() }
+                    })
+                    .allowsHitTesting(!isDrawing)
+
+                // Draggable text overlays (above the swipe catcher so tap-to-edit/drag work).
                 ForEach(textOverlays) { t in
                     Text(t.text)
                         .font(.system(size: 30, weight: .bold)).foregroundStyle(.white)
@@ -54,15 +65,10 @@ struct StoryEditorView: View {
                         .onTapGesture { editingText = t }
                 }
 
-                // Swipe up to cycle filters.
-                Color.clear.contentShape(Rectangle()).ignoresSafeArea()
-                    .gesture(DragGesture(minimumDistance: 30).onEnded { v in
-                        if v.translation.height < -40 { cycleFilter() }
-                    })
-                    .allowsHitTesting(!isDrawing)
-
                 overlayControls(geo)
             }
+            .onAppear { canvasSize = geo.size }
+            .onChange(of: geo.size) { _, s in canvasSize = s }
         }
         .statusBarHidden()
         .alert("Couldn't share", isPresented: $postError) { Button("OK", role: .cancel) {} }
@@ -142,7 +148,9 @@ struct StoryEditorView: View {
 
     // MARK: - Actions
     private func cycleFilter() {
-        withAnimation(.easeInOut(duration: 0.2)) { filterIndex = (filterIndex + 1) % Self.filters.count }
+        let next = (filterIndex + 1) % Self.filters.count
+        filteredCache = next == 0 ? nil : Self.apply(Self.filters[next].ci, to: source)
+        withAnimation(.easeInOut(duration: 0.2)) { filterIndex = next }
     }
     private func addText() { editingText = TextOverlay(text: "", pos: CGPoint(x: 200, y: 320)) }
     private func move(_ t: TextOverlay, to p: CGPoint) {
@@ -168,14 +176,16 @@ struct StoryEditorView: View {
         }
     }
 
-    // Flatten filtered image + drawing + text overlays into one JPEG at the image's size.
+    // Flatten at the ON-SCREEN size so text/drawing land exactly where the user placed them
+    // (their positions are in screen points), then render at retina scale for sharpness.
     @MainActor private func flatten() async -> Data {
         let base = displayImage
-        let size = base.size
+        let size = canvasSize == .zero ? UIScreen.main.bounds.size : canvasSize
         let composed = ZStack {
             Image(uiImage: base).resizable().scaledToFill()
+                .frame(width: size.width, height: size.height).clipped()
             if !drawing.bounds.isEmpty {
-                Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: size), scale: 1)).resizable()
+                Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: size), scale: UIScreen.main.scale)).resizable()
             }
             ForEach(textOverlays) { t in
                 Text(t.text).font(.system(size: 30, weight: .bold)).foregroundStyle(.white).shadow(radius: 4)
@@ -183,7 +193,7 @@ struct StoryEditorView: View {
             }
         }
         .frame(width: size.width, height: size.height)
-        let r = ImageRenderer(content: composed); r.scale = 1
+        let r = ImageRenderer(content: composed); r.scale = UIScreen.main.scale
         return r.uiImage?.jpegData(compressionQuality: 0.9) ?? (base.jpegData(compressionQuality: 0.9) ?? Data())
     }
 
@@ -191,8 +201,7 @@ struct StoryEditorView: View {
         guard let filterName, let ci = CIImage(image: image),
               let filter = CIFilter(name: filterName) else { return image }
         filter.setValue(ci, forKey: kCIInputImageKey)
-        let ctx = CIContext()
-        guard let out = filter.outputImage, let cg = ctx.createCGImage(out, from: out.extent) else { return image }
+        guard let out = filter.outputImage, let cg = ciContext.createCGImage(out, from: out.extent) else { return image }
         return UIImage(cgImage: cg, scale: image.scale, orientation: image.imageOrientation)
     }
 }

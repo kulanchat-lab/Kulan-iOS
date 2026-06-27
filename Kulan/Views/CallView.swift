@@ -161,7 +161,8 @@ struct CallView: View {
                 }
                 .shadow(color: .black.opacity(0.45), radius: 14, y: 5)
                 .offset(pipOffset)
-                .gesture(
+                // highPriority so dragging the PiP repositions it instead of minimizing the call.
+                .highPriorityGesture(
                     DragGesture()
                         .onChanged { v in
                             let w = pipBase.width + v.translation.width

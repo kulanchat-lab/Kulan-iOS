@@ -4,7 +4,7 @@ name: Kulan
 options:
   bundleIdPrefix: com.kulan
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.0"   # iOS 26+ only — no legacy fallbacks; build with the latest APIs
   createIntermediateGroups: true
 
 packages:
