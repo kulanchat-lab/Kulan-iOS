@@ -53,37 +53,31 @@ struct StoryTextComposer: View {
                         .padding(.horizontal, 28)
                 }
 
-                // Top controls: close (X) left, palette right.
+                // Top controls: close (X) left, palette right. Send docks bottom-right (Instagram-style).
                 VStack {
                     HStack(spacing: 10) {
                         Button(action: onClose) { circle("xmark") }.buttonStyle(.plain)
                         Spacer()
                         Button { bgIndex += 1 } label: { circle("paintpalette.fill") }.buttonStyle(.plain)
-                        // Always-visible send (the keyboard-accessory one wasn't reliably showing).
-                        Button { share() } label: {
-                            Image(systemName: "paperplane.fill")
-                                .font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                                .frame(width: 44, height: 44)
-                                .background(trimmed.isEmpty ? AnyShapeStyle(.ultraThinMaterial)
-                                                            : AnyShapeStyle(Color(.systemGreen)), in: Circle())
-                        }
-                        .buttonStyle(.plain).disabled(trimmed.isEmpty)
                     }
                     .padding(.horizontal, 16).padding(.top, 8)
                     Spacer()
+                    HStack {
+                        Spacer()
+                        Button { share() } label: {
+                            Image(systemName: "paperplane.fill")
+                                .font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                                .frame(width: 54, height: 54)
+                                .background(trimmed.isEmpty ? AnyShapeStyle(.ultraThinMaterial)
+                                                            : AnyShapeStyle(Color(.systemGreen)), in: Circle())
+                                .shadow(color: Color(.systemGreen).opacity(trimmed.isEmpty ? 0 : 0.5), radius: 8)
+                        }
+                        .buttonStyle(.plain).disabled(trimmed.isEmpty)
+                    }
+                    .padding(.horizontal, 16).padding(.bottom, 12)
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
-            // Native keyboard accessory: Share docks directly above the keyboard and tracks it.
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button { share() } label: {
-                        Label("Share to My Status", systemImage: "paperplane.fill").fontWeight(.semibold)
-                    }
-                    .disabled(trimmed.isEmpty)
-                }
-            }
         }
         .onAppear { focused = true }
     }

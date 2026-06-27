@@ -25,10 +25,10 @@ packages:
   LiveKit:
     url: https://github.com/livekit/client-sdk-swift
     from: "2.0.0"
-  # Story viewer (MIT) — native swipe / progress bars / tap-to-advance / reply+emoji bar.
+  # Story viewer (MIT, vendored as a LOCAL package so we own + customize the source:
+  # header→profile tap, swipe-down dismiss, exact Instagram sizing, transitions).
   StoryUI:
-    url: https://github.com/tiskender2/StoryUI
-    exactVersion: "1.6.1"
+    path: StoryUI
 
 targets:
   Kulan:

@@ -701,9 +701,11 @@ struct ChatsView: View {
                 // A friend's story opens the whole ordered list (swipe person to person);
                 // My Story (not in `others`) opens on its own.
                 if let idx = others.firstIndex(where: { $0.id == g.id }) {
-                    StoryViewer(groups: others, startIndex: idx, anonymous: viewerAnonymous, onClose: close)
+                    StoryViewer(groups: others, startIndex: idx, anonymous: viewerAnonymous, onClose: close,
+                                onProfile: { grp in profileGroup = grp })
                 } else {
-                    StoryViewer(group: g, anonymous: viewerAnonymous, onClose: close)
+                    StoryViewer(group: g, anonymous: viewerAnonymous, onClose: close,
+                                onProfile: { grp in profileGroup = grp })
                 }
             }
             .sheet(item: $profileGroup) { g in

@@ -213,16 +213,20 @@ struct StoryViewer: View {
     var startIndex: Int = 0
     var anonymous: Bool
     var onClose: () -> Void
+    var onProfile: (StoryGroup) -> Void = { _ in }   // tap the story header → that user's profile
     @State private var isPresented = true
 
-    init(group: StoryGroup, anonymous: Bool = false, onClose: @escaping () -> Void) {
-        self.init(groups: [group], startIndex: 0, anonymous: anonymous, onClose: onClose)
+    init(group: StoryGroup, anonymous: Bool = false, onClose: @escaping () -> Void,
+         onProfile: @escaping (StoryGroup) -> Void = { _ in }) {
+        self.init(groups: [group], startIndex: 0, anonymous: anonymous, onClose: onClose, onProfile: onProfile)
     }
-    init(groups: [StoryGroup], startIndex: Int = 0, anonymous: Bool = false, onClose: @escaping () -> Void) {
+    init(groups: [StoryGroup], startIndex: Int = 0, anonymous: Bool = false, onClose: @escaping () -> Void,
+         onProfile: @escaping (StoryGroup) -> Void = { _ in }) {
         self.groups = groups
         self.startIndex = startIndex
         self.anonymous = anonymous
         self.onClose = onClose
+        self.onProfile = onProfile
     }
 
     private var models: [StoryUIModel] {
@@ -250,9 +254,17 @@ struct StoryViewer: View {
     }
 
     var body: some View {
-        StoryView(stories: models, selectedIndex: startIndex, isPresented: $isPresented) { story, message, emoji, isLiked in
-            handle(storyId: story.id, message: message, emoji: emoji, isLiked: isLiked)
-        }
+        StoryView(
+            stories: models,
+            selectedIndex: startIndex,
+            isPresented: $isPresented,
+            userClosure: { story, message, emoji, isLiked in
+                handle(storyId: story.id, message: message, emoji: emoji, isLiked: isLiked)
+            },
+            onProfile: { user in
+                if let g = groups.first(where: { $0.authorUid == user.id }) { onClose(); onProfile(g) }
+            }
+        )
         .ignoresSafeArea()
         .onChange(of: isPresented) { _, shown in if !shown { onClose() } }
         .task { await markAllSeen() }
