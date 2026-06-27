@@ -21,6 +21,7 @@ struct ThreadView: View {
     @State private var tappedMember: GroupInfoView.MemberAction?
     @State private var replyingTo: Message?
     @State private var photoItem: PhotosPickerItem?
+    @State private var photoItems: [PhotosPickerItem] = []
     @State private var sendingPhoto = false
     @State private var typingSent = false
     @State private var viewerImage: Message?
@@ -188,7 +189,7 @@ struct ThreadView: View {
         .fullScreenCover(item: $viewerImage) { msg in
             ImageViewerView(message: msg, cid: cid)
         }
-        .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
+        .photosPicker(isPresented: $showLibrary, selection: $photoItems, maxSelectionCount: 10, matching: .images)
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker { data in Task { await sendCaptured(data) } }
                 .ignoresSafeArea()
@@ -274,7 +275,7 @@ struct ThreadView: View {
             if recorder.isRecording { recorder.cancel() }
             recordLocked = false; recordDrag = .zero; holdStarted = false
         }
-        .onChange(of: photoItem) { _, item in Task { await sendPicked(item) } }
+        .onChange(of: photoItems) { _, items in Task { await sendPickedMulti(items) } }
     }
 
     private var hasText: Bool {
@@ -871,6 +872,18 @@ struct ThreadView: View {
         defer { photoItem = nil }
         if let data = try? await item.loadTransferable(type: Data.self) {
             await sendPhoto(data)
+        }
+    }
+
+    // Multi-select: send each chosen photo in order (native PhotosUI multi-pick).
+    private func sendPickedMulti(_ items: [PhotosPickerItem]) async {
+        guard !items.isEmpty else { return }
+        let picked = items
+        await MainActor.run { photoItems = [] }
+        for item in picked {
+            if let data = try? await item.loadTransferable(type: Data.self) {
+                await sendPhoto(data)
+            }
         }
     }
 
