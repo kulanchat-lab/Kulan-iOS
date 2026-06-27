@@ -131,7 +131,7 @@ struct GroupInfoView: View {
     }
 
     private var membersSection: some View {
-        Section("\(conv?.users.count ?? 0) Members") {
+        Section(conv?.memberCountLabel.capitalized ?? "Members") {
             if iAmAdmin {
                 Button { showAdd = true } label: { Label("Add Members", systemImage: "person.badge.plus") }
             }

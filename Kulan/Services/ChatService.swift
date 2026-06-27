@@ -109,6 +109,15 @@ enum ChatService {
         let newOnes = add.filter { !$0.isEmpty }
         guard !newOnes.isEmpty else { return }
         let convRef = db.collection("conversations").document(cid)
+        // Enforce the 30-member cap on growth (the rules only cap it at create time).
+        var currentCount = ConversationsRepository.shared.conversations.first(where: { $0.id == cid })?.users.count ?? 0
+        if currentCount == 0 {
+            currentCount = ((try? await convRef.getDocument())?.data()?["users"] as? [String])?.count ?? 0
+        }
+        if currentCount + newOnes.count > 30 {
+            throw NSError(domain: "ChatService", code: 30,
+                          userInfo: [NSLocalizedDescriptionKey: "A group can have at most 30 members."])
+        }
         var update: [String: Any] = [
             "users": FieldValue.arrayUnion(newOnes),
             "updatedAt": FieldValue.serverTimestamp(),
@@ -120,11 +129,15 @@ enum ChatService {
                 update["names.\(u)"] = nm
                 addedNames.append(nm)
                 if let ph = p.photoUrl, !ph.isEmpty { update["photos.\(u)"] = ph }
+            } else {
+                addedNames.append("New member")   // fallback so the event isn't blank
             }
             update["unreadCount.\(u)"] = 0
         }
         try await convRef.updateData(update)
-        try await writeSystemMessage(cid: cid, text: "\(myName()) added \(addedNames.joined(separator: ", "))")
+        if !addedNames.isEmpty {
+            try await writeSystemMessage(cid: cid, text: "\(myName()) added \(addedNames.joined(separator: ", "))")
+        }
     }
 
     /// Remove a member (admin) + system message.
@@ -148,6 +161,8 @@ enum ChatService {
            conv.admins.filter({ $0 != uid }).isEmpty,
            let heir = conv.users.first(where: { $0 != uid }) {
             try? await convRef.updateData(["admins": FieldValue.arrayUnion([heir])])
+            // Tell everyone who inherited admin (otherwise the heir never learns).
+            try? await writeSystemMessage(cid: cid, text: "\(conv.names[heir] ?? "A member") is now an admin")
         }
         try await writeSystemMessage(cid: cid, text: "\(myName()) left")
         try await convRef.updateData([
