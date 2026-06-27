@@ -105,9 +105,12 @@ enum ChatService {
 
     /// Add members + a "X added Y" system message. New members can't read prior history
     /// (their per-message wraps don't exist) — honest and expected, like sender keys.
-    static func addGroupMembers(cid: String, add: [String]) async throws {
+    /// Returns the display names of added members who have NO published key yet (they won't see
+    /// messages until they open Kulan) so the UI can warn the adder honestly.
+    @discardableResult
+    static func addGroupMembers(cid: String, add: [String]) async throws -> [String] {
         let newOnes = add.filter { !$0.isEmpty }
-        guard !newOnes.isEmpty else { return }
+        guard !newOnes.isEmpty else { return [] }
         let convRef = db.collection("conversations").document(cid)
         // Enforce the 30-member cap on growth (the rules only cap it at create time).
         var currentCount = ConversationsRepository.shared.conversations.first(where: { $0.id == cid })?.users.count ?? 0
@@ -123,14 +126,17 @@ enum ChatService {
             "updatedAt": FieldValue.serverTimestamp(),
         ]
         var addedNames: [String] = []
+        var keyless: [String] = []
         for u in newOnes {
             if let p = await ProfileStore.shared.fetch(u) {
                 let nm = p.name.isEmpty ? p.handle : p.name
                 update["names.\(u)"] = nm
                 addedNames.append(nm)
                 if let ph = p.photoUrl, !ph.isEmpty { update["photos.\(u)"] = ph }
+                if (p.publicKeyB64 ?? "").isEmpty { keyless.append(nm) }   // hasn't opened Kulan
             } else {
                 addedNames.append("New member")   // fallback so the event isn't blank
+                keyless.append("New member")
             }
             update["unreadCount.\(u)"] = 0
         }
@@ -138,6 +144,7 @@ enum ChatService {
         if !addedNames.isEmpty {
             try await writeSystemMessage(cid: cid, text: "\(myName()) added \(addedNames.joined(separator: ", "))")
         }
+        return keyless
     }
 
     /// Remove a member (admin) + system message.

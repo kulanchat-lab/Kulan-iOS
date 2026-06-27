@@ -291,6 +291,7 @@ struct AddMembersSheet: View {
     @State private var results: [UserProfile] = []
     @State private var adding = false
     @State private var errorText: String?
+    @State private var noticeText: String?
 
     private var candidates: [(id: String, name: String, photo: String?)] {
         convRepo.conversations
@@ -327,6 +328,9 @@ struct AddMembersSheet: View {
             .alert("Couldn't add members", isPresented: Binding(get: { errorText != nil }, set: { if !$0 { errorText = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: { Text(errorText ?? "") }
+            .alert("Members added", isPresented: Binding(get: { noticeText != nil }, set: { if !$0 { noticeText = nil } })) {
+                Button("OK") { dismiss() }
+            } message: { Text(noticeText ?? "") }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -335,8 +339,14 @@ struct AddMembersSheet: View {
                         adding = true
                         Task {
                             do {
-                                try await ChatService.addGroupMembers(cid: cid, add: ids)
-                                await MainActor.run { dismiss() }
+                                let keyless = try await ChatService.addGroupMembers(cid: cid, add: ids)
+                                await MainActor.run {
+                                    if keyless.isEmpty { dismiss() }
+                                    else {
+                                        noticeText = "\(keyless.joined(separator: ", ")) hasn't opened Kulan yet — they'll see messages once they do."
+                                        adding = false
+                                    }
+                                }
                             } catch {
                                 let msg = error.localizedDescription
                                 await MainActor.run { errorText = msg; adding = false }
