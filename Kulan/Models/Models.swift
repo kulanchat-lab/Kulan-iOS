@@ -232,7 +232,12 @@ struct Conversation: Identifiable, Equatable, Hashable {
     }
 
     func otherUid(_ me: String) -> String { users.first { $0 != me } ?? "" }
-    func name(for me: String) -> String { names[otherUid(me)] ?? "User" }
+    func name(for me: String) -> String {
+        let other = otherUid(me)
+        // 1:1 only: a locally-saved contact name overrides the profile name.
+        if !isGroup, let custom = ContactNames.name(for: other) { return custom }
+        return names[other] ?? "User"
+    }
     func photoUrl(for me: String) -> String? { photos[otherUid(me)] }
 
     // ── Group helpers ──

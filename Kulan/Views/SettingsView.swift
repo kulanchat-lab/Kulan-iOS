@@ -588,7 +588,7 @@ struct EditProfileView: View {
         HStack {
             Button { dismiss() } label: {
                 Image(systemName: "xmark").font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
-                    .frame(width: 40, height: 40).background(Color(.secondarySystemGroupedBackground), in: Circle())
+                    .frame(width: 40, height: 40).liquidGlass(Circle(), interactive: true)
             }
             Spacer()
             Text("Edit Profile").font(.headline)
@@ -596,7 +596,7 @@ struct EditProfileView: View {
             Button { Task { await save() } } label: {
                 Text("Save").font(.headline).foregroundStyle(saving ? .secondary : .primary)
                     .padding(.horizontal, 18).padding(.vertical, 9)
-                    .background(Color(.secondarySystemGroupedBackground), in: Capsule())
+                    .liquidGlass(Capsule(), interactive: true)
             }
             .disabled(saving)
         }
@@ -676,7 +676,7 @@ struct UsernameEditView: View {
                 HStack {
                     Button { dismiss() } label: {
                         Image(systemName: "xmark").font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
-                            .frame(width: 40, height: 40).background(Color(.secondarySystemGroupedBackground), in: Circle())
+                            .frame(width: 40, height: 40).liquidGlass(Circle(), interactive: true)
                     }
                     Spacer()
                     Text("Username").font(.headline)
