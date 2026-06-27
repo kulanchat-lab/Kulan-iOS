@@ -14,6 +14,8 @@ struct GroupInfoView: View {
     @State private var newName = ""
     @State private var showDescEdit = false
     @State private var descText = ""
+    @State private var showMute = false
+    @State private var showDisappear = false
     @State private var avatarItem: PhotosPickerItem?
     @State private var showAdd = false
     @State private var memberAction: MemberAction?
@@ -28,6 +30,7 @@ struct GroupInfoView: View {
         Group {   // pushed from the chat header → uses the parent nav bar (no nested stack)
             List {
                 headerSection
+                settingsSection
                 membersSection
                 leaveSection
             }
@@ -42,6 +45,20 @@ struct GroupInfoView: View {
             .alert("Group description", isPresented: $showDescEdit) {
                 TextField("Description", text: $descText)
                 Button("Save") { let t = descText; Task { try? await ChatService.setGroupDescription(cid: cid, text: t) } }
+                Button("Cancel", role: .cancel) {}
+            }
+            .confirmationDialog("Mute Notifications", isPresented: $showMute, titleVisibility: .visible) {
+                Button("Mute for 1 hour")  { Task { await ChatService.setMute(cid, until: ChatService.muteUntil(1)) } }
+                Button("Mute for 8 hours") { Task { await ChatService.setMute(cid, until: ChatService.muteUntil(8)) } }
+                Button("Mute for 1 week")  { Task { await ChatService.setMute(cid, until: ChatService.muteUntil(168)) } }
+                Button("Mute Always")      { Task { await ChatService.setMute(cid, until: ChatService.muteUntil(nil)) } }
+                Button("Unmute")           { Task { await ChatService.setMute(cid, until: 0) } }
+                Button("Cancel", role: .cancel) {}
+            }
+            .confirmationDialog("Disappearing Messages", isPresented: $showDisappear, titleVisibility: .visible) {
+                Button("Off")     { Task { await ChatService.setDisappear(cid, seconds: 0) } }
+                Button("1 Day")   { Task { await ChatService.setDisappear(cid, seconds: 86_400) } }
+                Button("1 Week")  { Task { await ChatService.setDisappear(cid, seconds: 604_800) } }
                 Button("Cancel", role: .cancel) {}
             }
             .confirmationDialog(memberAction?.name ?? "",
@@ -108,6 +125,40 @@ struct GroupInfoView: View {
                 Button { showAdd = true } label: { Label("Add Members", systemImage: "person.badge.plus") }
             }
             ForEach(sortedMembers, id: \.self) { uid in memberRow(uid) }
+        }
+    }
+
+    private var settingsSection: some View {
+        Section {
+            Button { showMute = true } label: {
+                Label("Mute Notifications", systemImage: "bell.slash")
+                    .foregroundStyle(.primary)
+            }
+            // Disappearing messages is a group-wide setting → admin-only to change.
+            if iAmAdmin {
+                Button { showDisappear = true } label: {
+                    HStack {
+                        Label("Disappearing Messages", systemImage: "timer")
+                        Spacer()
+                        Text(disappearLabel).foregroundStyle(.secondary)
+                    }
+                    .foregroundStyle(.primary)
+                }
+            } else if (conv?.disappearSeconds ?? 0) > 0 {
+                HStack {
+                    Label("Disappearing Messages", systemImage: "timer")
+                    Spacer()
+                    Text(disappearLabel).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var disappearLabel: String {
+        switch conv?.disappearSeconds ?? 0 {
+        case 86_400:  return "1 day"
+        case 604_800: return "1 week"
+        default:      return "Off"
         }
     }
 
