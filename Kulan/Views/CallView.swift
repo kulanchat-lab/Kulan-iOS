@@ -75,17 +75,8 @@ struct CallView: View {
             .animation(.easeInOut(duration: 0.2), value: call.isSpeaker)
             .animation(.easeInOut(duration: 0.3), value: hasRemote)        // smooth shrink-to-PiP on connect
             .animation(.easeInOut(duration: 0.3), value: isLocalExpanded)  // smooth tap-to-swap
-            // Swipe down to minimize — detect the fling ONLY (no live offset tracking, which was
-            // the source of the stuck/broken half-states). Taps still pass through to controls,
-            // and the PiP keeps its own higher-priority drag.
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 44)
-                    .onEnded { v in
-                        if v.translation.height > 90 && abs(v.translation.width) < 140 {
-                            withAnimation(.easeInOut(duration: 0.28)) { call.minimized = true }
-                        }
-                    }
-            )
+            // No swipe-to-minimize: the screen is locked. The only way to minimize is the
+            // top-left chevron-down button (so a stray swipe can never minimize/break the call).
         }
         .ignoresSafeArea()
         .onDisappear { CallPiPController.shared.teardown() }
@@ -142,8 +133,9 @@ struct CallView: View {
 
     private func topBar(safeTop: CGFloat) -> some View {
         HStack {
+            // The ONLY way to minimize the call (swipe-to-minimize removed — screen is locked).
             Button { withAnimation(.easeInOut(duration: 0.25)) { call.minimized = true } } label: {
-                topCircle("chevron.left")
+                topCircle("chevron.down")
             }
             .buttonStyle(CallControlStyle())
 
