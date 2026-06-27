@@ -115,6 +115,6 @@ struct StoryTextComposer: View {
             .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: 44, height: 44)
-            .background(.ultraThinMaterial, in: Circle())   // native system material
+            .liquidGlass(Circle(), interactive: true)   // real iOS 26 glass over the gradient
     }
 }

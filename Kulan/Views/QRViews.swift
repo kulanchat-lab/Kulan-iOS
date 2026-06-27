@@ -70,7 +70,7 @@ struct ScanQRView: View {
                 HStack {
                     Button { dismiss() } label: {
                         Image(systemName: "xmark").font(.title3.weight(.semibold)).foregroundStyle(.white)
-                            .padding(12).background(.ultraThinMaterial, in: Circle())
+                            .padding(12).liquidGlass(Circle(), interactive: true)
                     }
                     Spacer()
                 }
@@ -78,7 +78,7 @@ struct ScanQRView: View {
                 Text(notFound ? "No Kulan user found" : "Point at a Kulan QR code")
                     .font(.subheadline.weight(.medium)).foregroundStyle(.white)
                     .padding(.horizontal, 16).padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .liquidGlass(Capsule())
                     .padding(.bottom, 40)
             }
             .padding()

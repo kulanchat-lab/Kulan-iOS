@@ -165,7 +165,7 @@ struct StoryCameraView: View {
                     zoomButton(1, "1×")
                     zoomButton(3, "3")
                 }
-                .padding(5).background(.ultraThinMaterial, in: Capsule())
+                .padding(5).liquidGlass(Capsule(), interactive: true)
                 .animation(.easeInOut(duration: 0.2), value: zoom)   // smooth zoom-level selection
 
                 // Shutter
@@ -184,7 +184,7 @@ struct StoryCameraView: View {
                     Spacer()
                     Button { onTextMode() } label: {
                         Text("Aa").font(.system(size: 18, weight: .heavy)).foregroundStyle(.white)
-                            .frame(width: 44, height: 44).background(.ultraThinMaterial, in: Circle())
+                            .frame(width: 44, height: 44).liquidGlass(Circle(), interactive: true)
                     }
                     Spacer()
                     Button { cam.flip() } label: { circleIcon("arrow.triangle.2.circlepath") }
@@ -212,7 +212,7 @@ struct StoryCameraView: View {
             .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: 44, height: 44)
-            .background(.ultraThinMaterial, in: Circle())
+            .liquidGlass(Circle(), interactive: true)
     }
 
     private func zoomButton(_ level: CGFloat, _ label: String) -> some View {

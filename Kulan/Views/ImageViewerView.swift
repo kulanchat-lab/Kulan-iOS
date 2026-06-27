@@ -43,7 +43,7 @@ struct ImageViewerView: View {
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(12)
-                            .background(.ultraThinMaterial, in: Circle())
+                            .liquidGlass(Circle(), interactive: true)
                     }
                     Spacer()
                     Button { save() } label: {
@@ -53,7 +53,7 @@ struct ImageViewerView: View {
                             .symbolEffect(.bounce, value: saved)
                             .foregroundStyle(.white)
                             .padding(12)
-                            .background(.ultraThinMaterial, in: Circle())
+                            .liquidGlass(Circle(), interactive: true)
                     }
                     .disabled(saved)
                 }
