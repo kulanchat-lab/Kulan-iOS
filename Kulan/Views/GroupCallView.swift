@@ -47,7 +47,7 @@ struct GroupCallView: View {
 
     private var voiceGrid: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 96))], spacing: 22) {
-            ForEach(Array(participants.enumerated()), id: \.offset) { _, p in
+            ForEach(participants, id: \.sid) { p in   // stable id: index-keyed tiles reused the wrong track on join/leave
                 VStack(spacing: 6) {
                     AvatarView(name: p.name ?? "Member", photoUrl: nil, size: 76)
                         .overlay(Circle().stroke(Color.green, lineWidth: p.isSpeaking ? 3 : 0))
@@ -59,7 +59,7 @@ struct GroupCallView: View {
 
     private var videoGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-            ForEach(Array(participants.enumerated()), id: \.offset) { _, p in
+            ForEach(participants, id: \.sid) { p in   // stable id (see voiceGrid)
                 ZStack(alignment: .bottomLeading) {
                     if let track = p.firstCameraVideoTrack {
                         SwiftUIVideoView(track, layoutMode: .fill)

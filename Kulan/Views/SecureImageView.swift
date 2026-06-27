@@ -36,8 +36,11 @@ struct SecureImageView: View {
     }
 
     private func load() async {
-        guard image == nil else { return }
-        // Memory or disk hit → show instantly, no network or decrypt.
+        // Sync memory hit → instant (and clears any stale image left on a reused cell).
+        if let mem = DiskImageCache.shared.memoryImage(imageUrl) { image = mem; failed = false; return }
+        // Cell reuse: the url changed → drop the previous image so we never show the WRONG photo.
+        image = nil; failed = false
+        // Disk hit → show instantly, no network or decrypt.
         if let cached = await DiskImageCache.shared.image(for: imageUrl) { image = cached; return }
         guard let url = URL(string: imageUrl) else { return }
         do {
