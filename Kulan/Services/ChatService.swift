@@ -604,9 +604,16 @@ enum ChatService {
         do {
             let snap = try await db.collection("conversations").document(cid).collection("messages")
                 .whereField("authorId", isEqualTo: uid).getDocuments()
-            let batch = db.batch()
-            snap.documents.forEach { batch.deleteDocument($0.reference) }
-            try await batch.commit()
+            // Firestore batches cap at 500 writes — chunk so a chat with >500 of my messages
+            // doesn't throw and silently delete NOTHING (the old single-batch + swallowed catch).
+            let docs = snap.documents
+            var i = 0
+            while i < docs.count {
+                let batch = db.batch()
+                for d in docs[i..<min(i + 450, docs.count)] { batch.deleteDocument(d.reference) }
+                try await batch.commit()
+                i += 450
+            }
         } catch { /* ignore */ }
     }
 

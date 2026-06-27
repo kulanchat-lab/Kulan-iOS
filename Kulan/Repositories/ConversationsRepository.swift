@@ -39,11 +39,16 @@ final class ConversationsRepository {
                 self.conversations = convs
                 self.hasLoaded = true
 
-                // Warm recipient public keys so last-message previews can decrypt.
-                // Groups: warm the last SENDER's key (the preview is sealed by them).
+                // Warm recipient public keys so last-message previews can decrypt — CONCURRENTLY
+                // (was N sequential round-trips → slow cold start). preloadKey is cached, so the
+                // re-run on later snapshots is mostly hits.
                 Task {
-                    for c in convs {
-                        _ = await Crypto.shared.preloadKey(c.isGroup ? c.lastSender : c.otherUid(uid))
+                    await withTaskGroup(of: Void.self) { group in
+                        for c in convs {
+                            let key = c.isGroup ? c.lastSender : c.otherUid(uid)
+                            guard !key.isEmpty else { continue }
+                            group.addTask { _ = await Crypto.shared.preloadKey(key) }
+                        }
                     }
                 }
             }

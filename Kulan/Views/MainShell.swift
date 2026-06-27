@@ -235,7 +235,7 @@ struct CallsView: View {
                 }
             }
             .task { await repo.load() }
-            .refreshable { await repo.load() }
+            .refreshable { await repo.load(force: true) }
             .confirmationDialog("Delete \(selection.count) call\(selection.count == 1 ? "" : "s")?",
                                 isPresented: $showDeleteCalls, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { deleteSelectedCalls() }
@@ -691,13 +691,13 @@ struct ChatsView: View {
             // drag); reveal them only when we're fully back at the root list.
             .onChange(of: path.count) { showHeaderIcons = path.isEmpty }
             .sheet(isPresented: $showCompose) {   // premium Add-Story picker (bottom sheet) → editor
-                AddStorySheet { Task { await StoriesRepository.shared.load() } }
+                AddStorySheet { Task { await StoriesRepository.shared.load(force: true) } }
             }
             .fullScreenCover(item: $viewerGroup) { g in
                 let others = StoriesRepository.shared.others
                 let close: () -> Void = {
                     viewerGroup = nil
-                    Task { await StoriesRepository.shared.load() }   // refresh seen rings
+                    Task { await StoriesRepository.shared.load(force: true) }   // refresh seen rings
                 }
                 // A friend's story opens the whole ordered list (swipe person to person);
                 // My Story (not in `others`) opens on its own.

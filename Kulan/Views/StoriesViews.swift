@@ -195,7 +195,7 @@ struct StoriesRow: View {
         .frame(width: 210, height: 300)
     }
 
-    func reload() { Task { await repo.load() } }
+    func reload() { Task { await repo.load(force: true) } }
 }
 
 // MARK: - Story Viewer (Instagram-style)

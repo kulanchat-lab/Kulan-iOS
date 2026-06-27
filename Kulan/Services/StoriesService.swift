@@ -56,7 +56,7 @@ final class StoriesService {
             do { try await postStory(image: image, excluded: excluded, included: included) }
             catch { /* swallow; uploadingImage clears below either way */ }
             await MainActor.run { uploading = false; uploadingImage = nil; uploadTask = nil }
-            await StoriesRepository.shared.load()
+            await StoriesRepository.shared.load(force: true)   // just posted → bypass the throttle
         }
     }
 
@@ -176,6 +176,7 @@ final class StoriesRepository {
     private init() {}
 
     private let db = Firestore.firestore()
+    private var lastLoadAt: Date?    // throttle: skip reloads within 20s unless forced
     var mine: StoryGroup?            // my own story (the "My Status" cell)
     var others: [StoryGroup] = []    // friends' stories, unseen-first
 
@@ -192,16 +193,20 @@ final class StoriesRepository {
         }
     }
 
-    func load() async {
+    func load(force: Bool = false) async {
         guard let me = Auth.auth().currentUser?.uid else { return }
+        // Throttle: ChatsView re-appears often; skip a reload within 20s unless forced (e.g. post-upload).
+        if !force, let last = lastLoadAt, Date().timeIntervalSince(last) < 20 { return }
+        lastLoadAt = Date()
         let now = Date()
 
-        let othersSnap = try? await db.collection("stories")
-            .whereField("recipientUids", arrayContains: me).getDocuments()
-        let mineSnap = try? await db.collection("stories")
-            .whereField("authorUid", isEqualTo: me).getDocuments()
-        let ctxSnap = try? await db.collection("users").document(me)
-            .collection("storyContexts").getDocuments()
+        // Fire the three reads CONCURRENTLY (was sequential = 3 serial round-trips).
+        async let othersSnapT = db.collection("stories").whereField("recipientUids", arrayContains: me).getDocuments()
+        async let mineSnapT = db.collection("stories").whereField("authorUid", isEqualTo: me).getDocuments()
+        async let ctxSnapT = db.collection("users").document(me).collection("storyContexts").getDocuments()
+        let othersSnap = try? await othersSnapT
+        let mineSnap = try? await mineSnapT
+        let ctxSnap = try? await ctxSnapT
 
         let all = (parse(othersSnap?.documents) + parse(mineSnap?.documents))
             .filter { $0.expiresAt > now }
