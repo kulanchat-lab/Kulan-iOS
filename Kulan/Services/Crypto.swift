@@ -72,12 +72,22 @@ final class Crypto {
     // MARK: - Setup
 
     /// Generate/load this device's key pair and publish the public key. Idempotent.
+    /// The readyTask check-and-set is ATOMIC (under `lock`) so concurrent first-launch callers
+    /// (ConversationsRepository.start, ThreadRepository.start, key preloads) can't each spawn
+    /// initKeys() and generate TWO different keypairs — which permanently loses messages
+    /// encrypted with the discarded key.
     func ensureReady() async throws {
-        if let task = readyTask { return try await task.value }
-        let task = Task { try await self.initKeys() }
-        readyTask = task
+        let task: Task<Void, Error> = lock.withLock {
+            if let t = readyTask { return t }
+            let t = Task { try await self.initKeys() }   // Task{} only schedules; safe inside the lock
+            readyTask = t
+            return t
+        }
         do { try await task.value }
-        catch { readyTask = nil; throw error }   // allow retry after failure
+        catch {
+            lock.withLock { if readyTask === task { readyTask = nil } }   // allow retry after failure
+            throw error
+        }
     }
 
     private func initKeys() async throws {
@@ -87,28 +97,29 @@ final class Crypto {
         }
 
         // Load existing keypair from Keychain, or generate + persist a new one.
+        let skBytes: Bytes, pkBytes: Bytes
         if let skB64 = Keychain.get(Self.skKeychainKey),
            let pkB64 = Keychain.get(Self.pkKeychainKey),
            let sk = Data(base64Encoded: skB64),
            let pk = Data(base64Encoded: pkB64),
            sk.count == sodium.box.SecretKeyBytes {
-            mySecretKey = Bytes(sk)
-            myPublicKey = Bytes(pk)
+            skBytes = Bytes(sk)
+            pkBytes = Bytes(pk)
         } else {
             guard let kp = sodium.box.keyPair() else {
                 throw NSError(domain: "Crypto", code: 2,
                               userInfo: [NSLocalizedDescriptionKey: "key generation failed"])
             }
-            mySecretKey = kp.secretKey
-            myPublicKey = kp.publicKey
+            skBytes = kp.secretKey
+            pkBytes = kp.publicKey
             Keychain.set(Self.skKeychainKey, Data(kp.secretKey).base64EncodedString())
             Keychain.set(Self.pkKeychainKey, Data(kp.publicKey).base64EncodedString())
         }
-
-        lock.withLock { pubCache[uid] = myPublicKey }
+        // Single lock-guarded write (memory barrier); the keypair is immutable after this.
+        lock.withLock { mySecretKey = skBytes; myPublicKey = pkBytes; pubCache[uid] = pkBytes }
 
         // Publish my public key so others can encrypt to me.
-        let myPubB64 = Data(myPublicKey!).base64EncodedString()
+        let myPubB64 = Data(pkBytes).base64EncodedString()
         do {
             let snap = try await db.collection("users").document(uid).getDocument()
             if (snap.data()?["publicKey"] as? String) != myPubB64 {

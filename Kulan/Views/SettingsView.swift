@@ -202,6 +202,7 @@ struct AccountSettingsView: View {
     @State private var showDelete = false
     @State private var showSignOut = false
     @State private var working = false
+    @State private var deleteError: String?
     @State private var exporting = false
     @State private var exportFile: ExportFile?
 
@@ -276,10 +277,24 @@ struct AccountSettingsView: View {
         .alert("Delete account?", isPresented: $showDelete) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
-                Task { working = true; try? await profile.deleteAccount(); working = false; dismiss(); onSignOut() }
+                Task {
+                    working = true
+                    do {
+                        try await profile.deleteAccount()
+                        working = false; dismiss(); onSignOut()   // only sign out if the server delete SUCCEEDED
+                    } catch {
+                        working = false
+                        deleteError = error.localizedDescription   // failed delete must NOT look like success
+                    }
+                }
             }
         } message: {
             Text("This permanently deletes your account and profile. This can't be undone.")
+        }
+        .alert("Couldn't delete account", isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteError ?? "Please try again.")
         }
     }
 

@@ -188,10 +188,18 @@ final class ThreadRepository {
         return m
     }
 
+    // Monotonic snapshot sequencing: detached decrypt batches can finish out of order; the
+    // committed sequence guards against an OLDER batch overwriting a newer one (which would
+    // resurrect deleted messages / revert reactions).
+    private var snapshotSeq = 0
+    private var committedSeq = 0
+
     // Apply the live (recent-window) snapshot: refresh/insert the window's messages,
     // reconcile deletes within the window's time range, keep paged-older messages.
     private func applyLiveSnapshot(_ docs: [QueryDocumentSnapshot]) {
         lastDocs = docs   // remember the window so we can re-decrypt once the key arrives
+        snapshotSeq += 1
+        let seq = snapshotSeq
         // Decrypt OFF the main thread. Opening a chat that already has cached history fires
         // this listener INSTANTLY with up to a full page; decrypting it all on the main
         // thread froze the UI during the navigation transition (the tester's "tap → gray →
@@ -201,7 +209,7 @@ final class ThreadRepository {
             let raw = (doc.data()["reactions"] as? [String: String]) ?? [:]
             return byId[doc.documentID] == nil || rawReactions[doc.documentID] != raw
         }
-        guard !needBuild.isEmpty else { commitSnapshot(docs); return }
+        guard !needBuild.isEmpty else { commitSnapshot(docs, seq: seq); return }
         let cidLocal = cid
         Task.detached(priority: .userInitiated) { [weak self] in
             let built: [(String, [String: String], Message)] = needBuild.map { doc in
@@ -211,15 +219,19 @@ final class ThreadRepository {
             }
             await MainActor.run {
                 guard let self else { return }
+                // Drop this batch if a NEWER snapshot already committed (out-of-order completion).
+                guard seq >= self.committedSeq else { return }
                 for (id, raw, m) in built { self.byId[id] = m; self.rawReactions[id] = raw }
-                self.commitSnapshot(docs)
+                self.commitSnapshot(docs, seq: seq)
             }
         }
     }
 
     // Reconcile the window (deletes, paging cursor, first-load flag) and republish — runs
     // on the main thread AFTER the (off-main) decryption merges its results into the cache.
-    private func commitSnapshot(_ docs: [QueryDocumentSnapshot]) {
+    private func commitSnapshot(_ docs: [QueryDocumentSnapshot], seq: Int) {
+        guard seq >= committedSeq else { return }   // never let an older snapshot overwrite a newer one
+        committedSeq = seq
         let windowIds = Set(docs.map { $0.documentID })
         // A doc missing from the window but newer than its oldest edge was deleted.
         if let oldest = docs.last, let cutoff = (oldest.data()["createdAt"] as? Timestamp)?.dateValue() {

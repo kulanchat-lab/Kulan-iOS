@@ -20,6 +20,7 @@ public struct StoryView: View {
     // Public properties
     let userClosure: UserCompletionHandler?
     let onProfile: ((StoryUIUser) -> Void)?
+    let onUserChanged: ((String) -> Void)?   // fires the current bucket id on open + each page change
 
     @State private var drag: CGSize = .zero   // swipe-down-to-dismiss
 
@@ -34,13 +35,15 @@ public struct StoryView: View {
         selectedIndex: Int = 0,
         isPresented: Binding<Bool>,
         userClosure: UserCompletionHandler? = nil,
-        onProfile: ((StoryUIUser) -> Void)? = nil
+        onProfile: ((StoryUIUser) -> Void)? = nil,
+        onUserChanged: ((String) -> Void)? = nil
     ) {
         self.stories = stories
         self.selectedIndex = selectedIndex
         self._isPresented = isPresented
         self.userClosure = userClosure
         self.onProfile = onProfile
+        self.onUserChanged = onUserChanged
     }
     
     public var body: some View {
@@ -90,6 +93,7 @@ public struct StoryView: View {
                         }
                     }
             )
+            .onChange(of: viewModel.currentStoryUser) { _, new in onUserChanged?(new) }   // mark each viewed bucket
             .onAppear { startStory() }
             .onDisappear { stopVideo() }
         }

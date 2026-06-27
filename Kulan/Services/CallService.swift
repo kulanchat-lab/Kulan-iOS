@@ -74,6 +74,7 @@ final class CallService: NSObject {
     private var pc: RTCPeerConnection?
     private var listeners: [ListenerRegistration] = []
     private var incomingListener: ListenerRegistration?
+    private var ringingWatcher: ListenerRegistration?   // while .incoming: detect caller-cancel before answer
 
     private var me: String { Auth.auth().currentUser?.uid ?? "" }
 
@@ -382,6 +383,20 @@ final class CallService: NSObject {
 
     // MARK: - Incoming
 
+    /// While a call is ringing (state == .incoming) but not yet answered, watch the call doc so a
+    /// caller-cancel / timeout (status == "ended") tears us down instead of leaving us ringing or
+    /// answering a dead call. Removed on answer (observeCallDoc takes over) and on teardown.
+    private func watchRingingCancel(_ id: String) {
+        ringingWatcher?.remove()
+        ringingWatcher = db.collection("calls").document(id).addSnapshotListener { [weak self] snap, _ in
+            guard let self, let d = snap?.data() else { return }
+            if (d["status"] as? String) == "ended", self.state == .incoming {
+                self.ringingWatcher?.remove(); self.ringingWatcher = nil
+                self.remoteEnded(reason: EndReason(rawValue: d["endReason"] as? String ?? "") ?? .hangup)
+            }
+        }
+    }
+
     /// App-wide listener: ring when someone calls me.
     func observeIncoming() {
         incomingListener?.remove()
@@ -409,6 +424,7 @@ final class CallService: NSObject {
                     self.state = .incoming
                     CallKitManager.shared.reportIncoming(callId: doc.documentID, name: self.otherName, video: self.isVideo)
                     self.markRinging()
+                    self.watchRingingCancel(doc.documentID)   // tear down if the caller cancels before I answer
                 }
             }
     }
@@ -424,10 +440,12 @@ final class CallService: NSObject {
         self.isCaller = false
         self.state = .incoming   // so the UI can present once answered
         markRinging()
+        watchRingingCancel(callId)   // tear down if the caller cancels before I answer
     }
 
     func answer() {
         guard let id = callId else { return }
+        ringingWatcher?.remove(); ringingWatcher = nil   // observeCallDoc (attached below) takes over
         state = .active   // present the call screen immediately; SDP fills in below
         ensureMicPermission { [weak self] granted in
             guard let self else { return }
@@ -585,6 +603,7 @@ final class CallService: NSObject {
         }
         listeners.forEach { $0.remove() }
         listeners = []
+        ringingWatcher?.remove(); ringingWatcher = nil
         pc?.close()
         pc = nil
         callId = nil

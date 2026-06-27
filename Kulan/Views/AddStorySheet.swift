@@ -12,6 +12,7 @@ struct AddStorySheet: View {
     @State private var tab = 0                 // 0 = Photos, 1 = Albums
     @State private var openAlbum: AlbumInfo?
     @State private var editorImage: EditorImage?
+    @State private var pendingCapture: UIImage?   // camera shot held until the camera cover dismisses
     @State private var showCamera = false
     @State private var showText = false
 
@@ -36,8 +37,12 @@ struct AddStorySheet: View {
             .fullScreenCover(item: $editorImage) { item in
                 StoryEditorView(source: item.image, onPosted: { onPosted(); dismiss() })
             }
-            .fullScreenCover(isPresented: $showCamera) {
-                StoryCameraView(onCapture: { d in if let ui = UIImage(data: d) { editorImage = EditorImage(ui) } },
+            // Stash the capture + dismiss the camera; present the editor in onDismiss so two
+            // fullScreenCovers never fight (which silently dropped the captured shot).
+            .fullScreenCover(isPresented: $showCamera, onDismiss: {
+                if let ui = pendingCapture { pendingCapture = nil; editorImage = EditorImage(ui) }
+            }) {
+                StoryCameraView(onCapture: { d in if let ui = UIImage(data: d) { pendingCapture = ui }; showCamera = false },
                                 onClose: { showCamera = false },
                                 onTextMode: { showCamera = false; showText = true })
             }

@@ -263,11 +263,11 @@ struct StoryViewer: View {
             },
             onProfile: { user in
                 if let g = groups.first(where: { $0.authorUid == user.id }) { onClose(); onProfile(g) }
-            }
+            },
+            onUserChanged: { uid in markSeen(authorUid: uid) }   // mark ONLY the bucket actually viewed
         )
         .ignoresSafeArea()
         .onChange(of: isPresented) { _, shown in if !shown { onClose() } }
-        .task { await markAllSeen() }
     }
 
     // Reply text / tapped emoji / like → DM the story's author (mirrors the old sendToAuthor).
@@ -281,10 +281,11 @@ struct StoryViewer: View {
         Task { try? await ChatService.sendText(cid: cid, text: text) }
     }
 
-    // StoryUI has no per-page callback, so mark the whole opened group seen (updates the rings).
-    private func markAllSeen() async {
-        guard !anonymous else { return }
-        for s in groups.flatMap(\.stories) { await StoriesService.shared.markViewed(s) }
+    // Mark ONLY the bucket the viewer is currently on seen (fired on open + each swipe), so opening
+    // one person's story no longer clears everyone's unseen ring.
+    private func markSeen(authorUid: String) {
+        guard !anonymous, let g = groups.first(where: { $0.authorUid == authorUid }) else { return }
+        Task { for s in g.stories { await StoriesService.shared.markViewed(s) } }
     }
 
     private func timeAgo(_ d: Date) -> String {
