@@ -136,11 +136,11 @@ struct GroupInfoView: View {
                     Button("Add group description…") { descText = ""; showDescEdit = true }
                         .font(.footnote)
                 }
-                // Premium action-pill row (Telegram/WhatsApp-style) — quick call + mute.
+                // Same clean action row as the user profile (icon-in-pill + caption below).
                 HStack(spacing: 10) {
-                    actionPill("phone.fill", "Audio") { startCall(video: false) }
-                    actionPill("video.fill", "Video") { startCall(video: true) }
-                    actionPill("bell.slash.fill", "Mute") { showMute = true }
+                    groupAction("video.fill", "Video") { startCall(video: true) }
+                    groupAction("phone.fill", "Voice") { startCall(video: false) }
+                    groupAction("bell.slash.fill", "Mute") { showMute = true }
                 }
                 .padding(.top, 8)
             }
@@ -149,15 +149,18 @@ struct GroupInfoView: View {
         }
     }
 
-    private func actionPill(_ icon: String, _ label: String, _ action: @escaping () -> Void) -> some View {
+    // Matches ContactInfoView.tileLabel — icon in a pill, caption below, neutral color.
+    private func groupAction(_ icon: String, _ label: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 18))
-                Text(label).font(.caption2.weight(.medium))
+            VStack(spacing: 7) {
+                Image(systemName: icon)
+                    .font(.system(size: 22))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Color(.secondarySystemGroupedBackground), in: Capsule())
+                Text(label).font(.caption).foregroundStyle(.primary)
             }
-            .foregroundStyle(Color.accentColor)
-            .frame(maxWidth: .infinity).padding(.vertical, 12)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
     }
