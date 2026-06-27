@@ -53,7 +53,7 @@ struct ThreadView: View {
         _repo = State(initialValue: ThreadRepository(cid: cid))
     }
 
-    var body: some View {
+    private var threadScroll: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
             pinnedBar(proxy)
@@ -132,6 +132,10 @@ struct ThreadView: View {
             }
             }
         }
+    }
+
+    var body: some View {
+        threadScroll
         .toolbar(.hidden, for: .tabBar)
         // Native nav bar = real iOS 26 Liquid Glass + the genuine edge-swipe-back, exactly
         // like the Chats list header. Avatar/name/call buttons live in the toolbar.
