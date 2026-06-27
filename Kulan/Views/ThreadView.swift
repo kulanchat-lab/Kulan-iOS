@@ -55,7 +55,7 @@ struct ThreadView: View {
     @State private var morePickerTarget: Message? // any-emoji picker
     @State private var reactorsTarget: Message?   // "who reacted" sheet
     @State private var pendingDelete: Message?
-    @State private var editTarget: Message?       // edit-message sheet
+    @State private var editingMessage: Message?   // INLINE edit (Telegram-style) — no modal/sheet
     @State private var forwardTarget: Message?    // forward-to-chat picker
     @State private var reportTarget: Message?     // abuse-report confirm (App Store 1.2)
     @FocusState private var inputFocused: Bool
@@ -232,11 +232,6 @@ struct ThreadView: View {
         .sheet(item: $morePickerTarget) { m in EmojiMorePicker { emoji in react(m, emoji) } }
         .sheet(item: $reactorsTarget) { m in
             ReactorsSheet(reactions: m.reactions, nameFor: { personName($0) })
-        }
-        .sheet(item: $editTarget) { m in
-            EditMessageSheet(original: m.text) { newText in
-                Task { try? await ChatService.editMessage(cid: cid, messageId: m.id, newText: newText, group: isGroup ? groupMembers : nil) }
-            }
         }
         .sheet(item: $forwardTarget) { m in
             ForwardPicker(message: m, sourceCid: cid)
@@ -514,7 +509,12 @@ struct ThreadView: View {
                             }   // already at the pin max → ignore
                         },
                         onForward: { forwardTarget = $0 },
-                        onEdit: { editTarget = $0 },
+                        onEdit: { m in
+                            editingMessage = m
+                            input = m.text
+                            withAnimation(.easeInOut(duration: 0.2)) { replyingTo = nil }
+                            inputFocused = true
+                        },
                         onReport: { reportTarget = $0 },
                         onReactMore: { morePickerTarget = $0 },
                         isGroup: isGroup,
@@ -1037,6 +1037,40 @@ struct ThreadView: View {
         .padding(.leading, 14).padding(.trailing, 12).padding(.vertical, 8)
     }
 
+    // Inline edit preview (Telegram-style): pencil + "Edit Message" + snippet + cancel (X).
+    private func editPreviewRow(_ e: Message) -> some View {
+        HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 1.5).fill(Color.accentColor).frame(width: 3, height: 34)
+            Image(systemName: "pencil").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.accentColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Edit Message").font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
+                Text(e.text).font(.caption).lineLimit(1).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button { cancelEdit() } label: {
+                Image(systemName: "xmark.circle.fill").font(.system(size: 20)).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.leading, 14).padding(.trailing, 12).padding(.vertical, 8)
+    }
+
+    private func cancelEdit() {
+        withAnimation(.easeInOut(duration: 0.2)) { editingMessage = nil }
+        input = ""
+        inputFocused = false
+    }
+
+    // Save the inline edit, then clear the edit state (replaces the old full-screen sheet).
+    private func saveEdit() {
+        guard let e = editingMessage else { return }
+        let newText = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newText.isEmpty else { return }
+        Task { try? await ChatService.editMessage(cid: cid, messageId: e.id, newText: newText, group: isGroup ? groupMembers : nil) }
+        withAnimation(.easeInOut(duration: 0.2)) { editingMessage = nil }
+        input = ""
+        inputFocused = false
+    }
+
     // The actual replied content: waveform for voice, "Photo" for images, the text/emoji otherwise.
     @ViewBuilder private func replyContentPreview(_ r: Message) -> some View {
         if r.isAudio {
@@ -1137,6 +1171,11 @@ struct ThreadView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                     Divider().padding(.horizontal, 12)
                 }
+                if let e = editingMessage, !recordingHeld {
+                    editPreviewRow(e)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    Divider().padding(.horizontal, 12)
+                }
                 HStack(alignment: .bottom, spacing: 4) {
                     if recordingHeld { recordingHoldRow } else { messageField }
                     if !recordingHeld && !hasText { inFieldCamera }
@@ -1194,9 +1233,10 @@ struct ThreadView: View {
     // Standalone right button OUTSIDE the field (like "+"): Send when typing, else hold-to-record mic.
     @ViewBuilder private var rightButton: some View {
         if hasText {
-            Button { send() } label: {
-                Image(systemName: "arrow.up.circle.fill")
+            Button { if editingMessage != nil { saveEdit() } else { send() } } label: {
+                Image(systemName: editingMessage != nil ? "checkmark.circle.fill" : "arrow.up.circle.fill")
                     .font(.system(size: 38)).foregroundStyle(Theme.accent(dark))
+                    .contentTransition(.symbolEffect(.replace))
             }
             .transition(.scale.combined(with: .opacity))
         } else {
