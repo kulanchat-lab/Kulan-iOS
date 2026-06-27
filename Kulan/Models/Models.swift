@@ -111,7 +111,7 @@ struct Message: Identifiable, Equatable {
     init(id: String, data: [String: Any], cid: String, crypto: Crypto) {
         self.id = id
         self.authorId = data["authorId"] as? String ?? ""
-        self.text = crypto.decrypt(data["text"] as? String ?? "", cid: cid)
+        self.text = crypto.decrypt(data["text"] as? String ?? "", cid: cid, authorId: data["authorId"] as? String ?? "")
         self.type = data["type"] as? String
         self.imageUrl = data["imageUrl"] as? String
         self.audioUrl = data["audioUrl"] as? String
@@ -133,7 +133,7 @@ struct Message: Identifiable, Equatable {
             self.replyTo = ReplyRef(
                 id: r["id"] as? String ?? "",
                 authorId: r["authorId"] as? String ?? "",
-                text: crypto.decrypt(r["text"] as? String ?? "", cid: cid)
+                text: crypto.decrypt(r["text"] as? String ?? "", cid: cid, authorId: r["authorId"] as? String ?? "")
             )
         }
         if let ts = data["createdAt"] as? Timestamp {
@@ -164,6 +164,10 @@ struct Conversation: Identifiable, Equatable, Hashable {
     var pinOrder: [String: Double]     // per-user manual order for pinned chats
     var pinnedMessageId: String        // a pinned message in this chat ("" = none)
     var disappearSeconds: Int          // auto-delete timer (0 = off), shared by both members
+    var convType: String               // "group" = group chat; "" / "direct" = 1:1
+    var title: String                  // group name (groups only)
+    var avatarUrl: String?             // group photo (groups only)
+    var admins: [String]               // uids allowed to manage the group
     var updatedAtMillis: Double
 
     init(id: String, data: [String: Any]) {
@@ -186,6 +190,10 @@ struct Conversation: Identifiable, Equatable, Hashable {
         self.pinOrder = doubleMap(data["pinOrder"])
         self.pinnedMessageId = data["pinnedMessageId"] as? String ?? ""
         self.disappearSeconds = (data["disappearSeconds"] as? NSNumber)?.intValue ?? 0
+        self.convType = data["type"] as? String ?? ""
+        self.title = data["title"] as? String ?? ""
+        self.avatarUrl = data["avatarUrl"] as? String
+        self.admins = data["admins"] as? [String] ?? []
         if let ts = data["updatedAt"] as? Timestamp {
             self.updatedAtMillis = ts.dateValue().timeIntervalSince1970 * 1000
         } else {
@@ -196,6 +204,18 @@ struct Conversation: Identifiable, Equatable, Hashable {
     func otherUid(_ me: String) -> String { users.first { $0 != me } ?? "" }
     func name(for me: String) -> String { names[otherUid(me)] ?? "User" }
     func photoUrl(for me: String) -> String? { photos[otherUid(me)] }
+
+    // ── Group helpers ──
+    var isGroup: Bool { convType == "group" }
+    func isAdmin(_ me: String) -> Bool { admins.contains(me) }
+    /// Everyone but me (the fan-out set; N-1 people in a group).
+    func others(_ me: String) -> [String] { users.filter { $0 != me } }
+    /// Header title: group name for groups, the other person's name for 1:1.
+    func displayName(_ me: String) -> String { isGroup ? (title.isEmpty ? "Group" : title) : name(for: me) }
+    /// Header photo: group avatar for groups, the other person's photo for 1:1.
+    func displayPhoto(_ me: String) -> String? { isGroup ? avatarUrl : photoUrl(for: me) }
+    /// Group header subtitle, e.g. "7 members".
+    var memberCountLabel: String { "\(users.count) member\(users.count == 1 ? "" : "s")" }
     func unread(_ me: String) -> Int { unreadCount[me] ?? 0 }
     func isMuted(_ me: String, now: Double) -> Bool { (mutedBy[me] ?? 0) > now }
     func isBlockedByMe(_ me: String) -> Bool { blockedBy[me] ?? false }
@@ -218,7 +238,11 @@ struct Conversation: Identifiable, Equatable, Hashable {
     /// My message is the most recent one — show delivery/read ticks for it in the list.
     func lastIsMine(_ me: String) -> Bool { !lastSender.isEmpty && lastSender == me }
     /// The other person has read my last message once their unread count hits 0.
-    func lastReadByOther(_ me: String) -> Bool { (unreadCount[otherUid(me)] ?? 0) == 0 }
+    /// In a group, "read" = every other member's unread count is 0.
+    func lastReadByOther(_ me: String) -> Bool {
+        if isGroup { return others(me).allSatisfy { (unreadCount[$0] ?? 0) == 0 } }
+        return (unreadCount[otherUid(me)] ?? 0) == 0
+    }
 }
 
 extension EncMeta {

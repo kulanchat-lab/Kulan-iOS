@@ -280,6 +280,78 @@ final class Crypto {
                                                  nonce: Bytes(dataNonce)) else { return nil }
         return Data(opened)
     }
+
+    // MARK: - Group text (sender-key-per-message)
+    //
+    // Generalizes the file-wrap pattern to N members: the body is sealed ONCE under a
+    // random message key, and that key is wrapped to EVERY member's public key (including
+    // the author, so the author can read their own message back on reload / another device).
+    // Each member opens their own wrap with the AUTHOR's public key — NaCl box's DH secret
+    // is symmetric, so author↔member both derive the same key. Wire format:
+    //   "encg1:" + base64( JSON{ n: dataNonce, c: ciphertext, w: { uid: "wrapB64.nonceB64" } } )
+
+    /// Encrypt text for a group. `members` should be the full member list (self included).
+    /// Throws MissingRecipientKeyError if any member has no published key (never leaks plaintext).
+    func encryptForGroup(_ text: String, members: [String]) async throws -> String {
+        try await ensureReady()
+        guard let sk = mySecretKey else {
+            throw NSError(domain: "Crypto", code: 8, userInfo: [NSLocalizedDescriptionKey: "keys not ready"])
+        }
+        let msgKey = sodium.secretBox.key()
+        guard let sealed: (authenticatedCipherText: Bytes, nonce: SecretBox.Nonce) =
+                sodium.secretBox.seal(message: Bytes(text.utf8), secretKey: msgKey) else {
+            throw NSError(domain: "Crypto", code: 9, userInfo: [NSLocalizedDescriptionKey: "group seal failed"])
+        }
+        var wraps: [String: String] = [:]
+        for uid in Set(members) {
+            guard let pub = await preloadKey(uid) else { throw MissingRecipientKeyError(uid: uid) }
+            guard let w: (authenticatedCipherText: Bytes, nonce: Box.Nonce) =
+                    sodium.box.seal(message: msgKey, recipientPublicKey: pub, senderSecretKey: sk) else {
+                throw NSError(domain: "Crypto", code: 10, userInfo: [NSLocalizedDescriptionKey: "group wrap failed"])
+            }
+            wraps[uid] = Data(w.authenticatedCipherText).base64EncodedString()
+                       + "." + Data(w.nonce).base64EncodedString()
+        }
+        let payload: [String: Any] = [
+            "n": Data(sealed.nonce).base64EncodedString(),
+            "c": Data(sealed.authenticatedCipherText).base64EncodedString(),
+            "w": wraps,
+        ]
+        let json = try JSONSerialization.data(withJSONObject: payload)
+        return "encg1:" + json.base64EncodedString()
+    }
+
+    /// Decrypt a group message. Needs the AUTHOR's uid (sender pubkey) — opens my own wrap.
+    func decryptGroup(_ raw: String, authorId: String) -> String {
+        guard raw.hasPrefix("encg1:") else { return raw }
+        guard let sk = mySecretKey, let me = currentUid() else { return "…" }
+        guard let authorPub = lock.withLock({ pubCache[authorId] }) else { return "…" }
+        let b64 = String(raw.dropFirst("encg1:".count))
+        guard let jsonData = Data(base64Encoded: b64),
+              let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+              let nB64 = obj["n"] as? String, let cB64 = obj["c"] as? String,
+              let wraps = obj["w"] as? [String: String],
+              let myWrap = wraps[me],
+              let dataNonce = Data(base64Encoded: nB64),
+              let ct = Data(base64Encoded: cB64) else { return "🔒" }
+        let wp = myWrap.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        guard wp.count == 2,
+              let wrappedKey = Data(base64Encoded: wp[0]),
+              let keyNonce = Data(base64Encoded: wp[1]) else { return "🔒" }
+        guard let msgKey = sodium.box.open(authenticatedCipherText: Bytes(wrappedKey),
+                                           senderPublicKey: authorPub, recipientSecretKey: sk,
+                                           nonce: Bytes(keyNonce)) else { return "🔒" }
+        guard let opened = sodium.secretBox.open(authenticatedCipherText: Bytes(ct),
+                                                 secretKey: msgKey, nonce: Bytes(dataNonce)),
+              let text = String(bytes: opened, encoding: .utf8) else { return "🔒" }
+        return text
+    }
+
+    /// Routing decrypt: group envelopes need the author's key; 1:1 uses the cid pair.
+    func decrypt(_ raw: String, cid: String, authorId: String) -> String {
+        if raw.hasPrefix("encg1:") { return decryptGroup(raw, authorId: authorId) }
+        return decrypt(raw, cid: cid)
+    }
 }
 
 // MARK: - Minimal Keychain (replaces expo-secure-store)

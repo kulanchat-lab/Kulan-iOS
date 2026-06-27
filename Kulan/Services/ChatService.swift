@@ -44,11 +44,53 @@ enum ChatService {
         return cid
     }
 
+    /// Create a GROUP conversation: random doc id, N members, creator is the sole admin.
+    /// Returns the new conversation id.
+    @discardableResult
+    static func createGroup(title: String, memberIds: [String], avatarUrl: String? = nil) async throws -> String {
+        var memberSet = Set(memberIds); memberSet.insert(uid)
+        let users = Array(memberSet)
+
+        var names: [String: String] = [:]
+        var photos: [String: String] = [:]
+        for u in users {
+            if let p = await ProfileStore.shared.fetch(u) {
+                names[u] = p.name.isEmpty ? p.handle : p.name
+                if let ph = p.photoUrl, !ph.isEmpty { photos[u] = ph }
+            }
+        }
+        var unread: [String: Int] = [:]
+        var typing: [String: Bool] = [:]
+        for u in users { unread[u] = 0; typing[u] = false }
+
+        let ref = db.collection("conversations").document()
+        var data: [String: Any] = [
+            "type": "group",
+            "title": title.trimmingCharacters(in: .whitespaces),
+            "users": users,
+            "admins": [uid],
+            "createdBy": uid,
+            "names": names,
+            "photos": photos,
+            "unreadCount": unread,
+            "typing": typing,
+            "updatedAt": FieldValue.serverTimestamp(),
+        ]
+        if let avatarUrl, !avatarUrl.isEmpty { data["avatarUrl"] = avatarUrl }
+        try await ref.setData(data)
+        return ref.documentID
+    }
+
     /// Encrypt + send a text message and bump the conversation. Throws
     /// MissingRecipientKeyError if the recipient has no key yet (never sends plaintext).
-    static func sendText(cid: String, text: String, replyTo: ReplyRef? = nil, clientId: String? = nil) async throws {
+    static func sendText(cid: String, text: String, replyTo: ReplyRef? = nil, clientId: String? = nil, group: [String]? = nil) async throws {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
+        // Group path: per-member encryption + unread fan-out. 1:1 path below is untouched.
+        if let members = group {
+            try await sendGroupText(cid: cid, members: members, text: t, replyTo: replyTo, clientId: clientId)
+            return
+        }
 
         let cipher = try await Crypto.shared.encryptForConversation(cid, t)
         var replyEnc: [String: Any]?
@@ -86,6 +128,39 @@ enum ChatService {
             "updatedAt": FieldValue.serverTimestamp(),
             "unreadCount.\(other)": FieldValue.increment(Int64(1)),
         ], forDocument: convRef)
+        try await batch.commit()
+    }
+
+    /// Group text send: encrypt once per member, fan out the unread increment to everyone
+    /// but me. The conversation already exists (created by createGroup), so no users write.
+    private static func sendGroupText(cid: String, members: [String], text t: String,
+                                      replyTo: ReplyRef?, clientId: String?) async throws {
+        let cipher = try await Crypto.shared.encryptForGroup(t, members: members)
+        var replyEnc: [String: Any]?
+        if let r = replyTo {
+            let rc = try await Crypto.shared.encryptForGroup(r.text, members: members)
+            replyEnc = ["id": r.id, "authorId": r.authorId, "text": rc]
+        }
+        let convRef = db.collection("conversations").document(cid)
+        let msgRef = convRef.collection("messages").document()
+        let batch = db.batch()
+        var msg: [String: Any] = [
+            "text": cipher,
+            "authorId": uid,
+            "createdAt": FieldValue.serverTimestamp(),
+        ]
+        if let clientId { msg["clientId"] = clientId }
+        if let replyEnc { msg["replyTo"] = replyEnc }
+        batch.setData(msg, forDocument: msgRef)
+        var convUpdate: [String: Any] = [
+            "lastMessage": cipher,
+            "lastSender": uid,
+            "updatedAt": FieldValue.serverTimestamp(),
+        ]
+        for m in members where m != uid {
+            convUpdate["unreadCount.\(m)"] = FieldValue.increment(Int64(1))
+        }
+        batch.updateData(convUpdate, forDocument: convRef)
         try await batch.commit()
     }
 
