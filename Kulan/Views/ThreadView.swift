@@ -338,7 +338,7 @@ struct ThreadView: View {
                 } else {
                     MessageBubble(
                         message: msg, isMe: msg.authorId == me, dark: dark, cid: cid,
-                        nameFor: { $0 == me ? "You" : title },
+                        nameFor: { uid in uid == me ? "You" : (conversation?.names[uid] ?? title) },
                         onReply: { m in withAnimation(.easeInOut(duration: 0.22)) { replyingTo = m } },
                         onDelete: { pendingDelete = $0 },   // confirm dialog, not instant
                         onTapImage: { viewerImage = $0 },
@@ -1003,6 +1003,13 @@ struct MessageBubble: View {
     private var myUid: String { AuthService.shared.uid ?? "" }
     private var myReaction: String? { message.reactions[myUid] }
 
+    // Stable per-sender color for group name labels (deterministic across launches).
+    private var senderColor: Color {
+        let palette: [Color] = [.blue, .purple, .pink, .orange, .green, .teal, .indigo, .red]
+        let sum = message.authorId.unicodeScalars.reduce(0) { $0 + Int($1.value) }
+        return palette[sum % palette.count]
+    }
+
     // Aggregate uid->emoji into (emoji, count, mine), most-popular first (Signal's logic,
     // our own pill design). Ties broken by emoji for a stable order.
     private var reactionCounts: [(emoji: String, count: Int, mine: Bool)] {
@@ -1108,6 +1115,13 @@ struct MessageBubble: View {
         HStack {
             if isMe { Spacer(minLength: 0) }
             VStack(alignment: isMe ? .trailing : .leading, spacing: 3) {
+                // Sender name above others' messages in a group (colored, once per cluster).
+                if isGroup && !isMe && isFirstInCluster {
+                    Text(nameFor(message.authorId))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(senderColor)
+                        .padding(.leading, 12)
+                }
                 content
                     // REAL native context menu (same as the chat list) — iOS handles the
                     // lift + blur + spring. No custom overlay.

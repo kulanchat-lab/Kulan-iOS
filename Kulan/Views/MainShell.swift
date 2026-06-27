@@ -288,8 +288,8 @@ struct NewCallView: View {
     private var people: [Conversation] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         let list = repo.conversations.filter { !$0.otherUid(me).isEmpty }
-        return (q.isEmpty ? list : list.filter { $0.name(for: me).lowercased().contains(q) })
-            .sorted { $0.name(for: me).lowercased() < $1.name(for: me).lowercased() }
+        return (q.isEmpty ? list : list.filter { $0.displayName(me).lowercased().contains(q) })
+            .sorted { $0.displayName(me).lowercased() < $1.name(for: me).lowercased() }
     }
 
     var body: some View {
@@ -302,13 +302,13 @@ struct NewCallView: View {
                     List {
                         ForEach(people) { c in
                             HStack(spacing: 12) {
-                                AvatarView(name: c.name(for: me), photoUrl: c.photoUrl(for: me), size: 42)
-                                Text(c.name(for: me)).font(.system(size: 17, weight: .medium)).lineLimit(1)
+                                AvatarView(name: c.displayName(me), photoUrl: c.displayPhoto(me), size: 42)
+                                Text(c.displayName(me)).font(.system(size: 17, weight: .medium)).lineLimit(1)
                                 Spacer()
                                 Button {
                                     CallService.shared.startCall(to: c.otherUid(me),
-                                                                 name: c.name(for: me),
-                                                                 photo: c.photoUrl(for: me))
+                                                                 name: c.displayName(me),
+                                                                 photo: c.displayPhoto(me))
                                     dismiss()
                                 } label: {
                                     Image(systemName: "phone").font(.system(size: 20)).foregroundStyle(.tint)
@@ -566,8 +566,8 @@ struct ChatsView: View {
                         // plain Button does not, and in edit mode it is auto-disabled so the
                         // List's native multi-select still toggles via the row tag.
                         Button {
-                            path.append(ChatTarget(id: conv.id, name: conv.name(for: me),
-                                                   photo: conv.photoUrl(for: me)))
+                            path.append(ChatTarget(id: conv.id, name: conv.displayName(me),
+                                                   photo: conv.displayPhoto(me)))
                         } label: {
                             ChatRow(conv: conv, me: me, dark: dark)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -712,7 +712,7 @@ struct ChatsView: View {
         guard let cid = router.pendingChatId,
               let conv = repo.conversations.first(where: { $0.id == cid }) else { return }
         var p = NavigationPath()
-        p.append(ChatTarget(id: cid, name: conv.name(for: me), photo: conv.photoUrl(for: me)))
+        p.append(ChatTarget(id: cid, name: conv.displayName(me), photo: conv.displayPhoto(me)))
         path = p
         router.pendingChatId = nil
     }
@@ -739,7 +739,7 @@ struct ArchivedChatsView: View {
         let q = search.trimmingCharacters(in: .whitespaces).lowercased()
         return repo.conversations
             .filter { $0.isArchived(me) && !$0.isCleared(me) }
-            .filter { q.isEmpty || $0.name(for: me).lowercased().contains(q) }
+            .filter { q.isEmpty || $0.displayName(me).lowercased().contains(q) }
             .sorted { $0.displayUpdatedAt(me) > $1.displayUpdatedAt(me) }
     }
 
@@ -753,8 +753,8 @@ struct ArchivedChatsView: View {
                     List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row (not select)
                         ForEach(archived) { conv in
                             Button {
-                                path.append(ChatTarget(id: conv.id, name: conv.name(for: me),
-                                                       photo: conv.photoUrl(for: me)))
+                                path.append(ChatTarget(id: conv.id, name: conv.displayName(me),
+                                                       photo: conv.displayPhoto(me)))
                             } label: {
                                 ChatRow(conv: conv, me: me, dark: dark)
                             }
@@ -922,10 +922,10 @@ struct ChatRow: View {
     var body: some View {
         // 56pt avatar; up to 2 preview lines; mute/pin/tick indicators inline.
         HStack(spacing: 12) {
-            AvatarView(name: conv.name(for: me), photoUrl: conv.photoUrl(for: me), size: 56)
+            AvatarView(name: conv.displayName(me), photoUrl: conv.displayPhoto(me), size: 56)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(conv.name(for: me))
+                    Text(conv.displayName(me))
                         .font(.system(size: 16, weight: unread > 0 ? .bold : .semibold))   // heavier when unread
                         .lineLimit(1)
                     if muted {
