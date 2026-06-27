@@ -23,6 +23,10 @@ struct StoryEditorView: View {
     @State private var posting = false
     @State private var postError = false
     @State private var controlsIn = false   // controls fade/slide in when the editor opens
+    @State private var zoom: CGFloat = 1     // pinch-to-zoom the photo
+    @State private var lastZoom: CGFloat = 1
+    @State private var pan: CGSize = .zero    // pan while zoomed
+    @State private var lastPan: CGSize = .zero
 
     private static let ciContext = CIContext()       // one shared context (cheap reuse)
 
@@ -42,19 +46,39 @@ struct StoryEditorView: View {
                 Image(uiImage: displayImage)
                     .resizable().scaledToFill()
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped().ignoresSafeArea()
+                    .clipped()
+                    .scaleEffect(zoom)
+                    .offset(pan)
+                    .ignoresSafeArea()
+                    // Pinch to zoom; one-finger pan when zoomed, otherwise swipe-up = filters.
+                    .gesture(
+                        SimultaneousGesture(
+                            MagnificationGesture()
+                                .onChanged { v in zoom = min(5, max(1, lastZoom * v)) }
+                                .onEnded { _ in
+                                    lastZoom = zoom
+                                    if zoom <= 1.01 {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { zoom = 1; pan = .zero }
+                                        lastZoom = 1; lastPan = .zero
+                                    }
+                                },
+                            DragGesture(minimumDistance: 12)
+                                .onChanged { v in
+                                    if zoom > 1 { pan = CGSize(width: lastPan.width + v.translation.width,
+                                                              height: lastPan.height + v.translation.height) }
+                                }
+                                .onEnded { v in
+                                    if zoom > 1 { lastPan = pan }
+                                    else if v.translation.height < -40 { cycleFilter() }
+                                }
+                        )
+                    )
+                    .allowsHitTesting(!isDrawing)
 
                 // Drawing canvas (only interactive while drawing).
                 DrawingCanvas(drawing: $drawing, isActive: isDrawing)
                     .allowsHitTesting(isDrawing)
                     .ignoresSafeArea()
-
-                // Swipe up to cycle filters — BELOW the text + controls so those stay tappable.
-                Color.clear.contentShape(Rectangle()).ignoresSafeArea()
-                    .gesture(DragGesture(minimumDistance: 30).onEnded { v in
-                        if v.translation.height < -40 { cycleFilter() }
-                    })
-                    .allowsHitTesting(!isDrawing)
 
                 // Draggable text overlays (above the swipe catcher so tap-to-edit/drag work).
                 ForEach(textOverlays) { t in
@@ -193,6 +217,8 @@ struct StoryEditorView: View {
         let size = canvasSize == .zero ? UIScreen.main.bounds.size : canvasSize
         let composed = ZStack {
             Image(uiImage: base).resizable().scaledToFill()
+                .frame(width: size.width, height: size.height).clipped()
+                .scaleEffect(zoom).offset(pan)   // bake the pinch-zoom/pan into the export
                 .frame(width: size.width, height: size.height).clipped()
             if !drawing.bounds.isEmpty {
                 Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: size), scale: UIScreen.main.scale)).resizable()
