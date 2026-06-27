@@ -23,6 +23,7 @@ struct StoryEditorView: View {
     @State private var posting = false
     @State private var postError = false
     @State private var controlsIn = false   // controls fade/slide in when the editor opens
+    @State private var pendingShare: StoryShareData?   // flattened image awaiting the audience sheet
     @State private var zoom: CGFloat = 1     // pinch-to-zoom the photo
     @State private var lastZoom: CGFloat = 1
     @State private var pan: CGSize = .zero    // pan while zoomed
@@ -98,6 +99,7 @@ struct StoryEditorView: View {
         .statusBarHidden()
         .alert("Couldn't share", isPresented: $postError) { Button("OK", role: .cancel) {} }
         .sheet(item: $editingText) { t in TextEntrySheet(text: t.text) { updated in commitText(t, updated) } }
+        .sheet(item: $pendingShare) { s in ShareStorySheet(image: s.data, onPosted: { onPosted(); dismiss() }) }
         .toolbar(.hidden, for: .navigationBar)
     }
 
@@ -199,15 +201,12 @@ struct StoryEditorView: View {
         }
     }
 
+    // Green send → flatten, then open the audience sheet (Post Story uploads in the background).
     private func send() async {
         posting = true
         let data = await flatten()
-        do {
-            try await StoriesService.shared.postStory(image: data)
-            posting = false; onPosted(); dismiss()
-        } catch {
-            posting = false; postError = true
-        }
+        posting = false
+        pendingShare = StoryShareData(data: data)
     }
 
     // Flatten at the ON-SCREEN size so text/drawing land exactly where the user placed them

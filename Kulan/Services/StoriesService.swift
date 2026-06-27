@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
@@ -41,20 +42,48 @@ final class StoriesService {
     private let db = Firestore.firestore()
     private var uid: String { Auth.auth().currentUser?.uid ?? "" }
 
-    // Post a photo to "My Status": everyone I've chatted with can see it for 24h.
-    func postStory(image: Data, expiryHours: Double = 24) async throws {
+    // Optimistic upload state — drives the "Uploading…" indicator + spinner ring in the story row.
+    var uploading = false
+    var uploadingImage: UIImage?
+    private var uploadTask: Task<Void, Never>?
+
+    // Fire-and-forget post: pop back to chat immediately, upload in the background, show progress.
+    @MainActor func postStoryBackground(image: Data, excluded: Set<String> = [], included: Set<String> = []) {
+        uploadTask?.cancel()
+        uploadingImage = UIImage(data: image)
+        uploading = true
+        uploadTask = Task {
+            do { try await postStory(image: image, excluded: excluded, included: included) }
+            catch { /* swallow; uploadingImage clears below either way */ }
+            await MainActor.run { uploading = false; uploadingImage = nil; uploadTask = nil }
+            await StoriesRepository.shared.load()
+        }
+    }
+
+    @MainActor func cancelUpload() {
+        uploadTask?.cancel(); uploadTask = nil
+        uploading = false; uploadingImage = nil
+    }
+
+    // Post a photo to "My Status": chosen audience can see it for 24h.
+    func postStory(image: Data, expiryHours: Double = 24,
+                   excluded: Set<String> = [], included: Set<String> = []) async throws {
         let me = uid
         guard !me.isEmpty else { return }
         let storyId = UUID().uuidString
         let path = "stories/\(storyId)/photo.jpg"   // {storyId}/ segment so Storage rules can audience-scope reads
 
-        // Snapshot recipients on the MAIN actor — `conversations` is mutated there by live
-        // listeners, so reading it from this background context directly is a data race.
-        // v1 audience = everyone I have a conversation with.
-        let recipients = await MainActor.run {
+        // Snapshot contacts on the MAIN actor (live-mutated there). Audience:
+        //  • included non-empty -> only those; • excluded non-empty -> everyone minus those; • else everyone.
+        let allContacts = await MainActor.run {
             Set(ConversationsRepository.shared.conversations
                 .map { $0.otherUid(me) }.filter { !$0.isEmpty })
         }
+        let recipients: Set<String>
+        let mode: String
+        if !included.isEmpty { recipients = included.intersection(allContacts); mode = "only" }
+        else if !excluded.isEmpty { recipients = allContacts.subtracting(excluded); mode = "except" }
+        else { recipients = allContacts; mode = "all" }
 
         // Create the story doc FIRST (mediaUrl filled in after upload). The Storage READ
         // rule for downloadURL() checks this doc's authorUid, so it must exist before we
@@ -67,7 +96,7 @@ final class StoriesService {
             "type": "image",
             "mediaPath": path,
             "mediaUrl": "",
-            "audience": ["mode": "all", "listId": "my-story"],
+            "audience": ["mode": mode, "listId": "my-story"],
             "allowsReplies": true,
             "replyCount": 0,
             "recipientUids": Array(recipients),

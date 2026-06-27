@@ -55,10 +55,19 @@ struct StoryTextComposer: View {
 
                 // Top controls: close (X) left, palette right.
                 VStack {
-                    HStack {
+                    HStack(spacing: 10) {
                         Button(action: onClose) { circle("xmark") }.buttonStyle(.plain)
                         Spacer()
                         Button { bgIndex += 1 } label: { circle("paintpalette.fill") }.buttonStyle(.plain)
+                        // Always-visible send (the keyboard-accessory one wasn't reliably showing).
+                        Button { share() } label: {
+                            Image(systemName: "paperplane.fill")
+                                .font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(trimmed.isEmpty ? AnyShapeStyle(.ultraThinMaterial)
+                                                            : AnyShapeStyle(Color(.systemGreen)), in: Circle())
+                        }
+                        .buttonStyle(.plain).disabled(trimmed.isEmpty)
                     }
                     .padding(.horizontal, 16).padding(.top, 8)
                     Spacer()

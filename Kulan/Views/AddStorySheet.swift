@@ -50,8 +50,10 @@ struct AddStorySheet: View {
                                 onTextMode: { showCamera = false; showText = true })
             }
             .fullScreenCover(isPresented: $showText) {
-                StoryTextComposer(onShare: { d in Task { try? await StoriesService.shared.postStory(image: d); onPosted(); dismiss() } },
-                                  onClose: { showText = false })
+                StoryTextComposer(onShare: { d in
+                    StoriesService.shared.postStoryBackground(image: d)   // background upload, pop to chat
+                    onPosted(); dismiss()
+                }, onClose: { showText = false })
             }
             .task { store.load() }
         }

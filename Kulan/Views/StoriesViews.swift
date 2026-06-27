@@ -56,6 +56,7 @@ enum StoryPrefs {
 // Horizontal Stories row for the top of the Chats screen.
 struct StoriesRow: View {
     @State private var repo = StoriesRepository.shared
+    @State private var stories = StoriesService.shared   // observe the live upload state
     var meName: String
     var mePhoto: String?
     var onCompose: () -> Void
@@ -107,12 +108,42 @@ struct StoriesRow: View {
         }
     }
 
-    private var myCard: some View {
-        card(cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
-             name: "My Story", avatar: mePhoto,
-             unseen: repo.mine?.hasUnseen ?? false, onBadge: onCompose) {
-            if let m = repo.mine { onOpen(m) } else { onCompose() }
+    @ViewBuilder private var myCard: some View {
+        if stories.uploading {
+            uploadingCard
+        } else {
+            card(cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
+                 name: "My Story", avatar: mePhoto,
+                 unseen: repo.mine?.hasUnseen ?? false, onBadge: onCompose) {
+                if let m = repo.mine { onOpen(m) } else { onCompose() }
+            }
         }
+    }
+
+    // Shown in the first slot while a story is uploading: local image + spinner ring + "Uploading…".
+    private var uploadingCard: some View {
+        VStack(spacing: 6) {
+            ZStack(alignment: .bottomLeading) {
+                Group {
+                    if let ui = stories.uploadingImage {
+                        Image(uiImage: ui).resizable().scaledToFill()
+                    } else {
+                        Color(.secondarySystemFill)
+                    }
+                }
+                .frame(width: cardW, height: cardH)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.black.opacity(0.25)))
+
+                ZStack {
+                    Circle().stroke(.white.opacity(0.35), lineWidth: 2.5).frame(width: 34, height: 34)
+                    ProgressView().tint(.white).scaleEffect(0.7)
+                }
+                .padding(8)
+            }
+            Text("Uploading…").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).frame(width: cardW)
+        }
+        .frame(width: cardW)
     }
 
     private func card(cover: String?, name: String, avatar: String?, unseen: Bool,
