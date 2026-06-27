@@ -22,6 +22,7 @@ struct StoryEditorView: View {
     @State private var canvasSize: CGSize = .zero    // on-screen size, so the export matches WYSIWYG
     @State private var posting = false
     @State private var postError = false
+    @State private var controlsIn = false   // controls fade/slide in when the editor opens
 
     private static let ciContext = CIContext()       // one shared context (cheap reuse)
 
@@ -102,6 +103,9 @@ struct StoryEditorView: View {
 
             bottomBar
         }
+        .opacity(controlsIn ? 1 : 0)
+        .offset(y: controlsIn ? 0 : 12)
+        .onAppear { withAnimation(.easeOut(duration: 0.35).delay(0.05)) { controlsIn = true } }
     }
 
     private var bottomBar: some View {
@@ -114,7 +118,7 @@ struct StoryEditorView: View {
                 Image(systemName: "at").foregroundStyle(.white)
             }
             .padding(.horizontal, 16).frame(height: 48)
-            .background(Color.black.opacity(0.7), in: Capsule())
+            .liquidGlass(Capsule())   // real glass caption bar
 
             // Audience pill + green send.
             HStack(spacing: 12) {
@@ -126,13 +130,16 @@ struct StoryEditorView: View {
                 }
                 .font(.subheadline).foregroundStyle(.white)
                 .padding(.horizontal, 14).frame(height: 38)
-                .background(Color.black.opacity(0.55), in: Capsule())
+                .liquidGlass(Capsule())   // real glass audience pill
 
                 Button { Task { await send() } } label: {
                     Image(systemName: posting ? "ellipsis" : "paperplane.fill")
                         .font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                        .contentTransition(.symbolEffect(.replace))
                         .frame(width: 48, height: 48).background(Color(.systemGreen), in: Circle())
+                        .shadow(color: Color(.systemGreen).opacity(0.5), radius: posting ? 2 : 8)
                 }
+                .buttonStyle(StoryPressStyle())
                 .disabled(posting)
             }
         }
@@ -142,8 +149,11 @@ struct StoryEditorView: View {
     private func roundIcon(_ name: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: name).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                .frame(width: 40, height: 40).background(Color.black.opacity(0.4), in: Circle())
+                .contentTransition(.symbolEffect(.replace))   // icon morphs (e.g. pencil toggles)
+                .frame(width: 40, height: 40)
+                .liquidGlass(Circle(), interactive: true)     // real iOS 26 glass
         }
+        .buttonStyle(StoryPressStyle())
     }
 
     // MARK: - Actions
@@ -203,6 +213,16 @@ struct StoryEditorView: View {
         filter.setValue(ci, forKey: kCIInputImageKey)
         guard let out = filter.outputImage, let cg = ciContext.createCGImage(out, from: out.extent) else { return image }
         return UIImage(cgImage: cg, scale: image.scale, orientation: image.imageOrientation)
+    }
+}
+
+// Springy press feedback for the story-editor controls.
+struct StoryPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 
