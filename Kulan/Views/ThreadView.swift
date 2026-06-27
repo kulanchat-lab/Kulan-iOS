@@ -1661,10 +1661,18 @@ struct MessageBubble: View {
                 }
                 .frame(width: imageDisplaySize.width, height: imageDisplaySize.height)
                 .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
-                .overlay {   // dim + spinner while uploading
+                .overlay {   // clean WhatsApp/Telegram-style upload indicator (ring in a frosted disc)
                     if message.sendState == .sending {
-                        ZStack { Color.black.opacity(0.2); ProgressView().tint(.white) }
-                            .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
+                        ZStack {
+                            Color.black.opacity(0.18)
+                            ProgressView()
+                                .tint(.white)
+                                .padding(15)
+                                .background(.ultraThinMaterial, in: Circle())
+                                .environment(\.colorScheme, .dark)
+                                .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
+                        }
+                        .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
                     }
                 }
                 .overlay(alignment: .bottomTrailing) {
