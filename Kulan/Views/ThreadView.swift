@@ -1942,53 +1942,6 @@ struct TypingBubble: View {
     }
 }
 
-// Edit-message sheet: native iOS editor with Cancel / Save. Save is disabled when the
-// text is empty or unchanged, so an edit is always a real, non-empty change.
-struct EditMessageSheet: View {
-    let original: String
-    var onSave: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var text: String
-    @FocusState private var focused: Bool
-
-    init(original: String, onSave: @escaping (String) -> Void) {
-        self.original = original
-        self.onSave = onSave
-        _text = State(initialValue: original)
-    }
-
-    private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var canSave: Bool {
-        !trimmed.isEmpty && trimmed != original.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                TextField("Message", text: $text, axis: .vertical)
-                    .font(.body)
-                    .lineLimit(1...10)
-                    .padding(12)
-                    .background(Color.primary.opacity(0.06),
-                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .focused($focused)
-                    .padding()
-                Spacer()
-            }
-            .navigationTitle("Edit Message")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button { dismiss() } label: { Image(systemName: "xmark") }.tint(.primary) }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Save") { onSave(trimmed); dismiss() }
-                        .fontWeight(.semibold).disabled(!canSave)
-                }
-            }
-            .onAppear { focused = true }
-        }
-        .presentationDetents([.medium])
-    }
-}
 
 // Message long-press confirmations (Delete + Report) extracted into their own modifier
 // so ThreadView's already-large body stays under the SwiftUI type-checker's limit.
