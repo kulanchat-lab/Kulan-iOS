@@ -985,9 +985,10 @@ struct ChatRow: View {
                         .foregroundStyle(unread > 0 ? Theme.accent(dark) : .secondary)
                 }
                 HStack(alignment: .top, spacing: 4) {
-                    if conv.lastIsMine(me) { ticksView.padding(.top, 2) }
                     previewContent
                     Spacer(minLength: 8)
+                    // Status tick now lives in the right column — under the timestamp, beside the pin.
+                    if conv.lastIsMine(me) { ticksView.padding(.top, 1) }
                     if conv.isPinned(me) {
                         Image(systemName: "pin.fill")
                             .font(.system(size: 11)).foregroundStyle(.tertiary)
