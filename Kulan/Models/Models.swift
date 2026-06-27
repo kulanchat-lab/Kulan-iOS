@@ -255,7 +255,9 @@ extension EncMeta {
         guard let n = map["n"] as? String,
               let k = map["k"] as? String,
               let kn = map["kn"] as? String else { return nil }
-        self.init(v: (map["v"] as? Int) ?? 1, n: n, k: k, kn: kn)
+        self.init(v: (map["v"] as? Int) ?? 1, n: n, k: k, kn: kn,
+                  w: map["w"] as? [String: String],   // group per-member wraps (was dropped!)
+                  a: map["a"] as? String)              // group author
     }
 }
 

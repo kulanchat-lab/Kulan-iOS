@@ -851,6 +851,10 @@ struct ChatRow: View {
 
     private var decodedLast: String {
         if conv.leaksBlocked(me) { return "" }   // don't leak a blocked person's message into the list
+        // Group last-message is sealed by its sender → decrypt with the sender's key, not the cid pair.
+        if conv.isGroup {
+            return Crypto.shared.decrypt(conv.lastMessageCipher, cid: conv.id, authorId: conv.lastSender)
+        }
         return Crypto.shared.decryptCached(conv.lastMessageCipher, cid: conv.id)   // memoized: no re-decrypt per render
     }
     // Stored plaintext markers → an SF Symbol + clean label (native look, no emoji).

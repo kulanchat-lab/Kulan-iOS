@@ -40,8 +40,11 @@ final class ConversationsRepository {
                 self.hasLoaded = true
 
                 // Warm recipient public keys so last-message previews can decrypt.
+                // Groups: warm the last SENDER's key (the preview is sealed by them).
                 Task {
-                    for c in convs { _ = await Crypto.shared.preloadKey(c.otherUid(uid)) }
+                    for c in convs {
+                        _ = await Crypto.shared.preloadKey(c.isGroup ? c.lastSender : c.otherUid(uid))
+                    }
                 }
             }
         Task { try? await Crypto.shared.ensureReady() }   // key setup in the background
