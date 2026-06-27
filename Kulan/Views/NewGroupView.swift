@@ -1,7 +1,8 @@
 import SwiftUI
+import PhotosUI
 
-// New Group: name the group, multi-select members from people you've chatted with
-// (or search), then create. Native-styled to match New Message.
+// New Group: set a photo, name the group, multi-select members from people you've chatted
+// with (or search), then create. Native-styled to match New Message.
 struct NewGroupView: View {
     let onOpen: (ChatTarget) -> Void
     init(onOpen: @escaping (ChatTarget) -> Void = { _ in }) { self.onOpen = onOpen }
@@ -11,6 +12,8 @@ struct NewGroupView: View {
     @Environment(\.dismiss) private var dismiss
     private var convRepo = ConversationsRepository.shared
     @State private var groupName = ""
+    @State private var avatarItem: PhotosPickerItem?
+    @State private var avatarData: Data?
     @State private var query = ""
     @State private var results: [UserProfile] = []
     @State private var searching = false
@@ -40,8 +43,12 @@ struct NewGroupView: View {
         NavigationStack {
             List {
                 Section {
-                    TextField("Group name", text: $groupName)
-                        .textInputAutocapitalization(.words)
+                    HStack(spacing: 14) {
+                        PhotosPicker(selection: $avatarItem, matching: .images) { groupAvatarThumb }
+                            .buttonStyle(.plain)
+                        TextField("Group name", text: $groupName)
+                            .textInputAutocapitalization(.words)
+                    }
                 }
 
                 if !selected.isEmpty {
@@ -110,6 +117,10 @@ struct NewGroupView: View {
             }
             .overlay { if creating { ProgressView().controlSize(.large) } }
             .onChange(of: query) { _, q in search(q) }
+            .onChange(of: avatarItem) { _, item in
+                guard let item else { return }
+                Task { if let d = try? await item.loadTransferable(type: Data.self) { await MainActor.run { avatarData = d } } }
+            }
         }
     }
 
@@ -132,6 +143,19 @@ struct NewGroupView: View {
         }
     }
 
+    private var groupAvatarThumb: some View {
+        ZStack {
+            if let avatarData, let ui = UIImage(data: avatarData) {
+                Image(uiImage: ui).resizable().scaledToFill()
+            } else {
+                Circle().fill(Color.secondary.opacity(0.15))
+                Image(systemName: "camera.fill").font(.system(size: 18)).foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 56, height: 56)
+        .clipShape(Circle())
+    }
+
     private func create() {
         let name = groupName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty, !selected.isEmpty else { return }
@@ -139,6 +163,7 @@ struct NewGroupView: View {
         Task {
             do {
                 let cid = try await ChatService.createGroup(title: name, memberIds: Array(selected.keys))
+                if let avatarData { try? await ChatService.uploadGroupAvatar(cid: cid, data: avatarData) }
                 await MainActor.run {
                     creating = false
                     onOpen(ChatTarget(id: cid, name: name, photo: nil))

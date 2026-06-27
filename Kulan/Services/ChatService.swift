@@ -81,6 +81,23 @@ enum ChatService {
         return ref.documentID
     }
 
+    /// Upload a group avatar (plain image, like profile photos). Stored under the existing
+    /// `profiles/` Storage path (so no rule change) keyed by cid, then set as the conv avatarUrl.
+    /// Admin-gated by the conversation update rule (avatarUrl isn't a non-admin field).
+    @discardableResult
+    static func uploadGroupAvatar(cid: String, data rawData: Data) async throws -> String {
+        let data = ProfileStore.squareJPEG(rawData)
+        let ref = Storage.storage().reference().child("profiles/group_\(cid).jpg")
+        let meta = StorageMetadata(); meta.contentType = "image/jpeg"
+        _ = try await ref.putDataAsync(data, metadata: meta)
+        let url = try await ref.downloadURL().absoluteString
+        try await db.collection("conversations").document(cid).updateData([
+            "avatarUrl": url,
+            "updatedAt": FieldValue.serverTimestamp(),
+        ])
+        return url
+    }
+
     // MARK: - Group management (each writes a system event message + updates the conv)
 
     /// Add members + a "X added Y" system message. New members can't read prior history

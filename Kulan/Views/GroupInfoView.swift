@@ -1,7 +1,8 @@
 import SwiftUI
+import PhotosUI
 
-// Group info: avatar + name (admin can rename), member list with Admin badges, admin
-// actions (add / remove / promote), and Leave. Reads live from ConversationsRepository.
+// Group info: avatar (admin can change) + name (admin can rename), member list with Admin
+// badges, admin actions (add / remove / promote), and Leave. Live from ConversationsRepository.
 struct GroupInfoView: View {
     let cid: String
     init(cid: String) { self.cid = cid }
@@ -11,6 +12,7 @@ struct GroupInfoView: View {
 
     @State private var showRename = false
     @State private var newName = ""
+    @State private var avatarItem: PhotosPickerItem?
     @State private var showAdd = false
     @State private var memberAction: MemberAction?
     @State private var confirmLeave = false
@@ -49,13 +51,33 @@ struct GroupInfoView: View {
             .sheet(isPresented: $showAdd) {
                 AddMembersSheet(cid: cid, existing: Set(conv?.users ?? []))
             }
+            .onChange(of: avatarItem) { _, item in
+                guard let item else { return }
+                Task {
+                    if let d = try? await item.loadTransferable(type: Data.self) {
+                        try? await ChatService.uploadGroupAvatar(cid: cid, data: d)
+                    }
+                }
+            }
         }
     }
 
     private var headerSection: some View {
         Section {
             VStack(spacing: 10) {
-                AvatarView(name: conv?.title ?? "Group", photoUrl: conv?.avatarUrl, size: 88)
+                if iAmAdmin {
+                    PhotosPicker(selection: $avatarItem, matching: .images) {
+                        ZStack(alignment: .bottomTrailing) {
+                            AvatarView(name: conv?.title ?? "Group", photoUrl: conv?.avatarUrl, size: 88)
+                            Image(systemName: "camera.circle.fill")
+                                .font(.system(size: 26)).symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, Color.accentColor)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    AvatarView(name: conv?.title ?? "Group", photoUrl: conv?.avatarUrl, size: 88)
+                }
                 Text(conv?.title ?? "Group").font(.title2.weight(.bold))
                 Text(conv?.memberCountLabel ?? "").font(.subheadline).foregroundStyle(.secondary)
             }
