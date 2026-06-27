@@ -157,7 +157,8 @@ struct ThreadView: View {
         }
     }
 
-    var body: some View {
+    // Split into two so the body's (large) modifier chain stays under the type-checker limit.
+    private var threadContent: some View {
         threadScroll
         .toolbar(.hidden, for: .tabBar)
         // Native nav bar = real iOS 26 Liquid Glass + the genuine edge-swipe-back, exactly
@@ -206,6 +207,10 @@ struct ThreadView: View {
         .sheet(isPresented: $showGroupAdd) {
             AddMembersSheet(cid: cid, existing: Set(groupMembers))
         }
+    }
+
+    var body: some View {
+        threadContent
         .sheet(item: $tappedMember) { m in
             GroupMemberSheet(cid: cid, member: m,
                              iAmAdmin: conversation?.isAdmin(me) ?? false,
@@ -451,8 +456,8 @@ struct ThreadView: View {
                             tappedMember = GroupInfoView.MemberAction(
                                 id: uid, name: personName(uid), isAdmin: conversation?.isAdmin(uid) ?? false)
                         },
-                        canPin: !isGroup || (conversation?.isAdmin(me) ?? false),
                         onOpenFile: { m in openFile(m) },
+                        canPin: !isGroup || (conversation?.isAdmin(me) ?? false),
                         onResend: { m in resend(m) },
                         onJumpTo: { id in jump(to: id, proxy) },
                         isHighlighted: msg.id == highlightId,
