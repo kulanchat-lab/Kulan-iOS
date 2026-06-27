@@ -124,9 +124,13 @@ struct CallsView: View {
     @State private var selecting = false
     @State private var selection = Set<String>()
     @State private var showDeleteCalls = false
+    @State private var searchText = ""
 
     private var shown: [CallEntry] {
-        filter == 1 ? repo.calls.filter { $0.missed } : repo.calls
+        var list = filter == 1 ? repo.calls.filter { $0.missed } : repo.calls
+        let q = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        if !q.isEmpty { list = list.filter { $0.name.lowercased().contains(q) } }
+        return list
     }
     private func deleteCall(_ c: CallEntry) { Task { await repo.delete(c) } }
     private func deleteSelectedCalls() {
@@ -189,6 +193,7 @@ struct CallsView: View {
                 }
             }
             .navigationTitle("Calls")
+            .searchable(text: $searchText, prompt: "Search calls")
             .toolbar {
                 if selecting {
                     ToolbarItem(placement: .topBarLeading) {

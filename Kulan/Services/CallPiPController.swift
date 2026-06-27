@@ -11,7 +11,7 @@ final class CallPiPController: NSObject {
     static let shared = CallPiPController()
 
     private var controller: AVPictureInPictureController?
-    private let displayLayer = AVSampleBufferDisplayLayer()
+    private let sampleView = SampleBufferView()
     private var callVC: AVPictureInPictureVideoCallViewController?
     private var renderer: PiPFrameRenderer?
     private weak var attachedTrack: RTCVideoTrack?
@@ -29,15 +29,15 @@ final class CallPiPController: NSObject {
     }
 
     private func buildController(sourceView: UIView) {
-        displayLayer.videoGravity = .resizeAspectFill
-        displayLayer.backgroundColor = UIColor.black.cgColor
+        sampleView.displayLayer.videoGravity = .resizeAspectFill
+        sampleView.backgroundColor = .black
 
         let vc = AVPictureInPictureVideoCallViewController()
         vc.preferredContentSize = CGSize(width: 9, height: 16)
         vc.view.backgroundColor = .black
-        displayLayer.frame = vc.view.bounds
-        displayLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        vc.view.layer.addSublayer(displayLayer)
+        sampleView.frame = vc.view.bounds
+        sampleView.autoresizingMask = [.flexibleWidth, .flexibleHeight]   // UIView mask (iOS-valid)
+        vc.view.addSubview(sampleView)
         callVC = vc
 
         let source = AVPictureInPictureController.ContentSource(
@@ -57,7 +57,7 @@ final class CallPiPController: NSObject {
         renderer = nil
         attachedTrack = track
         guard let track else { return }
-        let r = PiPFrameRenderer(layer: displayLayer)
+        let r = PiPFrameRenderer(layer: sampleView.displayLayer)
         track.add(r)
         renderer = r
     }
@@ -69,8 +69,14 @@ final class CallPiPController: NSObject {
         controller = nil
         callVC = nil
         sourceView = nil
-        displayLayer.flushAndRemoveImage()
+        sampleView.displayLayer.flushAndRemoveImage()
     }
+}
+
+// UIView whose backing layer is the sample-buffer display layer (resizes via UIView autoresizing).
+final class SampleBufferView: UIView {
+    override class var layerClass: AnyClass { AVSampleBufferDisplayLayer.self }
+    var displayLayer: AVSampleBufferDisplayLayer { layer as! AVSampleBufferDisplayLayer }
 }
 
 extension CallPiPController: AVPictureInPictureControllerDelegate {
