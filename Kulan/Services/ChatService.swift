@@ -155,6 +155,18 @@ enum ChatService {
         ])
     }
 
+    /// Announcement mode (admin): when true, only admins may send. Enforced in the message
+    /// CREATE rule (real, not just UI) + a system message so members know.
+    static func setOnlyAdminsSend(cid: String, _ value: Bool) async throws {
+        try await db.collection("conversations").document(cid).updateData([
+            "onlyAdminsSend": value,
+            "updatedAt": FieldValue.serverTimestamp(),
+        ])
+        try await writeSystemMessage(cid: cid, text: value
+            ? "\(myName()) restricted messaging to admins only"
+            : "\(myName()) allowed everyone to send messages")
+    }
+
     /// Set the group description / "about" (admin). No system message (low-signal change).
     static func setGroupDescription(cid: String, text: String) async throws {
         try await db.collection("conversations").document(cid).updateData([

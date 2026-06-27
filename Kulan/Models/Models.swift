@@ -179,6 +179,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
     var admins: [String]               // uids allowed to manage the group
     var createdBy: String              // uid of the group creator (owner)
     var createdAt: Date?               // when the group was created
+    var onlyAdminsSend: Bool           // announcement mode: only admins may send (groups)
     var updatedAtMillis: Double
 
     init(id: String, data: [String: Any]) {
@@ -208,6 +209,7 @@ struct Conversation: Identifiable, Equatable, Hashable {
         self.admins = data["admins"] as? [String] ?? []
         self.createdBy = data["createdBy"] as? String ?? ""
         self.createdAt = (data["createdAt"] as? Timestamp)?.dateValue()
+        self.onlyAdminsSend = data["onlyAdminsSend"] as? Bool ?? false
         if let ts = data["updatedAt"] as? Timestamp {
             self.updatedAtMillis = ts.dateValue().timeIntervalSince1970 * 1000
         } else {
@@ -222,6 +224,8 @@ struct Conversation: Identifiable, Equatable, Hashable {
     // ── Group helpers ──
     var isGroup: Bool { convType == "group" }
     func isAdmin(_ me: String) -> Bool { admins.contains(me) }
+    // Announcement mode: in a group with onlyAdminsSend, non-admins can't send.
+    func canSend(_ me: String) -> Bool { !isGroup || !onlyAdminsSend || admins.contains(me) }
     /// Everyone but me (the fan-out set; N-1 people in a group).
     func others(_ me: String) -> [String] { users.filter { $0 != me } }
     /// Header title: group name for groups, the other person's name for 1:1.

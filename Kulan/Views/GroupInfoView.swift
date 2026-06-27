@@ -162,6 +162,15 @@ struct GroupInfoView: View {
                     Text(disappearLabel).foregroundStyle(.secondary)
                 }
             }
+            // Announcement mode (admin): only admins can send. Enforced in the message rules.
+            if iAmAdmin {
+                Toggle(isOn: Binding(
+                    get: { conv?.onlyAdminsSend ?? false },
+                    set: { v in Task { try? await ChatService.setOnlyAdminsSend(cid: cid, v) } }
+                )) {
+                    Label("Only admins can send", systemImage: "megaphone")
+                }
+            }
         }
     }
 

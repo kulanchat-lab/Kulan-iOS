@@ -124,6 +124,8 @@ struct ThreadView: View {
                 Group {
                     if notAMember {
                         removedBar.transition(.opacity.combined(with: .move(edge: .bottom)))
+                    } else if cannotSendAnnouncement {
+                        announcementBar.transition(.opacity.combined(with: .move(edge: .bottom)))
                     } else if repo.iBlocked {
                         blockedBar.transition(.opacity.combined(with: .move(edge: .bottom)))
                     } else {
@@ -661,6 +663,20 @@ struct ThreadView: View {
 
     private var removedBar: some View {
         Text("You're no longer a member of this group")
+            .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(.bar)
+    }
+
+    // Announcement mode: a non-admin member can't send (enforced server-side too).
+    private var cannotSendAnnouncement: Bool {
+        guard let conv = conversation, conv.isGroup else { return false }
+        return !conv.canSend(AuthService.shared.uid ?? "")
+    }
+
+    private var announcementBar: some View {
+        Label("Only admins can send messages", systemImage: "megaphone")
             .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
