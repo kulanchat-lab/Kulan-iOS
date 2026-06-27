@@ -28,6 +28,7 @@ struct ThreadView: View {
     @State private var showCamera = false
     @State private var showAttachPanel = false
     @State private var showFileImporter = false
+    @State private var showGifPicker = false
     @State private var filePreview: PreviewFile?
     @State private var showLibrary = false
     @State private var showVideoSoon = false
@@ -193,6 +194,11 @@ struct ThreadView: View {
                 .ignoresSafeArea()
         }
         .sheet(isPresented: $showAttachPanel) { attachPanel.presentationDetents([.height(230)]) }
+        .sheet(isPresented: $showGifPicker) {
+            GifPickerView { gif in
+                Task { try? await ChatService.sendGif(cid: cid, url: gif.url, width: gif.width, height: gif.height, group: isGroup ? groupMembers : nil) }
+            }
+        }
         .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: false) { result in
             handlePickedFile(result)
         }
@@ -566,6 +572,7 @@ struct ThreadView: View {
                 attachTile("camera.fill", "Camera", .blue) { showCamera = true }
                 attachTile("photo.fill", "Photos", .green) { showLibrary = true }
                 attachTile("doc.fill", "File", .orange) { showFileImporter = true }
+                attachTile("sparkles", "GIF", .pink) { showGifPicker = true }
             }
             .padding(.top, 26)
             Spacer()
@@ -670,7 +677,7 @@ struct ThreadView: View {
         input = ""
         let reply = replyingTo.map {
             ReplyRef(id: $0.id, authorId: $0.authorId,
-                     text: $0.isImage ? "📷 Photo" : ($0.isAudio ? "🎤 Voice message" : ($0.isFile ? "📄 \($0.fileName ?? "Document")" : $0.text)))
+                     text: $0.isImage ? "📷 Photo" : ($0.isAudio ? "🎤 Voice message" : ($0.isFile ? "📄 \($0.fileName ?? "Document")" : ($0.isGif ? "GIF" : $0.text))))
         }
         replyingTo = nil
         typingSent = false
@@ -1530,6 +1537,15 @@ struct MessageBubble: View {
             .padding(.horizontal, 13).padding(.vertical, 10)
             .background(isMe ? Theme.accent(dark) : Theme.received(dark))
             .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
+        } else if message.isGif {
+            VStack(alignment: .leading, spacing: 4) {
+                replyQuote
+                if let url = message.imageUrl {
+                    AnimatedGifView(url: url)
+                        .frame(width: imageDisplaySize.width, height: imageDisplaySize.height)
+                        .clipShape(UnevenRoundedRectangle(cornerRadii: bubbleCorners, style: .continuous))
+                }
+            }
         } else if message.isImage {
             VStack(alignment: .leading, spacing: 4) {
                 replyQuote

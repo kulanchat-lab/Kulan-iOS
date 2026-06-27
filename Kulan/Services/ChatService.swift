@@ -509,6 +509,37 @@ enum ChatService {
         try await batch.commit()
     }
 
+    /// Send a GIF (a public Giphy URL — public content, so NOT E2EE; we store the url directly).
+    static func sendGif(cid: String, url: String, width: Double, height: Double, group: [String]? = nil) async throws {
+        var members = group
+        if members == nil, !cid.contains("_") {
+            let snap = try? await db.collection("conversations").document(cid).getDocument()
+            members = snap?.data()?["users"] as? [String]
+        }
+        let convRef = db.collection("conversations").document(cid)
+        if members == nil {
+            let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+            try await convRef.setData(["users": [uid, other], "updatedAt": FieldValue.serverTimestamp()], merge: true)
+        }
+        let msgRef = convRef.collection("messages").document()
+        let batch = db.batch()
+        batch.setData([
+            "type": "gif", "imageUrl": url, "width": width, "height": height,
+            "text": "", "authorId": uid, "createdAt": FieldValue.serverTimestamp(),
+        ], forDocument: msgRef)
+        var convUpdate: [String: Any] = [
+            "lastMessage": "GIF", "lastSender": uid, "updatedAt": FieldValue.serverTimestamp(),
+        ]
+        if let members {
+            for m in members where m != uid { convUpdate["unreadCount.\(m)"] = FieldValue.increment(Int64(1)) }
+        } else {
+            let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
+            convUpdate["unreadCount.\(other)"] = FieldValue.increment(Int64(1))
+        }
+        batch.updateData(convUpdate, forDocument: convRef)
+        try await batch.commit()
+    }
+
     /// Forward an existing message into another conversation. Because every chat is
     /// E2EE with its own key, media is decrypted from the source chat and re-encrypted
     /// for the target by reusing the normal send pipeline (never re-uses source ciphertext).

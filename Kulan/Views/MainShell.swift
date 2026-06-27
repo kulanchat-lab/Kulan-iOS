@@ -868,6 +868,7 @@ struct ChatRow: View {
         switch s {
         case "🎤 Voice message": return ("mic.fill", "Voice message")
         case "📄 File":          return ("doc.fill", "File")
+        case "GIF":              return ("sparkles", "GIF")
         case "📞 Missed call":   return ("phone.down.fill", "Missed call")
         case "📞 Call":          return ("phone.fill", "Call")
         default: return nil

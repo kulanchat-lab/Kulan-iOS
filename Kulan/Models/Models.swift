@@ -63,6 +63,7 @@ struct Message: Identifiable, Equatable {
     var isImage: Bool { (type == "image" && (imageUrl?.isEmpty == false)) || localImageData != nil }
     var isAudio: Bool { (type == "audio" && (audioUrl?.isEmpty == false)) || localAudioData != nil }
     var isFile: Bool { type == "file" && (fileUrl?.isEmpty == false) }
+    var isGif: Bool { type == "gif" && (imageUrl?.isEmpty == false) }   // public Giphy url (not E2EE)
     var isCall: Bool { type == "call" }
     var isSystem: Bool { type == "system" }   // group event ("X added Y"), shown centered
 
