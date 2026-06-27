@@ -1231,7 +1231,8 @@ struct ThreadView: View {
             .padding(.leading, 14)
             .padding(.vertical, 9)   // single-line field height ~40 to match the + button
             .onChange(of: input) { _, v in
-                let now = !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                // Don't broadcast "typing" while we're seeding the field for an inline EDIT.
+                let now = editingMessage == nil && !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if now != typingSent {
                     typingSent = now
                     Task { await ChatService.setTyping(cid, now) }

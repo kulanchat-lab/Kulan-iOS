@@ -9,7 +9,10 @@ struct ImageViewerView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var scale: CGFloat = 1
-    @State private var dragOffset: CGSize = .zero
+    @State private var lastScale: CGFloat = 1      // committed zoom (so pinch accumulates)
+    @State private var offset: CGSize = .zero      // pan offset while zoomed
+    @State private var lastOffset: CGSize = .zero
+    @State private var dragOffset: CGSize = .zero  // drag-down-to-dismiss (only when not zoomed)
     @State private var saved = false
     @State private var saveError = false
 
@@ -20,20 +23,35 @@ struct ImageViewerView: View {
             if let url = message.imageUrl {
                 SecureImageView(imageUrl: url, enc: message.enc, cid: cid, fill: false)
                     .scaleEffect(scale)
-                    .offset(dragOffset)
+                    .offset(x: offset.width + dragOffset.width, y: offset.height + dragOffset.height)
                     .gesture(
                         MagnificationGesture()
-                            .onChanged { scale = max(1, $0) }
-                            .onEnded { _ in withAnimation(.spring) { scale = max(1, scale) } }
+                            .onChanged { scale = min(4, max(1, lastScale * $0)) }   // accumulate from last zoom
+                            .onEnded { _ in
+                                lastScale = scale
+                                if scale <= 1 { withAnimation(.spring) { offset = .zero; lastOffset = .zero } }
+                            }
                     )
                     .simultaneousGesture(
                         DragGesture()
-                            .onChanged { v in if scale <= 1.01 { dragOffset = v.translation } }
+                            .onChanged { v in
+                                if scale > 1 {   // zoomed → pan
+                                    offset = CGSize(width: lastOffset.width + v.translation.width,
+                                                    height: lastOffset.height + v.translation.height)
+                                } else { dragOffset = v.translation }   // not zoomed → drag-to-dismiss
+                            }
                             .onEnded { v in
-                                if abs(v.translation.height) > 120 { dismiss() }
+                                if scale > 1 { lastOffset = offset }
+                                else if abs(v.translation.height) > 120 { dismiss() }
                                 else { withAnimation(.spring) { dragOffset = .zero } }
                             }
                     )
+                    .onTapGesture(count: 2) {   // double-tap toggles zoom + recenters
+                        withAnimation(.spring) {
+                            if scale > 1 { scale = 1; lastScale = 1; offset = .zero; lastOffset = .zero }
+                            else { scale = 2; lastScale = 2 }
+                        }
+                    }
             }
 
             VStack {

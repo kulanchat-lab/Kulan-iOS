@@ -322,7 +322,8 @@ struct ContactsSearchView: View {
 
     private var results: [Conversation] {
         let q = trimmed.lowercased()
-        let base = repo.conversations.filter { !$0.isCleared(me) }
+        // Exclude groups: 1:1 calling needs a real other-uid; a group's otherUid is "" → startCall(to:"").
+        let base = repo.conversations.filter { !$0.isCleared(me) && !$0.isGroup }
         let list = q.isEmpty ? base : base.filter { $0.name(for: me).lowercased().contains(q) }
         return list.sorted { $0.name(for: me).lowercased() < $1.name(for: me).lowercased() }
     }

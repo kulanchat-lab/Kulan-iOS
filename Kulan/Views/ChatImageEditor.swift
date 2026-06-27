@@ -28,7 +28,13 @@ struct ChatImageEditor: View {
     ]
     private static let aspects: [(String, CGFloat?)] = [("Original", nil), ("Square", 1), ("Portrait", 4.0/5.0)]
 
-    private var edited: UIImage { Self.cropped(Self.filtered(source, filterIndex), aspect: Self.aspects[aspectIndex].1) }
+    // Memoized: filtering+cropping the FULL-RES image is expensive; recompute only when the filter
+    // or aspect changes (onChange below), NOT on every caption keystroke / body re-eval.
+    @State private var editedCache: UIImage?
+    private var edited: UIImage { editedCache ?? source }
+    private func recomputeEdited() {
+        editedCache = Self.cropped(Self.filtered(source, filterIndex), aspect: Self.aspects[aspectIndex].1)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -59,8 +65,10 @@ struct ChatImageEditor: View {
                         .padding(.bottom, geo.safeAreaInsets.bottom + 8)
                 }
             }
-            .onAppear { canvasSize = geo.size }
+            .onAppear { canvasSize = geo.size; recomputeEdited() }
             .onChange(of: geo.size) { _, s in canvasSize = s }
+            .onChange(of: filterIndex) { _, _ in recomputeEdited() }
+            .onChange(of: aspectIndex) { _, _ in recomputeEdited() }
         }
         .statusBarHidden()
     }
@@ -125,6 +133,13 @@ struct ChatImageEditor: View {
 
     @MainActor private func flatten() -> Data {
         let base = edited
+        let quality: CGFloat = hd ? 0.95 : 0.85
+        // No drawing overlay → send the FULL-RESOLUTION edited image. (The ImageRenderer path
+        // below rasterizes at screen size, which silently downscaled every sent photo so the
+        // "HD" toggle did nothing.) The drawing path must still composite at canvas size.
+        if drawing.bounds.isEmpty {
+            return base.jpegData(compressionQuality: quality) ?? Data()
+        }
         let size = canvasSize == .zero ? UIScreen.main.bounds.size : canvasSize
         let composed = ZStack {
             Image(uiImage: base).resizable().scaledToFit().frame(width: size.width, height: size.height)
@@ -134,7 +149,6 @@ struct ChatImageEditor: View {
         }
         .frame(width: size.width, height: size.height)
         let r = ImageRenderer(content: composed); r.scale = UIScreen.main.scale
-        let quality: CGFloat = hd ? 0.95 : 0.85
         return r.uiImage?.jpegData(compressionQuality: quality) ?? (base.jpegData(compressionQuality: quality) ?? Data())
     }
 
