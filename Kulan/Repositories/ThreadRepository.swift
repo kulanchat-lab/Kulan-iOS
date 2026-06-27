@@ -40,7 +40,7 @@ final class ThreadRepository {
     private var otherUid = ""
     private var myBlockedAtMillis: Double = 0       // when I blocked
     private var myBlockClearedAtMillis: Double = 0  // when I unblocked (end of the hide window)
-    var pinnedMessageId = ""
+    var pinnedMessageIds: [String] = []   // up to 5 pinned messages (Telegram-style)
 
     init(cid: String) { self.cid = cid }
 
@@ -99,17 +99,19 @@ final class ThreadRepository {
                 let newBlocked   = (d?["blockedBy"]      as? [String: Any])?[uid] as? Bool ?? false
                 let newBlockedAt = ((d?["blockedAt"]      as? [String: Any])?[uid] as? NSNumber)?.doubleValue ?? 0
                 let newClearedAt = ((d?["blockClearedAt"] as? [String: Any])?[uid] as? NSNumber)?.doubleValue ?? 0
-                let newPinned    = d?["pinnedMessageId"] as? String ?? ""
+                // Up to 5 pins (array). Fall back to the legacy single `pinnedMessageId`.
+                let newPinned: [String] = (d?["pinnedMessageIds"] as? [String])
+                    ?? ((d?["pinnedMessageId"] as? String).flatMap { $0.isEmpty ? nil : [$0] } ?? [])
                 let newDisappear = (d?["disappearSeconds"] as? NSNumber)?.intValue ?? 0
                 let needsRebuild = newBlocked   != self.iBlocked               ||
                                    newBlockedAt != self.myBlockedAtMillis      ||
                                    newClearedAt != self.myBlockClearedAtMillis ||
-                                   newPinned    != self.pinnedMessageId        ||
+                                   newPinned    != self.pinnedMessageIds       ||
                                    newDisappear != self.disappearSeconds
                 self.iBlocked               = newBlocked
                 self.myBlockedAtMillis      = newBlockedAt
                 self.myBlockClearedAtMillis = newClearedAt
-                self.pinnedMessageId        = newPinned
+                self.pinnedMessageIds       = newPinned
                 self.disappearSeconds       = newDisappear
                 if needsRebuild { self.rebuild() }
             }

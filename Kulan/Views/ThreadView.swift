@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import Photos
 import UIKit
 import FirebaseFirestore
 import UniformTypeIdentifiers
@@ -37,6 +38,7 @@ struct ThreadView: View {
     // Hold-to-record voice gesture state (WhatsApp/Telegram-style).
     @State private var recordLocked = false        // recording continues after finger lifts
     @State private var holdHint = false             // "hold to record" flash after an accidental tap
+    @State private var pinIndex = 0                  // which of the (≤5) pinned messages the bar shows
     @State private var recordDrag: CGSize = .zero   // live finger translation while holding
     @State private var recordCancelArmed = false    // dragged left past the cancel threshold
     @State private var holdStarted = false          // guards a single start per hold
@@ -327,41 +329,58 @@ struct ThreadView: View {
 
     // Liquid-Glass pinned-message bar below the nav (tap to scroll to it; pin.slash to unpin).
     @ViewBuilder private func pinnedBar(_ proxy: ScrollViewProxy) -> some View {
-        if !repo.pinnedMessageId.isEmpty {
-            let msg = repo.messages.first { $0.id == repo.pinnedMessageId }
+        if !repo.pinnedMessageIds.isEmpty {
+            let ids = repo.pinnedMessageIds
+            let idx = min(pinIndex, ids.count - 1)
+            let pid = ids[idx]
+            let msg = repo.messages.first { $0.id == pid }
             let author = msg.map { personName($0.authorId) } ?? "Pinned Message"
-            // FLOATING glass card + separate glass pin button (like the header pills), not a
-            // flat full-width bar. Grouped in a native GlassEffectContainer so the two glass
-            // shapes render as one cohesive liquid-glass system.
-            // ONE floating glass bar — the unpin button lives INSIDE it (not a separate shape).
             HStack(spacing: 10) {
+                // Vertical count indicator (one bar per pin, current highlighted) — Telegram-style.
+                if ids.count > 1 {
+                    VStack(spacing: 2) {
+                        ForEach(0..<ids.count, id: \.self) { i in
+                            Capsule().fill(i == idx ? Color.accentColor : Color.secondary.opacity(0.4))
+                                .frame(width: 2.5, height: i == idx ? 16 : 7)
+                        }
+                    }
+                }
                 if let m = msg, m.isImage, let url = m.imageUrl {
                     SecureImageView(imageUrl: url, enc: m.enc, cid: cid)
                         .frame(width: 32, height: 32)
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(author).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
-                    Text(msg.map { $0.isImage ? "Photo" : ($0.isAudio ? "🎤 Voice message" : $0.text) } ?? "Tap to view")
+                    HStack(spacing: 5) {
+                        Text(author).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary).lineLimit(1)
+                        if ids.count > 1 {
+                            Text("\(idx + 1)/\(ids.count)").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    Text(msg.map { $0.isImage ? "Photo" : ($0.isAudio ? "Voice message" : $0.text) } ?? "Tap to view")
                         .font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
-                // Only an admin can unpin in a group (else any member could wipe the pin).
                 if !isGroup || (conversation?.isAdmin(me) ?? false) {
-                    Button { Task { await ChatService.setPinnedMessage(cid, nil) } } label: {
-                        Image(systemName: "pin.fill").font(.system(size: 16)).foregroundStyle(.secondary)
-                            .frame(width: 32, height: 32)
-                            .contentShape(Rectangle())
+                    Button {
+                        Task { await ChatService.removePinnedMessage(cid, pid) }
+                        if pinIndex > 0 { pinIndex -= 1 }   // keep index valid after removal
+                    } label: {
+                        Image(systemName: "pin.slash.fill").font(.system(size: 16)).foregroundStyle(.secondary)
+                            .frame(width: 32, height: 32).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(.leading, 14).padding(.trailing, 8)
             .frame(height: 48)
-            .liquidGlass(RoundedRectangle(cornerRadius: 24, style: .continuous), interactive: true)   // one interactive glass bar
+            .liquidGlass(RoundedRectangle(cornerRadius: 24, style: .continuous), interactive: true)
             .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .onTapGesture { if let id = msg?.id { withAnimation { proxy.scrollTo(id, anchor: .center) } } }
-            .padding(.horizontal, 16)   // match the back/call button margin from the screen edge
+            .onTapGesture {
+                if let id = msg?.id { withAnimation { proxy.scrollTo(id, anchor: .center) } }
+                if ids.count > 1 { pinIndex = (idx + 1) % ids.count }   // next tap shows the next pin
+            }
+            .padding(.horizontal, 16)
             .padding(.top, 6).padding(.bottom, 2)
             .transition(.move(edge: .top).combined(with: .opacity))
         }
@@ -463,7 +482,13 @@ struct ThreadView: View {
                         onDelete: { pendingDelete = $0 },   // confirm dialog, not instant
                         onTapImage: { viewerImage = $0 },
                         onReact: { emoji in Task { await ChatService.setReaction(cid: cid, messageId: msg.id, emoji: emoji, group: isGroup ? groupMembers : nil) } },
-                        onPin: { m in Task { await ChatService.setPinnedMessage(cid, m.id) } },
+                        onPin: { m in
+                            if repo.pinnedMessageIds.contains(m.id) {
+                                Task { await ChatService.removePinnedMessage(cid, m.id) }
+                            } else if repo.pinnedMessageIds.count < 5 {
+                                Task { await ChatService.addPinnedMessage(cid, m.id) }
+                            }   // already at the 5-pin max → ignore
+                        },
                         onForward: { forwardTarget = $0 },
                         onEdit: { editTarget = $0 },
                         onReport: { reportTarget = $0 },
@@ -475,7 +500,9 @@ struct ThreadView: View {
                                 id: uid, name: personName(uid), isAdmin: conversation?.isAdmin(uid) ?? false)
                         },
                         onOpenFile: { m in openFile(m) },
+                        onSaveImage: { m in Task { await saveImageToPhotos(m) } },
                         canPin: !isGroup || (conversation?.isAdmin(me) ?? false),
+                        isPinned: repo.pinnedMessageIds.contains(msg.id),
                         onResend: { m in resend(m) },
                         onJumpTo: { id in jump(to: id, proxy) },
                         isHighlighted: msg.id == highlightId,
@@ -728,6 +755,26 @@ struct ThreadView: View {
         }
         do { try await ChatService.sendImage(cid: cid, data: data, clientId: clientId, group: isGroup ? groupMembers : nil) }
         catch { await MainActor.run { repo.markFailed(clientId: clientId) } }
+    }
+
+    // Save a chat photo to the camera roll (decrypts if needed) with a success haptic.
+    @MainActor private func saveImageToPhotos(_ m: Message) async {
+        var ui: UIImage?
+        if let local = m.localImageData { ui = UIImage(data: local) }
+        else if let s = m.imageUrl {
+            if let cached = DiskImageCache.shared.memoryImage(s) { ui = cached }
+            else if let cached = await DiskImageCache.shared.image(for: s) { ui = cached }
+            else if let url = URL(string: s), let (cipher, _) = try? await URLSession.shared.data(from: url) {
+                if let meta = m.enc, let dec = await Crypto.shared.decryptBytes(cid, cipher: cipher, meta: meta) {
+                    ui = UIImage(data: dec)
+                } else { ui = UIImage(data: cipher) }
+            }
+        }
+        guard let image = ui else { return }
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else { return }
+        try? await PHPhotoLibrary.shared().performChanges { PHAssetChangeRequest.creationRequestForAsset(from: image) }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
     private func deliver(text: String, reply: ReplyRef?, clientId: String, mentions: [String] = []) async {
@@ -1314,7 +1361,9 @@ struct MessageBubble: View {
     var onTapReactions: () -> Void = {}
     var onTapSender: (String) -> Void = { _ in }
     var onOpenFile: (Message) -> Void = { _ in }
+    var onSaveImage: (Message) -> Void = { _ in }
     var canPin: Bool = true
+    var isPinned: Bool = false
 
     private var fileSizeLabel: String {
         guard let b = message.fileSize else { return "Document" }
@@ -1543,17 +1592,24 @@ struct MessageBubble: View {
                     // lift + blur + spring. No custom overlay.
                     .contextMenu {
                         Button { onReply(message) } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
-                        if !message.isCall {
-                            Button { onForward(message) } label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
-                        }
-                        if !message.isImage && !message.text.isEmpty {
+                        if !message.text.isEmpty {
                             Button { UIPasteboard.general.string = message.text } label: { Label("Copy", systemImage: "doc.on.doc") }
                         }
-                        Button { onReactMore(message) } label: { Label("React…", systemImage: "face.smiling") }
-                        if canPin { Button { onPin(message) } label: { Label("Pin", systemImage: "pin") } }
+                        if message.isImage {
+                            Button { onSaveImage(message) } label: { Label("Save Image", systemImage: "square.and.arrow.down") }
+                        }
                         if isMe && !message.isImage && !message.isAudio && !message.isCall && message.sendState == nil {
                             Button { onEdit(message) } label: { Label("Edit", systemImage: "pencil") }
                         }
+                        if canPin {
+                            Button { onPin(message) } label: {
+                                Label(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin")
+                            }
+                        }
+                        if !message.isCall {
+                            Button { onForward(message) } label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
+                        }
+                        Button { onReactMore(message) } label: { Label("React…", systemImage: "face.smiling") }
                         Divider()
                         if isMe {
                             Button(role: .destructive) { onDelete(message) } label: { Label("Delete", systemImage: "trash") }

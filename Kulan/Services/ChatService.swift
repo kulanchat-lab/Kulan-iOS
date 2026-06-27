@@ -715,6 +715,15 @@ enum ChatService {
         try? await db.collection("conversations").document(cid)
             .setData(["pinnedMessageId": messageId ?? ""], merge: true)
     }
+    /// Up to 5 pinned messages (array). Add/remove individually.
+    static func addPinnedMessage(_ cid: String, _ messageId: String) async {
+        try? await db.collection("conversations").document(cid)
+            .setData(["pinnedMessageIds": FieldValue.arrayUnion([messageId])], merge: true)
+    }
+    static func removePinnedMessage(_ cid: String, _ messageId: String) async {
+        try? await db.collection("conversations").document(cid)
+            .setData(["pinnedMessageIds": FieldValue.arrayRemove([messageId])], merge: true)
+    }
 
     static func setArchived(_ cid: String, _ value: Bool) async {
         try? await db.collection("conversations").document(cid)
