@@ -16,7 +16,8 @@ struct StoryEditorView: View {
     @State private var drawing = PKDrawing()
     @State private var isDrawing = false
     @State private var filterIndex = 0
-    @State private var aspectIndex = 0
+    @State private var croppedSource: UIImage?   // result of the interactive crop (nil = uncropped)
+    @State private var showCrop = false
     @State private var editedCache: UIImage?         // filtered+cropped; recomputed only on tool change
     @State private var canvasSize: CGSize = .zero
     @State private var posting = false
@@ -38,12 +39,10 @@ struct StoryEditorView: View {
         ("Original", nil), ("Vivid", "CIPhotoEffectChrome"), ("Mono", "CIPhotoEffectMono"),
         ("Fade", "CIPhotoEffectFade"), ("Noir", "CIPhotoEffectNoir"),
     ]
-    private static let aspects: [(String, CGFloat?)] = [("Original", nil), ("Square", 1), ("Portrait", 4.0 / 5.0)]
-
     private var edited: UIImage { editedCache ?? source }
     private func recomputeEdited() {
-        editedCache = Self.cropped(Self.apply(Self.filters[filterIndex].ci, to: source),
-                                   aspect: Self.aspects[aspectIndex].1)
+        // Filter applies on top of the (interactively) cropped source.
+        editedCache = Self.apply(Self.filters[filterIndex].ci, to: croppedSource ?? source)
     }
 
     var body: some View {
@@ -135,7 +134,6 @@ struct StoryEditorView: View {
             .onAppear { canvasSize = geo.size; recomputeEdited() }
             .onChange(of: geo.size) { _, s in canvasSize = s }
             .onChange(of: filterIndex) { _, _ in recomputeEdited() }
-            .onChange(of: aspectIndex) { _, _ in recomputeEdited() }
             .overlay {
                 if let id = editingID, let idx = overlays.firstIndex(where: { $0.id == id }) {
                     TextEditorOverlay(
@@ -149,6 +147,11 @@ struct StoryEditorView: View {
         .statusBarHidden()
         .alert("Couldn't share", isPresented: $postError) { Button("OK", role: .cancel) {} }
         .sheet(item: $pendingShare) { s in ShareStorySheet(image: s.data, onPosted: { onPosted(); dismiss() }) }
+        .fullScreenCover(isPresented: $showCrop) {
+            CropView(source: source,   // always crop from the original (no cumulative degradation)
+                     onDone: { cropped in croppedSource = cropped; showCrop = false; recomputeEdited() },
+                     onCancel: { showCrop = false })
+        }
         .toolbar(.hidden, for: .navigationBar)
     }
 
@@ -168,7 +171,7 @@ struct StoryEditorView: View {
             if !captionFocused {
                 HStack(spacing: 0) {
                     tool("textformat", active: false) { addTextOverlay() }   // Aa — add text on the photo
-                    tool("crop", active: aspectIndex != 0) { aspectIndex = (aspectIndex + 1) % Self.aspects.count }
+                    tool("crop", active: croppedSource != nil) { showCrop = true }
                     tool(isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle", active: isDrawing) { isDrawing.toggle() }
                     tool("slider.horizontal.3", active: filterIndex != 0) { filterIndex = (filterIndex + 1) % Self.filters.count }
 
@@ -282,16 +285,6 @@ struct StoryEditorView: View {
         filter.setValue(ci, forKey: kCIInputImageKey)
         guard let out = filter.outputImage, let cg = ciContext.createCGImage(out, from: out.extent) else { return image }
         return UIImage(cgImage: cg, scale: image.scale, orientation: image.imageOrientation)
-    }
-
-    private static func cropped(_ image: UIImage, aspect: CGFloat?) -> UIImage {
-        guard let aspect, let cg = image.cgImage else { return image }
-        let w = CGFloat(cg.width), h = CGFloat(cg.height)
-        var cw = w, ch = h
-        if w / h > aspect { cw = h * aspect } else { ch = w / aspect }
-        let rect = CGRect(x: (w - cw) / 2, y: (h - ch) / 2, width: cw, height: ch)
-        guard let out = cg.cropping(to: rect) else { return image }
-        return UIImage(cgImage: out, scale: image.scale, orientation: image.imageOrientation)
     }
 }
 
@@ -512,5 +505,97 @@ struct DrawingCanvas: UIViewRepresentable {
         let parent: DrawingCanvas
         init(_ p: DrawingCanvas) { parent = p }
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) { parent.drawing = canvasView.drawing }
+    }
+}
+
+// Real interactive crop (Instagram/Telegram-style): pinch to zoom + drag to position the photo
+// inside an adjustable frame with a rule-of-thirds grid; Done renders exactly what's framed.
+// Replaces the old center-crop-to-aspect that blindly cut faces.
+struct CropView: View {
+    let source: UIImage
+    var onDone: (UIImage) -> Void
+    var onCancel: () -> Void
+
+    @State private var scale: CGFloat = 1
+    @GestureState private var gScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @GestureState private var gOffset: CGSize = .zero
+    @State private var aspectIdx = 0
+    private let aspects: [(String, CGFloat)] = [("4:5", 4.0 / 5.0), ("1:1", 1), ("9:16", 9.0 / 16.0), ("3:4", 3.0 / 4.0)]
+
+    private var liveScale: CGFloat { max(1, scale * gScale) }
+    private var liveOffset: CGSize { CGSize(width: offset.width + gOffset.width, height: offset.height + gOffset.height) }
+
+    var body: some View {
+        GeometryReader { geo in
+            let aspect = aspects[aspectIdx].1
+            let frameW: CGFloat = min(geo.size.width - 32, geo.size.height * 0.6 * aspect)
+            let frameH: CGFloat = frameW / aspect
+            ZStack {
+                Color.black.ignoresSafeArea()
+                framedPhoto(frameW: frameW, frameH: frameH, live: true)
+                    .overlay(grid.frame(width: frameW, height: frameH))
+                    .overlay(RoundedRectangle(cornerRadius: 2).stroke(.white.opacity(0.85), lineWidth: 1)
+                        .frame(width: frameW, height: frameH))
+                    .gesture(
+                        SimultaneousGesture(
+                            MagnificationGesture().updating($gScale) { v, s, _ in s = v }.onEnded { v in scale = max(1, scale * v) },
+                            DragGesture().updating($gOffset) { v, s, _ in s = v.translation }
+                                .onEnded { v in offset.width += v.translation.width; offset.height += v.translation.height }
+                        )
+                    )
+                VStack {
+                    HStack {
+                        Button("Cancel") { onCancel() }.foregroundStyle(.white)
+                        Spacer()
+                        Button("Done") { onDone(render(frameW: frameW, frameH: frameH)) }
+                            .foregroundStyle(.white).fontWeight(.semibold)
+                    }
+                    .padding(.horizontal, 16).padding(.top, geo.safeAreaInsets.top + 6)
+                    Spacer()
+                    HStack(spacing: 10) {
+                        ForEach(aspects.indices, id: \.self) { i in
+                            Button(aspects[i].0) { withAnimation(.easeInOut(duration: 0.2)) { aspectIdx = i } }
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(aspectIdx == i ? .black : .white)
+                                .padding(.horizontal, 14).padding(.vertical, 7)
+                                .background(aspectIdx == i ? Color.white : Color.white.opacity(0.18), in: Capsule())
+                        }
+                    }
+                    .padding(.bottom, geo.safeAreaInsets.bottom + 18)
+                }
+            }
+        }
+        .statusBarHidden()
+    }
+
+    // The photo, scaled-to-fill the crop frame, with the live zoom/pan, clipped to the frame.
+    private func framedPhoto(frameW: CGFloat, frameH: CGFloat, live: Bool) -> some View {
+        Image(uiImage: source)
+            .resizable().scaledToFill()
+            .scaleEffect(live ? liveScale : max(1, scale))
+            .offset(live ? liveOffset : offset)
+            .frame(width: frameW, height: frameH)
+            .clipped()
+    }
+
+    private var grid: some View {
+        GeometryReader { g in
+            Path { p in
+                for i in 1...2 {
+                    let x = g.size.width * CGFloat(i) / 3
+                    p.move(to: CGPoint(x: x, y: 0)); p.addLine(to: CGPoint(x: x, y: g.size.height))
+                    let y = g.size.height * CGFloat(i) / 3
+                    p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: g.size.width, y: y))
+                }
+            }.stroke(.white.opacity(0.4), lineWidth: 0.5)
+        }
+    }
+
+    @MainActor private func render(frameW: CGFloat, frameH: CGFloat) -> UIImage {
+        let content = framedPhoto(frameW: frameW, frameH: frameH, live: false)
+        let r = ImageRenderer(content: content)
+        r.scale = UIScreen.main.scale
+        return r.uiImage ?? source
     }
 }
