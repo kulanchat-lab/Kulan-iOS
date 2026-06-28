@@ -85,7 +85,7 @@ struct StoriesRow: View {
                 ForEach(repo.others.filter { !StoryPrefs.isHidden($0.authorUid) }) { g in
                     card(cover: g.stories.last?.mediaUrl,
                          name: g.name.isEmpty ? "User" : g.name,
-                         avatar: g.photoUrl, unseen: g.hasUnseen) { onOpen(g) }
+                         avatar: g.photoUrl, unseen: g.hasUnseen, count: g.stories.count) { onOpen(g) }
                         // Native Apple peek: long-press lifts THIS card + shows the system menu
                         // (same as the chat rows). Works here because the row is a ScrollView, not a List.
                         .contextMenu {
@@ -117,7 +117,7 @@ struct StoriesRow: View {
         } else {
             card(cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
                  name: "My Story", avatar: mePhoto,
-                 unseen: repo.mine?.hasUnseen ?? false, onBadge: onCompose) {
+                 unseen: repo.mine?.hasUnseen ?? false, count: repo.mine?.stories.count ?? 0, onBadge: onCompose) {
                 if let m = repo.mine { onOpen(m) } else { onCompose() }
             }
             .contextMenu {
@@ -157,7 +157,27 @@ struct StoriesRow: View {
         .frame(width: cardW)
     }
 
-    private func card(cover: String?, name: String, avatar: String?, unseen: Bool,
+    // Telegram/IG segmented ring: one arc per story (3 stories = 3 arcs with gaps, 1 = full circle).
+    // Colorful gradient when unviewed, grey when viewed. Sits only around the small profile badge.
+    private func storyRing(count: Int, unseen: Bool) -> some View {
+        let n = max(1, count)
+        let gap: CGFloat = n > 1 ? 0.045 : 0          // gap between segments (fraction of the circle)
+        let seg: CGFloat = 1.0 / CGFloat(n)
+        let style: AnyShapeStyle = unseen
+            ? AnyShapeStyle(AngularGradient(colors: [Color(hex: 0xF7971E), Color(hex: 0xDD2476),
+                                                     Color(hex: 0x7F00FF), Color(hex: 0xF7971E)], center: .center))
+            : AnyShapeStyle(Color.gray.opacity(0.55))
+        return ZStack {
+            ForEach(0..<n, id: \.self) { i in
+                Circle()
+                    .trim(from: CGFloat(i) * seg + gap / 2, to: CGFloat(i + 1) * seg - gap / 2)
+                    .stroke(style, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+            }
+        }
+        .rotationEffect(.degrees(-90))                // first segment starts at the top
+    }
+
+    private func card(cover: String?, name: String, avatar: String?, unseen: Bool, count: Int = 1,
                       onBadge: (() -> Void)? = nil, tap: @escaping () -> Void) -> some View {
         VStack(spacing: 6) {
             ZStack(alignment: .bottomLeading) {
@@ -174,15 +194,7 @@ struct StoriesRow: View {
                     .buttonStyle(.plain).padding(8)
                 } else {
                     AvatarView(name: name, photoUrl: avatar, size: 32)
-                        .overlay(   // Telegram: unseen = colorful gradient ring, seen = grey ring (small badge only)
-                            Circle().strokeBorder(
-                                unseen
-                                ? AnyShapeStyle(AngularGradient(
-                                    colors: [Color(hex: 0xF7971E), Color(hex: 0xDD2476),
-                                             Color(hex: 0x7F00FF), Color(hex: 0xF7971E)], center: .center))
-                                : AnyShapeStyle(Color.gray.opacity(0.55)),
-                                lineWidth: 2.5)
-                        )
+                        .overlay(storyRing(count: count, unseen: unseen).frame(width: 37, height: 37))
                         .animation(.easeInOut(duration: 0.3), value: unseen)
                         .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
                         .padding(8)
