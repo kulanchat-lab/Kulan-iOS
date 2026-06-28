@@ -190,16 +190,23 @@ struct StoriesRow: View {
                     .frame(width: cardW, height: cardH)
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 if let onBadge {
-                    Button(action: onBadge) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 26)).symbolRenderingMode(.palette)
-                            .foregroundStyle(Color(.systemBackground), .primary)
-                            .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
-                    }
-                    .buttonStyle(.plain).padding(8)
+                    // My Story: profile picture + ring (colorful before I view it, grey after) + small + badge.
+                    AvatarView(name: name, photoUrl: avatar, size: 32)
+                        .overlay { if count > 0 { StoryRingView(count: count, unseen: unseen).frame(width: 37, height: 37) } }
+                        .overlay(alignment: .bottomTrailing) {
+                            Button(action: onBadge) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 16)).symbolRenderingMode(.palette)
+                                    .foregroundStyle(.white, Color(.systemGreen))
+                            }
+                            .buttonStyle(.plain).offset(x: 4, y: 4)
+                        }
+                        .animation(.easeInOut(duration: 0.3), value: unseen)
+                        .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
+                        .padding(8)
                 } else {
                     AvatarView(name: name, photoUrl: avatar, size: 32)
-                        .overlay(StoryRingView(count: count, unseen: unseen).frame(width: 37, height: 37))
+                        .overlay { if count > 0 { StoryRingView(count: count, unseen: unseen).frame(width: 37, height: 37) } }
                         .animation(.easeInOut(duration: 0.3), value: unseen)
                         .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
                         .padding(8)

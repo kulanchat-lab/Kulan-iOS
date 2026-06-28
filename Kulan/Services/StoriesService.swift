@@ -27,8 +27,8 @@ struct StoryGroup: Identifiable {
     var id: String { authorUid }
 
     // Unseen ⇔ I haven't viewed since the newest story (mirrors Signal's ring logic).
+    // Applies to my own story too now: colorful until I open it (then markSeenLocally greys it).
     var hasUnseen: Bool {
-        if isMine { return false }   // my own story is never "unseen" to me (L2: was always ringed)
         guard let newest = stories.map(\.createdAt).max() else { return false }
         guard let lv = lastViewedAt else { return true }
         return lv < newest
