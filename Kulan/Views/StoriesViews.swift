@@ -603,22 +603,16 @@ struct StoryViewersSheet: View {
             .padding(.horizontal, 16).padding(.top, 14)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .center, spacing: 12) {
-                    ForEach(stories, id: \.id) { s in
-                        storyCard(s)
-                            .scrollTransition { content, phase in   // carousel: centered card full, sides shrink/fade
-                                content.scaleEffect(phase.isIdentity ? 1 : 0.82)
-                                       .opacity(phase.isIdentity ? 1 : 0.55)
-                            }
-                    }
+                HStack(spacing: 14) {
+                    ForEach(stories, id: \.id) { s in storyCard(s) }   // each scales by distance from center
                 }
                 .scrollTargetLayout()
-                .padding(.horizontal, max(16, (UIScreen.main.bounds.width - 128) / 2))   // center the focused card
+                .padding(.horizontal, max(16, (UIScreen.main.bounds.width - 150) / 2))   // center the focused card
                 .padding(.vertical, 8)
             }
             .scrollTargetBehavior(.viewAligned)                      // snaps to each card
             .scrollPosition(id: $scrolledID)                         // centered card → auto-select
-            .frame(height: 232)
+            .frame(height: 290)
 
             Picker("", selection: $segment) {
                 Text("All Viewers").tag(0)
@@ -655,25 +649,36 @@ struct StoryViewersSheet: View {
     private func storyCard(_ s: Story) -> some View {
         let vs = byStory[s.id] ?? []
         let reacts = vs.filter { !($0.reaction ?? "").isEmpty }.count
-        return StoryImage(url: s.mediaUrl)
-            .frame(width: 128, height: 216)                 // uniform; the carousel scales the centered one
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(alignment: .bottom) {
-                HStack(spacing: 5) {
-                    Image(systemName: "eye.fill").font(.caption2)
-                    Text("\(vs.count)").font(.caption2.weight(.semibold))
-                    if reacts > 0 {
-                        Image(systemName: "heart.fill").font(.caption2).foregroundStyle(.red)
-                        Text("\(reacts)").font(.caption2.weight(.semibold))
+        let w: CGFloat = 150, h: CGFloat = 258
+        return GeometryReader { geo in
+            // Scale by how close this card's centre is to the screen centre: centre = full, sides shrink.
+            let screenMid = UIScreen.main.bounds.width / 2
+            let dist = abs(geo.frame(in: .global).midX - screenMid)
+            let scale = max(0.72, 1 - dist / 600)
+            StoryImage(url: s.mediaUrl)
+                .frame(width: w, height: h)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(alignment: .bottom) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "eye.fill").font(.caption2)
+                        Text("\(vs.count)").font(.caption2.weight(.semibold))
+                        if reacts > 0 {
+                            Image(systemName: "heart.fill").font(.caption2).foregroundStyle(.red)
+                            Text("\(reacts)").font(.caption2.weight(.semibold))
+                        }
                     }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(.black.opacity(0.45), in: Capsule())
+                    .padding(.bottom, 10)
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(.black.opacity(0.45), in: Capsule())
-                .padding(.bottom, 8)
-            }
-            .id(s.id)
-            .onTapGesture { withAnimation(.easeOut(duration: 0.25)) { scrolledID = s.id } }   // tap → scroll to it
+                .scaleEffect(scale)
+                .opacity(Double(max(0.6, scale)))                // sides also dim slightly
+                .frame(maxWidth: .infinity, maxHeight: .infinity)  // centre the scaled card in its slot
+        }
+        .frame(width: w, height: h)
+        .id(s.id)
+        .onTapGesture { withAnimation(.easeOut(duration: 0.25)) { scrolledID = s.id } }   // tap → scroll to it
     }
 
     private func viewerRow(_ v: StoryViewerInfo) -> some View {
