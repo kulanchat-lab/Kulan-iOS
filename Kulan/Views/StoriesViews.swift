@@ -176,7 +176,15 @@ struct StoriesRow: View {
                     .buttonStyle(.plain).padding(8)
                 } else {
                     AvatarView(name: name, photoUrl: avatar, size: 32)
-                        .overlay(Circle().stroke(Color.accentColor, lineWidth: unseen ? 2.5 : 0))
+                        .overlay(   // unseen = colorful gradient ring (IG/WhatsApp); seen = none
+                            Circle().strokeBorder(
+                                unseen
+                                ? AnyShapeStyle(AngularGradient(
+                                    colors: [Color(hex: 0xF7971E), Color(hex: 0xDD2476),
+                                             Color(hex: 0x7F00FF), Color(hex: 0xF7971E)], center: .center))
+                                : AnyShapeStyle(Color.clear),
+                                lineWidth: unseen ? 2.5 : 0)
+                        )
                         .animation(.easeInOut(duration: 0.3), value: unseen)
                         .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
                         .padding(8)
