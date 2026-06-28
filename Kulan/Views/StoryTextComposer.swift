@@ -118,7 +118,7 @@ struct StoryTextComposer: View {
             .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: 44, height: 44)
-            .liquidGlass(Circle(), interactive: true)   // real iOS 26 glass over the gradient
-            .contentShape(Circle())                     // guarantee the whole circle is tappable
+            .liquidGlass(Circle())                      // non-interactive glass: its touch-tracking was
+            .contentShape(Circle())                     // intermittently eating the Button tap ("sometimes works")
     }
 }
