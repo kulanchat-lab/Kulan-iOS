@@ -98,12 +98,17 @@ private extension MessageView {
             .foregroundColor(.white)
             .frame(height: Constant.MessageView.height)
             .padding(Constant.MessageView.padding)
-            .overlay(
-                RoundedRectangle(cornerRadius: Constant.MessageView.cornerRadius)
-                    .stroke(.white)
-            )
-            
-            buttonViewBuilder(config)
+            .background(Capsule().fill(.black.opacity(0.3)))   // filled pill, more native than a bare stroke
+            .overlay(Capsule().stroke(.white.opacity(0.5), lineWidth: 1))
+
+            // Send button appears once you've typed (heart shows when empty) — was Return-key only.
+            if text.isEmpty {
+                buttonViewBuilder(config)
+            } else {
+                Button(action: onCommitAction) {
+                    Image(systemName: "paperplane.fill").font(.title2).foregroundColor(.white)
+                }
+            }
         }
     }
 }
