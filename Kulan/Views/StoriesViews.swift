@@ -128,17 +128,12 @@ struct StoriesRow: View {
                          avatar: g.photoUrl, seen: StoryPrefs.seenFlags(g.stories)) { onOpen(g) }
                         // Native Apple peek: long-press lifts THIS card + shows the system menu
                         // (same as the chat rows). Works here because the row is a ScrollView, not a List.
-                        .contextMenu {   // full Telegram friend menu
+                        .contextMenu {   // friend menu: Send Message + Open Profile + Hide Stories
                             Button { onMessage(g) } label: { Label("Send Message", systemImage: "message") }
                             Button { onProfile(g) } label: { Label("Open Profile", systemImage: "person.crop.circle") }
-                            Button { StoryPrefs.toggleNotify(g.authorUid); prefsTick += 1 } label: {
-                                Label(StoryPrefs.isNotifying(g.authorUid) ? "Mute Stories" : "Notify About Stories",
-                                      systemImage: StoryPrefs.isNotifying(g.authorUid) ? "bell.slash" : "bell")
-                            }
-                            Button { onOpenAnon(g) } label: { Label("View Anonymously", systemImage: "eye.slash") }
                             Button(role: .destructive) { hideTarget = g }   // confirm first, then archive
                                 label: { Label("Hide Stories", systemImage: "archivebox") }
-                        } preview: {   // lifted peek = ONLY this person's story card image (Telegram)
+                        } preview: {   // lifted peek = this person's story card image + name (Telegram)
                             cardPreview(g.stories.last?.mediaUrl, g.photoUrl, g.name.isEmpty ? "User" : g.name)
                         }
                 }
