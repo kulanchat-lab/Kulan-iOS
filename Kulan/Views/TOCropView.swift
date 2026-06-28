@@ -19,6 +19,22 @@ struct TOCropView: UIViewControllerRepresentable {
         vc.toolbarPosition = .bottom
         vc.doneButtonTitle = "Done"
         vc.cancelButtonTitle = "Cancel"
+
+        // Real Apple liquid glass behind the crop toolbar (the library ships a solid dark bar).
+        if #available(iOS 26.0, *) {
+            let tb = vc.toolbar
+            tb.backgroundColor = .clear
+            let glass = UIVisualEffectView(effect: UIGlassEffect())
+            glass.isUserInteractionEnabled = false
+            glass.translatesAutoresizingMaskIntoConstraints = false
+            tb.insertSubview(glass, at: 0)
+            NSLayoutConstraint.activate([
+                glass.leadingAnchor.constraint(equalTo: tb.leadingAnchor),
+                glass.trailingAnchor.constraint(equalTo: tb.trailingAnchor),
+                glass.topAnchor.constraint(equalTo: tb.topAnchor),
+                glass.bottomAnchor.constraint(equalTo: tb.bottomAnchor),
+            ])
+        }
         return vc
     }
 

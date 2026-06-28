@@ -299,6 +299,8 @@ final class StoriesRepository {
             if author == me { myGroup = g }
             else if !blockedAuthors.contains(author) { groups.append(g) }
         }
+        if Self.injectDemoStories { groups.append(contentsOf: Self.demoGroups(now: now)) }   // TEMP test data
+
         // Unseen first, then by most-recent story.
         groups.sort {
             if $0.hasUnseen != $1.hasUnseen { return $0.hasUnseen }
@@ -306,5 +308,27 @@ final class StoriesRepository {
         }
 
         await MainActor.run { self.mine = myGroup; self.others = groups }
+    }
+
+    // ===== TEMPORARY demo stories (real images) for testing the viewer/carousel/rings =====
+    // Flip `injectDemoStories` to false (or delete this block) before production.
+    static let injectDemoStories = true
+    static func demoGroups(now: Date) -> [StoryGroup] {
+        func story(_ uid: String, _ n: Int, _ seed: String) -> Story {
+            Story(id: "demo_\(uid)_\(n)", authorUid: uid,
+                  createdAt: now.addingTimeInterval(Double(-3600 * (5 - n))),   // a few hours apart
+                  expiresAt: now.addingTimeInterval(3600 * 20),
+                  mediaUrl: "https://picsum.photos/seed/\(seed)/1080/1920", allowsReplies: true)
+        }
+        func group(_ uid: String, _ name: String, _ avatar: Int, _ seeds: [String]) -> StoryGroup {
+            StoryGroup(authorUid: uid, name: name, photoUrl: "https://i.pravatar.cc/150?img=\(avatar)",
+                       stories: seeds.enumerated().map { story(uid, $0.offset + 1, $0.element) },
+                       lastViewedAt: nil, isMine: false)
+        }
+        return [
+            group("demo_alex", "Alex (demo)", 12, ["alexa", "alexb", "alexc"]),
+            group("demo_maya", "Maya (demo)", 45, ["mayaa", "mayab"]),
+            group("demo_sam",  "Sam (demo)",  33, ["sama", "samb", "samc", "samd"]),
+        ]
     }
 }
