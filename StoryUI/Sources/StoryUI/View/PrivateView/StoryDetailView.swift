@@ -33,6 +33,7 @@ struct StoryDetailView: View {
     @State private var isAnimationStarted: Bool = false
     @State private var isTapDisabled: Bool = false
     @State private var showEmoji: Bool = true
+    @State private var isPaused: Bool = false   // hold-to-pause
 
     private var messageViewPosition: CGFloat {
         return -keyboardManager.currentHeight
@@ -86,6 +87,9 @@ struct StoryDetailView: View {
         .onChange(of: isAnimationStarted ? isAnimationStarted : false) { state in
             configureProgress(with: state)
             isTimerRunning = state
+        }
+        .onChange(of: keyboardManager.isKeyboardOpen) { open in
+            open ? pauseVideo() : playVideo()   // composing a reply pauses; resumes on dismiss
         }
     }
 }
@@ -195,17 +199,27 @@ private extension StoryDetailView {
     
     @ViewBuilder
     func tapStory() -> some View {
-        HStack {
-            Rectangle()
-                .fill(.black.opacity(0.01))
-                .onTapGesture {
-                    tapPreviousStory()
-                }
-            Rectangle()
-                .fill(.black.opacity(0.01))
-                .onTapGesture {
-                    tapNextStory()
-                }
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(.black.opacity(0.01))
+                    .frame(width: geo.size.width / 3)   // left third = back (IG: smaller back zone)
+                    .onTapGesture { tapPreviousStory() }
+                Rectangle()
+                    .fill(.black.opacity(0.01))
+                    .onTapGesture { tapNextStory() }     // right two-thirds = next
+            }
+            // Hold anywhere to pause (touch-down, no delay — like IG/Snap); release to resume.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        guard !keyboardManager.isKeyboardOpen, !isPaused else { return }
+                        isPaused = true; pauseVideo()
+                    }
+                    .onEnded { _ in
+                        if isPaused { isPaused = false; playVideo() }
+                    }
+            )
         }
     }
     
@@ -264,7 +278,9 @@ private extension StoryDetailView {
     }
     
     func startProgress() {
-        guard !isTimerRunning else { return }
+        // Pause sources: emoji-fly animation (isTimerRunning), hold-to-pause (isPaused),
+        // and composing a reply (keyboard open) — any of them freezes the segment + progress.
+        guard !isTimerRunning, !isPaused, !keyboardManager.isKeyboardOpen else { return }
         
         let index = getCurrentIndex()
         let story = getStory(with: index)
@@ -292,6 +308,7 @@ private extension StoryDetailView {
     }
     
     func tapNextStory() {
+        if keyboardManager.isKeyboardOpen { keyboardManager.dismiss(); return }   // tap closes keyboard, resumes
         configureTapScreen()
         guard !isTapDisabled else { return }
         if (timerProgress + 1) > CGFloat(model.stories.count) {
@@ -304,6 +321,7 @@ private extension StoryDetailView {
     }
     
     func tapPreviousStory() {
+        if keyboardManager.isKeyboardOpen { keyboardManager.dismiss(); return }   // tap closes keyboard, resumes
         configureTapScreen()
         guard !isTapDisabled else { return }
         if (timerProgress - 1) < 0 {

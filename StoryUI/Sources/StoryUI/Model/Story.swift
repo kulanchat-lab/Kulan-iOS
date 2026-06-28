@@ -29,7 +29,8 @@ public struct Story: Identifiable, Hashable {
         self.duration = duration
         self.config = config
         self.isLiked = isLiked
-        Constant.storySecond = duration
+        // (Removed `Constant.storySecond = duration` — mutating a global per-instance leaked the
+        //  last story's duration into the default for any story built without an explicit one.)
     }
 }
 
