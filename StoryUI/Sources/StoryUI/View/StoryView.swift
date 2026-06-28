@@ -60,7 +60,9 @@ public struct StoryView: View {
             let bgOpacity: Double = Double(1 - 0.85 * progress)   // black backdrop dims
             let cardScale: CGFloat = 1 - 0.18 * progress          // visible shrink (floor ~0.82)
             let cardOpacity: Double = Double(1 - 0.05 * progress) // card stays ~opaque (no ghosting)
-            let corner: CGFloat = down > 0 ? min(42, down * 0.7) : 0   // rounds the instant you pull
+            // Telegram/IG: the story card is ALWAYS rounded (not just during swipe). Grows as you pull.
+            let restCorner: CGFloat = 24
+            let corner: CGFloat = down > 0 ? min(42, max(restCorner, down * 0.7)) : restCorner
             ZStack {
                 Color.black.ignoresSafeArea().opacity(bgOpacity)
                 TabView(selection: $viewModel.currentStoryUser) {
