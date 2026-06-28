@@ -20,6 +20,13 @@ struct StoryEditorView: View {
     @State private var showCrop = false
     @State private var editedCache: UIImage?         // filtered+cropped; recomputed only on tool change
     @State private var canvasSize: CGSize = .zero
+    // Pinch-zoom + pan the photo directly on the canvas (baked WYSIWYG into the post).
+    @State private var photoZoom: CGFloat = 1
+    @GestureState private var gZoom: CGFloat = 1
+    @State private var photoOffset: CGSize = .zero
+    @GestureState private var gPan: CGSize = .zero
+    private var liveZoom: CGFloat { min(5, max(0.5, photoZoom * gZoom)) }
+    private var livePan: CGSize { CGSize(width: photoOffset.width + gPan.width, height: photoOffset.height + gPan.height) }
     @State private var posting = false
     @State private var postError = false
     @State private var pendingShare: StoryShareData?
@@ -57,9 +64,20 @@ struct StoryEditorView: View {
                     .ignoresSafeArea()
                 Image(uiImage: edited)
                     .resizable().scaledToFit()
+                    .scaleEffect(liveZoom)
+                    .offset(livePan)
                     .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
                     .contentShape(Rectangle())
                     .onTapGesture { captionFocused = false; selectedID = nil }   // dismiss keyboard + deselect
+                    .gesture(   // pinch to zoom, drag to position (only when not drawing)
+                        SimultaneousGesture(
+                            MagnificationGesture().updating($gZoom) { v, s, _ in s = v }
+                                .onEnded { v in photoZoom = min(5, max(0.5, photoZoom * v)) },
+                            DragGesture().updating($gPan) { v, s, _ in s = v.translation }
+                                .onEnded { v in photoOffset.width += v.translation.width; photoOffset.height += v.translation.height }
+                        )
+                    )
 
                 // Text overlays — above the photo, below the drawing canvas + controls.
                 ForEach($overlays) { $o in
@@ -240,7 +258,7 @@ struct StoryEditorView: View {
         let quality: CGFloat = 0.9
         let cap = caption.trimmingCharacters(in: .whitespacesAndNewlines)
         // No drawing AND no caption AND no text overlays → post the full-resolution edited image.
-        if drawing.bounds.isEmpty && cap.isEmpty && overlays.isEmpty {
+        if drawing.bounds.isEmpty && cap.isEmpty && overlays.isEmpty && photoZoom == 1 && photoOffset == .zero {
             return base.jpegData(compressionQuality: quality) ?? Data()
         }
         let size = canvasSize == .zero ? UIScreen.main.bounds.size : canvasSize
@@ -250,10 +268,10 @@ struct StoryEditorView: View {
             Image(uiImage: base).resizable().scaledToFill()
                 .frame(width: size.width, height: size.height).clipped()
                 .blur(radius: 32).opacity(0.55)
-            // Fill the frame (crop, never stretch) so a captioned/edited photo posts full — the
-            // preview card then shows it filled like WhatsApp, not small with bars. (Overlays use
-            // canvas coords so their positions are unaffected by fill vs fit.)
-            Image(uiImage: base).resizable().scaledToFill().frame(width: size.width, height: size.height).clipped()
+            // Foreground photo with the SAME fit + zoom + pan as the editor → WYSIWYG.
+            Image(uiImage: base).resizable().scaledToFit()
+                .scaleEffect(photoZoom).offset(photoOffset)
+                .frame(width: size.width, height: size.height).clipped()
             if !drawing.bounds.isEmpty {
                 Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: size), scale: UIScreen.main.scale)).resizable()
             }
