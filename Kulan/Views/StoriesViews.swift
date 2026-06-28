@@ -657,7 +657,7 @@ struct StoryViewersSheet: View {
             let scale = max(0.72, 1 - dist / 600)
             StoryImage(url: s.mediaUrl)
                 .frame(width: w, height: h)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))   // iOS 26 generous corners
                 .overlay(alignment: .bottom) {
                     HStack(spacing: 5) {
                         Image(systemName: "eye.fill").font(.caption2)
