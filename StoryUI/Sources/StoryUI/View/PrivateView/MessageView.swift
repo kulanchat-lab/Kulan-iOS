@@ -58,9 +58,10 @@ private extension MessageView {
             userClosure?(story, text, nil, likeButtonTapped)
         } label: {
             Image(systemName: likeButtonTapped ? Constant.MessageView.likeImageTapped : Constant.MessageView.likeImage)
-                .font(.title2)
+                .font(.title3)                                   // smaller heart
                 .foregroundColor(likeButtonTapped ? .red : .white)
-            
+                .scaleEffect(likeButtonTapped ? 1.18 : 1.0)      // pop when you give love
+                .animation(.spring(response: 0.3, dampingFraction: 0.45), value: likeButtonTapped)
         }
     }
     
@@ -98,6 +99,7 @@ private extension MessageView {
                 likeButtonTapped = newValue.isLiked
             })
             .foregroundColor(.white)
+            .padding(.leading, 10)                              // small left space so text isn't flush to the edge
             .frame(height: Constant.MessageView.height)
             .padding(Constant.MessageView.padding)
             .background(Capsule().fill(.black.opacity(0.3)))   // filled pill, more native than a bare stroke
