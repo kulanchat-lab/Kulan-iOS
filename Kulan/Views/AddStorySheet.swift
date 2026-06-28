@@ -97,6 +97,7 @@ struct AddStorySheet: View {
                     Spacer()
                     Image(systemName: "chevron.right").font(.footnote).foregroundStyle(.tertiary)
                 }
+                .contentShape(Rectangle())   // whole row tappable (Spacer area too), not just the icons/text
             }
             .buttonStyle(.plain)
         }
