@@ -508,9 +508,10 @@ struct DrawingCanvas: UIViewRepresentable {
     }
 }
 
-// Real interactive crop (Telegram/WhatsApp-style): pinch-zoom + drag to position, a rotation dial
-// (-45°…45°) + rotate-90 + flip + aspect presets + rule-of-thirds grid + corner handles + Reset.
-// Done renders exactly what's framed. Replaces the old center-crop that blindly cut faces.
+// Real interactive crop (Telegram/WhatsApp parity): pinch-zoom + drag to position, a rotation dial
+// (-45°…45°) + rotate-90 + flip + an ASPECT MENU (Original/Square/2:3/3:5/3:4/4:5/5:7/9:16) + grid +
+// corner handles + Reset. Done renders exactly what's framed. Body split into sub-views so the
+// SwiftUI type-checker doesn't choke.
 struct CropView: View {
     let source: UIImage
     var onDone: (UIImage) -> Void
@@ -520,85 +521,98 @@ struct CropView: View {
     @GestureState private var gScale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @GestureState private var gOffset: CGSize = .zero
-    @State private var angle: Double = 0        // fine rotation from the dial
+    @State private var angle: Double = 0          // fine rotation from the dial
     @GestureState private var dialDrag: CGFloat = 0
-    @State private var quarter: Int = 0         // rotate-90 steps
+    @State private var quarter: Int = 0           // rotate-90 steps
     @State private var flipped = false
     @State private var aspectIdx = 0
-    private let aspects: [(String, CGFloat)] = [("4:5", 4.0 / 5.0), ("1:1", 1), ("9:16", 9.0 / 16.0), ("3:4", 3.0 / 4.0)]
 
+    private var aspects: [(name: String, ratio: CGFloat)] {
+        [("Original", source.size.height == 0 ? 1 : source.size.width / source.size.height),
+         ("Square", 1), ("2:3", 2.0 / 3.0), ("3:5", 3.0 / 5.0), ("3:4", 3.0 / 4.0),
+         ("4:5", 4.0 / 5.0), ("5:7", 5.0 / 7.0), ("9:16", 9.0 / 16.0)]
+    }
     private var liveScale: CGFloat { max(1, scale * gScale) }
     private var liveOffset: CGSize { CGSize(width: offset.width + gOffset.width, height: offset.height + gOffset.height) }
     private var liveAngle: Double { min(45, max(-45, angle - Double(dialDrag) / 6)) }
-    private var totalAngle: Double { liveAngle + Double(quarter) * 90 }
+    private var isEdited: Bool { angle != 0 || quarter != 0 || flipped || scale != 1 || offset != .zero }
 
     var body: some View {
         GeometryReader { geo in
-            let aspect = aspects[aspectIdx].1
-            let frameW: CGFloat = min(geo.size.width - 32, geo.size.height * 0.55 * aspect)
-            let frameH: CGFloat = frameW / aspect
+            let ratio = aspects[aspectIdx].ratio
+            let frameW: CGFloat = min(geo.size.width - 32, geo.size.height * 0.5 * ratio)
+            let frameH: CGFloat = frameW / ratio
             ZStack {
                 Color.black.ignoresSafeArea()
-
-                framedPhoto(frameW: frameW, frameH: frameH, live: true)
-                    .overlay(grid.frame(width: frameW, height: frameH))
-                    .overlay(CropCorners().stroke(.white, lineWidth: 3).frame(width: frameW + 4, height: frameH + 4))
-                    .gesture(
-                        SimultaneousGesture(
-                            MagnificationGesture().updating($gScale) { v, s, _ in s = v }.onEnded { v in scale = max(1, scale * v) },
-                            DragGesture().updating($gOffset) { v, s, _ in s = v.translation }
-                                .onEnded { v in offset.width += v.translation.width; offset.height += v.translation.height }
-                        )
-                    )
-
-                VStack {
-                    HStack {
-                        Button("Cancel") { onCancel() }.foregroundStyle(.white)
-                        Spacer()
-                        Button { withAnimation(.easeInOut(duration: 0.2)) { resetAll() } } label: {
-                            Text("Reset").foregroundStyle(.white.opacity(angle == 0 && quarter == 0 && !flipped && scale == 1 && offset == .zero ? 0.4 : 1))
-                        }
-                        Spacer()
-                        Button("Done") { onDone(render(frameW: frameW, frameH: frameH)) }.foregroundStyle(.white).fontWeight(.semibold)
-                    }
-                    .padding(.horizontal, 16).padding(.top, geo.safeAreaInsets.top + 6)
-
-                    Spacer()
-
-                    rotationDial.frame(height: 44).padding(.bottom, 6)
-
-                    // Aspect presets.
-                    HStack(spacing: 10) {
-                        ForEach(aspects.indices, id: \.self) { i in
-                            Button(aspects[i].0) { withAnimation(.easeInOut(duration: 0.2)) { aspectIdx = i } }
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(aspectIdx == i ? .black : .white)
-                                .padding(.horizontal, 14).padding(.vertical, 7)
-                                .background(aspectIdx == i ? Color.white : Color.white.opacity(0.18), in: Capsule())
-                        }
-                    }
-
-                    // Rotate-90 + flip.
-                    HStack(spacing: 28) {
-                        Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { quarter = (quarter + 1) % 4 } } label: {
-                            Image(systemName: "rotate.left").font(.title3).foregroundStyle(.white)
-                        }
-                        Button { withAnimation(.easeInOut(duration: 0.2)) { flipped.toggle() } } label: {
-                            Image(systemName: "arrow.left.and.right.righttriangle.left.righttriangle.right").font(.title3).foregroundStyle(flipped ? .green : .white)
-                        }
-                    }
-                    .padding(.top, 14).padding(.bottom, geo.safeAreaInsets.bottom + 16)
-                }
+                cropArea(frameW: frameW, frameH: frameH)
+                controls(geo: geo, frameW: frameW, frameH: frameH)
             }
         }
         .statusBarHidden()
     }
 
+    private func cropArea(frameW: CGFloat, frameH: CGFloat) -> some View {
+        framedPhoto(frameW: frameW, frameH: frameH, live: true)
+            .overlay(thirdsGrid.frame(width: frameW, height: frameH))
+            .overlay(CropCorners().stroke(.white, lineWidth: 3).frame(width: frameW + 4, height: frameH + 4))
+            .gesture(SimultaneousGesture(zoomGesture, panGesture))
+    }
+
+    private var zoomGesture: some Gesture {
+        MagnificationGesture().updating($gScale) { v, s, _ in s = v }.onEnded { v in scale = max(1, scale * v) }
+    }
+    private var panGesture: some Gesture {
+        DragGesture().updating($gOffset) { v, s, _ in s = v.translation }
+            .onEnded { v in offset.width += v.translation.width; offset.height += v.translation.height }
+    }
+
+    private func controls(geo: GeometryProxy, frameW: CGFloat, frameH: CGFloat) -> some View {
+        VStack {
+            Spacer()
+            Text("Reset")
+                .font(.subheadline).foregroundStyle(.white.opacity(isEdited ? 1 : 0.4))
+                .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { resetAll() } }
+            rotationDial.frame(height: 40).padding(.vertical, 6)
+            HStack {
+                circleButton("xmark", bg: Color.white.opacity(0.18)) { onCancel() }
+                Spacer()
+                HStack(spacing: 26) {
+                    Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { quarter = (quarter + 1) % 4 } } label: {
+                        Image(systemName: "rotate.left").font(.title3).foregroundStyle(.white)
+                    }
+                    Button { withAnimation(.easeInOut(duration: 0.2)) { flipped.toggle() } } label: {
+                        Image(systemName: "arrow.left.and.right").font(.title3).foregroundStyle(flipped ? .green : .white)
+                    }
+                    Menu {
+                        ForEach(aspects.indices, id: \.self) { i in
+                            Button { withAnimation(.easeInOut(duration: 0.2)) { aspectIdx = i } } label: {
+                                if aspectIdx == i { Label(aspects[i].name, systemImage: "checkmark") } else { Text(aspects[i].name) }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "aspectratio").font(.title3).foregroundStyle(.white)
+                    }
+                }
+                .padding(.horizontal, 20).frame(height: 48).background(Color.white.opacity(0.14), in: Capsule())
+                Spacer()
+                circleButton("checkmark", bg: Color.blue) { onDone(render(frameW: frameW, frameH: frameH)) }
+            }
+            .padding(.horizontal, 16).padding(.bottom, geo.safeAreaInsets.bottom + 14)
+        }
+    }
+
+    private func circleButton(_ icon: String, bg: Color, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 48, height: 48).background(bg, in: Circle())
+        }
+    }
+
     // Photo: scaled-to-fill the frame, with rotation + flip + zoom + pan, clipped to the frame.
     private func framedPhoto(frameW: CGFloat, frameH: CGFloat, live: Bool) -> some View {
-        let s = live ? liveScale : max(1, scale)
-        let o = live ? liveOffset : offset
-        let a = live ? totalAngle : (angle + Double(quarter) * 90)
+        let s: CGFloat = live ? liveScale : max(1, scale)
+        let o: CGSize = live ? liveOffset : offset
+        let a: Double = (live ? liveAngle : angle) + Double(quarter) * 90
         return Image(uiImage: source)
             .resizable().scaledToFill()
             .rotationEffect(.degrees(a))
@@ -608,7 +622,19 @@ struct CropView: View {
             .clipped()
     }
 
-    // Horizontal degree ruler with a fixed center pointer; drag to rotate.
+    private var thirdsGrid: some View {
+        GeometryReader { g in
+            Path { p in
+                for i in 1...2 {
+                    let x = g.size.width * CGFloat(i) / 3
+                    p.move(to: CGPoint(x: x, y: 0)); p.addLine(to: CGPoint(x: x, y: g.size.height))
+                    let y = g.size.height * CGFloat(i) / 3
+                    p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: g.size.width, y: y))
+                }
+            }.stroke(.white.opacity(0.4), lineWidth: 0.5)
+        }
+    }
+
     private var rotationDial: some View {
         GeometryReader { g in
             ZStack {
@@ -620,9 +646,8 @@ struct CropView: View {
                     }
                 }
                 .frame(maxHeight: .infinity)
-                .offset(x: -CGFloat(liveAngle) * 9)   // 9pt per degree
-                Image(systemName: "triangle.fill")
-                    .font(.system(size: 9)).foregroundStyle(.green)
+                .offset(x: -CGFloat(liveAngle) * 9)
+                Image(systemName: "triangle.fill").font(.system(size: 9)).foregroundStyle(.green)
                     .frame(maxHeight: .infinity, alignment: .top)
             }
             .frame(width: g.size.width)
@@ -631,9 +656,6 @@ struct CropView: View {
                 DragGesture().updating($dialDrag) { v, s, _ in s = v.translation.width }
                     .onEnded { v in angle = min(45, max(-45, angle - Double(v.translation.width) / 6)) }
             )
-            .overlay(alignment: .bottom) {
-                Text("\(Int(liveAngle))°").font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.7))
-            }
         }
     }
 
@@ -652,13 +674,9 @@ struct CropCorners: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
         let len: CGFloat = 22
-        // top-left
         p.move(to: CGPoint(x: rect.minX, y: rect.minY + len)); p.addLine(to: CGPoint(x: rect.minX, y: rect.minY)); p.addLine(to: CGPoint(x: rect.minX + len, y: rect.minY))
-        // top-right
         p.move(to: CGPoint(x: rect.maxX - len, y: rect.minY)); p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY)); p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + len))
-        // bottom-right
         p.move(to: CGPoint(x: rect.maxX, y: rect.maxY - len)); p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY)); p.addLine(to: CGPoint(x: rect.maxX - len, y: rect.maxY))
-        // bottom-left
         p.move(to: CGPoint(x: rect.minX + len, y: rect.maxY)); p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY)); p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - len))
         return p
     }
