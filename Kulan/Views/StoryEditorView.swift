@@ -42,6 +42,12 @@ struct StoryEditorView: View {
         GeometryReader { geo in
             ZStack {
                 Color.black.ignoresSafeArea()
+                // Blurred fill behind (IG/WhatsApp), so a non-full-screen photo isn't on black bars.
+                Image(uiImage: edited)
+                    .resizable().scaledToFill()
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped().blur(radius: 32).opacity(0.55)
+                    .ignoresSafeArea()
                 Image(uiImage: edited)
                     .resizable().scaledToFit()
                     .frame(width: geo.size.width, height: geo.size.height)
@@ -148,6 +154,11 @@ struct StoryEditorView: View {
         }
         let size = canvasSize == .zero ? UIScreen.main.bounds.size : canvasSize
         let composed = ZStack(alignment: .bottom) {
+            Color.black
+            // Bake the blurred fill behind, so an edited non-full-screen photo also reads like IG/WhatsApp.
+            Image(uiImage: base).resizable().scaledToFill()
+                .frame(width: size.width, height: size.height).clipped()
+                .blur(radius: 32).opacity(0.55)
             Image(uiImage: base).resizable().scaledToFit().frame(width: size.width, height: size.height)
             if !drawing.bounds.isEmpty {
                 Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: size), scale: UIScreen.main.scale)).resizable()
