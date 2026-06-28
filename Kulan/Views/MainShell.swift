@@ -812,6 +812,7 @@ struct ChatsView: View {
 // Archived chats (reached from the avatar menu). Swipe to unarchive.
 struct ArchivedChatsView: View {
     private var repo = ConversationsRepository.shared
+    private var storiesRepo = StoriesRepository.shared   // archived (hidden) stories appear at the top
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
     @State private var search = ""
@@ -819,9 +820,48 @@ struct ArchivedChatsView: View {
     @State private var selecting = false
     @State private var selection = Set<String>()
     @State private var showDeleteSelected = false
+    @State private var viewerGroup: StoryGroup?   // tap an archived story card → view it
+    @State private var prefsTick = 0              // re-render after Unhide
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
+    private var archivedStories: [StoryGroup] {
+        _ = prefsTick
+        return storiesRepo.others.filter { StoryPrefs.isHidden($0.authorUid) }
+    }
+    private var storyCardW: CGFloat { (UIScreen.main.bounds.width - 24 - 30) / 4 }
+
+    // Horizontal cards of hidden people; tap to view, long-press to Unhide.
+    private var archivedStoriesRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: 10) {
+                ForEach(archivedStories) { g in
+                    Button { viewerGroup = g } label: {
+                        VStack(spacing: 6) {
+                            ZStack(alignment: .bottomLeading) {
+                                StoryImage(url: g.stories.last?.mediaUrl ?? "")
+                                    .frame(width: storyCardW, height: storyCardW * 1.46)
+                                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                AvatarView(name: g.name, photoUrl: g.photoUrl, size: 30)
+                                    .overlay(StoryRingView(count: g.stories.count, unseen: g.hasUnseen, lineWidth: 2)
+                                        .frame(width: 35, height: 35))
+                                    .padding(7)
+                            }
+                            Text(g.name.isEmpty ? "User" : g.name)
+                                .font(.system(size: 12)).lineLimit(1).frame(width: storyCardW)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button { StoryPrefs.toggleHidden(g.authorUid); prefsTick += 1 } label: {
+                            Label("Unhide Story", systemImage: "tray.and.arrow.up")
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+        }
+    }
 
     private var hasAnyArchived: Bool {
         repo.conversations.contains { $0.isArchived(me) && !$0.isCleared(me) }
@@ -837,11 +877,17 @@ struct ArchivedChatsView: View {
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if !hasAnyArchived {
-                    ContentUnavailableView("No archived chats", systemImage: "archivebox",
-                                           description: Text("Chats you archive will show here."))
+                if !hasAnyArchived && archivedStories.isEmpty {
+                    ContentUnavailableView("Nothing archived", systemImage: "archivebox",
+                                           description: Text("Chats you archive and stories you hide will show here."))
                 } else {
                     List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row (not select)
+                        if !archivedStories.isEmpty {
+                            archivedStoriesRow
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .selectionDisabled()
+                        }
                         ForEach(archived) { conv in
                             Button {
                                 path.append(ChatTarget(id: conv.id, name: conv.displayName(me),
@@ -862,7 +908,7 @@ struct ArchivedChatsView: View {
                     }
                     .listStyle(.plain)
                     .environment(\.editMode, .constant(selecting ? .active : .inactive))
-                    .overlay { if archived.isEmpty { ContentUnavailableView.search(text: search) } }
+                    .overlay { if archived.isEmpty && !search.isEmpty { ContentUnavailableView.search(text: search) } }
                 }
             }
             .navigationTitle("Archived")
@@ -871,6 +917,9 @@ struct ArchivedChatsView: View {
                         prompt: "Search archived")
             .navigationDestination(for: ChatTarget.self) { t in
                 ThreadView(cid: t.id, title: t.name, photoUrl: t.photo).id(t.id)
+            }
+            .fullScreenCover(item: $viewerGroup) { g in
+                StoryViewer(group: g, onClose: { viewerGroup = nil }, onProfile: { _ in viewerGroup = nil })
             }
             .toolbar {
                 if selecting {
