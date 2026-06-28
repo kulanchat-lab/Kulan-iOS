@@ -10,6 +10,7 @@ struct StoryTextComposer: View {
     @State private var text = ""
     @State private var bgIndex = 0
     @FocusState private var focused: Bool
+    @State private var showDiscard = false
 
     private let backgrounds: [[Color]] = [
         [Color(hex: 0x7F00FF), Color(hex: 0xE100FF)],
@@ -59,7 +60,8 @@ struct StoryTextComposer: View {
                 // Top controls: close (X) left, palette right. Send docks bottom-right (Instagram-style).
                 VStack {
                     HStack(spacing: 10) {
-                        Button(action: onClose) { circle("xmark") }.buttonStyle(.plain)
+                        Button { if trimmed.isEmpty { onClose() } else { focused = false; showDiscard = true } }
+                            label: { circle("xmark") }.buttonStyle(.plain)
                         Spacer()
                         Button { bgIndex += 1 } label: { circle("paintpalette.fill") }.buttonStyle(.plain)
                     }
@@ -83,6 +85,11 @@ struct StoryTextComposer: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .onAppear { focused = true }
+        // X with text typed → confirm before throwing the status away (don't lose it on a stray tap).
+        .confirmationDialog("Discard this status?", isPresented: $showDiscard, titleVisibility: .visible) {
+            Button("Discard", role: .destructive) { onClose() }
+            Button("Keep editing", role: .cancel) { focused = true }
+        }
     }
 
     // Render the gradient + text to a 1080×1920 JPEG and hand it to the poster.
