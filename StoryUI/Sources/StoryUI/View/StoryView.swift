@@ -67,28 +67,14 @@ public struct StoryView: View {
                 Color.black.ignoresSafeArea().opacity(bgOpacity)
                 TabView(selection: $viewModel.currentStoryUser) {
                     ForEach(viewModel.stories) { model in
-                        // Telegram-style 3D CUBE between stories: read each page's live scroll position
-                        // and fold it on the vertical edge. Keeps TabView's paging/timers/lazy-load intact.
-                        GeometryReader { pageGeo in
-                            let screenW: CGFloat = UIScreen.main.bounds.width
-                            let t: CGFloat = screenW == 0 ? 0 : pageGeo.frame(in: .global).minX / screenW  // 0 centered, +1 right, -1 left
-                            StoryDetailView(
-                                viewModel: viewModel,
-                                model: model,
-                                isPresented: $isPresented,
-                                userClosure: userClosure,
-                                onProfile: onProfile,
-                                onItemSeen: onItemSeen
-                            )
-                            .frame(width: pageGeo.size.width, height: pageGeo.size.height)
-                            .rotation3DEffect(
-                                .degrees(Double(t) * 90),                  // ±90° at the edges, flat when centered
-                                axis: (x: 0, y: 1, z: 0),
-                                anchor: t > 0 ? .leading : .trailing,      // fold on the edge that stays put
-                                perspective: 2.5
-                            )
-                        }
-                        .tag(model.id)
+                        StoryDetailView(
+                            viewModel: viewModel,
+                            model: model,
+                            isPresented: $isPresented,
+                            userClosure: userClosure,
+                            onProfile: onProfile,
+                            onItemSeen: onItemSeen
+                        )
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
