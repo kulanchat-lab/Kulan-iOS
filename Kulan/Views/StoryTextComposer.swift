@@ -28,7 +28,6 @@ struct StoryTextComposer: View {
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
-        NavigationStack {
             ZStack {
                 // Full-bleed gradient background. Tapping it toggles the keyboard (WhatsApp: tap to
                 // dismiss and see the full text, tap again to edit) — was stuck open with no way out.
@@ -82,8 +81,6 @@ struct StoryTextComposer: View {
                     .padding(.horizontal, 16).padding(.bottom, 12)
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
-        }
         .onAppear { focused = true }
         // X with text typed → confirm before throwing the status away (don't lose it on a stray tap).
         .confirmationDialog("Discard this status?", isPresented: $showDiscard, titleVisibility: .visible) {
@@ -120,5 +117,6 @@ struct StoryTextComposer: View {
             .foregroundStyle(.white)
             .frame(width: 44, height: 44)
             .liquidGlass(Circle(), interactive: true)   // real iOS 26 glass over the gradient
+            .contentShape(Circle())                     // guarantee the whole circle is tappable
     }
 }
