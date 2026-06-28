@@ -508,10 +508,10 @@ struct DrawingCanvas: UIViewRepresentable {
     }
 }
 
-// Real interactive crop (Telegram/WhatsApp parity): pinch-zoom + drag to position, a rotation dial
-// (-45°…45°) + rotate-90 + flip + an ASPECT MENU (Original/Square/2:3/3:5/3:4/4:5/5:7/9:16) + grid +
-// corner handles + Reset. Done renders exactly what's framed. Body split into sub-views so the
-// SwiftUI type-checker doesn't choke.
+// Real interactive crop, Telegram style: pan/zoom the image inside a fixed frame, surroundings DIMMED
+// (you see what you're cropping out), rotation dial (-45°…45°) with auto-zoom so corners never gap,
+// rotate-90, flip, aspect MENU, grid that fades in during a gesture, corner handles, Reset.
+// Done renders exactly what's inside the frame. Body split into sub-views for the type-checker.
 struct CropView: View {
     let source: UIImage
     var onDone: (UIImage) -> Void
@@ -536,6 +536,15 @@ struct CropView: View {
     private var liveOffset: CGSize { CGSize(width: offset.width + gOffset.width, height: offset.height + gOffset.height) }
     private var liveAngle: Double { min(45, max(-45, angle - Double(dialDrag) / 6)) }
     private var isEdited: Bool { angle != 0 || quarter != 0 || flipped || scale != 1 || offset != .zero }
+    private var interacting: Bool { gScale != 1 || gOffset != .zero || dialDrag != 0 }
+
+    // Min extra zoom so the (possibly rotated) image always covers the frame — no corner gaps.
+    private func coverScale(_ angleDeg: Double, _ w: CGFloat, _ h: CGFloat) -> CGFloat {
+        let r = angleDeg * .pi / 180
+        let c = abs(CGFloat(cos(r))), s = abs(CGFloat(sin(r)))
+        guard w > 0, h > 0 else { return 1 }
+        return max((w * c + h * s) / w, (w * s + h * c) / h)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -552,10 +561,19 @@ struct CropView: View {
     }
 
     private func cropArea(frameW: CGFloat, frameH: CGFloat) -> some View {
-        framedPhoto(frameW: frameW, frameH: frameH, live: true)
-            .overlay(thirdsGrid.frame(width: frameW, height: frameH))
-            .overlay(CropCorners().stroke(.white, lineWidth: 3).frame(width: frameW + 4, height: frameH + 4))
-            .gesture(SimultaneousGesture(zoomGesture, panGesture))
+        ZStack {
+            framedPhoto(frameW: frameW, frameH: frameH, live: true, clip: false)   // overflow shown
+            Color.black.opacity(0.5).ignoresSafeArea()                              // dim the surroundings
+                .reverseMask { RoundedRectangle(cornerRadius: 1).frame(width: frameW, height: frameH) }
+                .allowsHitTesting(false)
+            thirdsGrid.frame(width: frameW, height: frameH)
+                .opacity(interacting ? 1 : 0).animation(.easeInOut(duration: 0.2), value: interacting)
+                .allowsHitTesting(false)
+            CropCorners().stroke(.white, lineWidth: 3).frame(width: frameW + 4, height: frameH + 4)
+                .allowsHitTesting(false)
+        }
+        .contentShape(Rectangle())
+        .gesture(SimultaneousGesture(zoomGesture, panGesture))
     }
 
     private var zoomGesture: some Gesture {
@@ -571,7 +589,7 @@ struct CropView: View {
             Spacer()
             Text("Reset")
                 .font(.subheadline).foregroundStyle(.white.opacity(isEdited ? 1 : 0.4))
-                .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { resetAll() } }
+                .onTapGesture { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { resetAll() } }
             rotationDial.frame(height: 40).padding(.vertical, 6)
             HStack {
                 circleButton("xmark", bg: Color.white.opacity(0.18)) { onCancel() }
@@ -580,12 +598,12 @@ struct CropView: View {
                     Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { quarter = (quarter + 1) % 4 } } label: {
                         Image(systemName: "rotate.left").font(.title3).foregroundStyle(.white)
                     }
-                    Button { withAnimation(.easeInOut(duration: 0.2)) { flipped.toggle() } } label: {
+                    Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { flipped.toggle() } } label: {
                         Image(systemName: "arrow.left.and.right").font(.title3).foregroundStyle(flipped ? .green : .white)
                     }
                     Menu {
                         ForEach(aspects.indices, id: \.self) { i in
-                            Button { withAnimation(.easeInOut(duration: 0.2)) { aspectIdx = i } } label: {
+                            Button { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { aspectIdx = i } } label: {
                                 if aspectIdx == i { Label(aspects[i].name, systemImage: "checkmark") } else { Text(aspects[i].name) }
                             }
                         }
@@ -608,18 +626,21 @@ struct CropView: View {
         }
     }
 
-    // Photo: scaled-to-fill the frame, with rotation + flip + zoom + pan, clipped to the frame.
-    private func framedPhoto(frameW: CGFloat, frameH: CGFloat, live: Bool) -> some View {
-        let s: CGFloat = live ? liveScale : max(1, scale)
-        let o: CGSize = live ? liveOffset : offset
+    // Photo: scaled-to-fill the frame, with rotation (+auto cover-zoom) + flip + zoom + pan.
+    // clip=false for the on-screen view (overflow shows under the dim); clip=true for the output render.
+    private func framedPhoto(frameW: CGFloat, frameH: CGFloat, live: Bool, clip: Bool) -> some View {
         let a: Double = (live ? liveAngle : angle) + Double(quarter) * 90
+        let base: CGFloat = live ? liveScale : max(1, scale)
+        let s: CGFloat = base * coverScale(a, frameW, frameH)
+        let o: CGSize = live ? liveOffset : offset
         return Image(uiImage: source)
             .resizable().scaledToFill()
             .rotationEffect(.degrees(a))
             .scaleEffect(x: flipped ? -s : s, y: s)
             .offset(o)
             .frame(width: frameW, height: frameH)
-            .clipped()
+            .allowsHitTesting(false)
+            .modifier(ClipIf(clip: clip))
     }
 
     private var thirdsGrid: some View {
@@ -631,7 +652,7 @@ struct CropView: View {
                     let y = g.size.height * CGFloat(i) / 3
                     p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: g.size.width, y: y))
                 }
-            }.stroke(.white.opacity(0.4), lineWidth: 0.5)
+            }.stroke(.white.opacity(0.5), lineWidth: 0.5)
         }
     }
 
@@ -662,10 +683,25 @@ struct CropView: View {
     private func resetAll() { scale = 1; offset = .zero; angle = 0; quarter = 0; flipped = false }
 
     @MainActor private func render(frameW: CGFloat, frameH: CGFloat) -> UIImage {
-        let content = framedPhoto(frameW: frameW, frameH: frameH, live: false)
+        let content = framedPhoto(frameW: frameW, frameH: frameH, live: false, clip: true)
         let r = ImageRenderer(content: content)
         r.scale = UIScreen.main.scale
         return r.uiImage ?? source
+    }
+}
+
+// Conditionally clip a view to its frame (used so the crop's display shows overflow but the render doesn't).
+private struct ClipIf: ViewModifier {
+    let clip: Bool
+    func body(content: Content) -> some View { clip ? AnyView(content.clipped()) : AnyView(content) }
+}
+
+extension View {
+    // Punch a hole in `self` the shape of `mask` (used to dim everything except the crop frame).
+    func reverseMask<M: View>(@ViewBuilder _ mask: () -> M) -> some View {
+        self.mask {
+            Rectangle().overlay(mask().blendMode(.destinationOut)).compositingGroup()
+        }
     }
 }
 
