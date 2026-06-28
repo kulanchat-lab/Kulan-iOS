@@ -52,12 +52,15 @@ public struct StoryView: View {
     public var body: some View {
         if isPresented {
             // Explicit CGFloat math — avoids Release WMO's "ambiguous operator '/'" on Int literals.
+            // Tuned to feel like WhatsApp/IG: backdrop fades (not the card), real shrink, fast corner
+            // ramp, finger-follow on both axes.
+            let screenH: CGFloat = UIScreen.main.bounds.height
             let down: CGFloat = max(0, drag.height)
-            let clamped: CGFloat = min(down, 300)
-            let bgOpacity: Double = Double(1 - clamped / 600)
-            let cardScale: CGFloat = 1 - clamped / 1400
-            let cardOpacity: Double = Double(1 - clamped / 500)
-            let corner: CGFloat = down > 0 ? 28 : 0
+            let progress: CGFloat = min(1, down / (screenH * 0.5))
+            let bgOpacity: Double = Double(1 - 0.85 * progress)   // black backdrop dims
+            let cardScale: CGFloat = 1 - 0.18 * progress          // visible shrink (floor ~0.82)
+            let cardOpacity: Double = Double(1 - 0.05 * progress) // card stays ~opaque (no ghosting)
+            let corner: CGFloat = down > 0 ? min(42, down * 0.7) : 0   // rounds the instant you pull
             ZStack {
                 Color.black.ignoresSafeArea().opacity(bgOpacity)
                 TabView(selection: $viewModel.currentStoryUser) {
@@ -73,10 +76,10 @@ public struct StoryView: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                .scaleEffect(cardScale)                     // shrink as you pull down
+                .scaleEffect(cardScale, anchor: .center)    // shrink as you pull down
                 .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-                .offset(y: down)
-                .opacity(cardOpacity)                       // fade to reveal what's underneath
+                .offset(x: drag.width * 0.9, y: down)       // follow the finger on both axes
+                .opacity(cardOpacity)
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -90,10 +93,12 @@ public struct StoryView: View {
                         }
                     }
                     .onEnded { v in
-                        if v.translation.height > 100 {
-                            withAnimation(.easeOut(duration: 0.2)) { isPresented = false }
+                        // Commit on distance OR a downward flick (predictedEnd = velocity proxy).
+                        let flick: CGFloat = v.predictedEndTranslation.height
+                        if v.translation.height > 130 || flick > 500 {
+                            withAnimation(.easeOut(duration: 0.22)) { isPresented = false }
                         } else {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { drag = .zero }
+                            withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) { drag = .zero }
                         }
                     }
             )
