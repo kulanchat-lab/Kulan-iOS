@@ -174,13 +174,8 @@ final class ImageLoader: UIView {
 private extension ImageLoader {
    func setupImageView() {
        backgroundColor = .black
-       // Blurred fill behind, photo (true aspect) in front, shimmer on top while loading.
-       backgroundImageView.contentMode = .scaleAspectFill
-       backgroundImageView.clipsToBounds = true
-       addSubview(backgroundImageView)
-       addSubview(blurView)
-
-       imageView.contentMode = .scaleAspectFit   // NEVER stretch — show the real shape (IG/WhatsApp)
+       // WhatsApp model: whole photo on plain BLACK — NO blurred-self background (removed the band/smear).
+       imageView.contentMode = .scaleAspectFit   // NEVER stretch — show the real shape, fit on black
        imageView.clipsToBounds = true
        addSubview(imageView)
 
