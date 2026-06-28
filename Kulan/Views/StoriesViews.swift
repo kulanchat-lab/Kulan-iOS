@@ -96,6 +96,7 @@ struct StoriesRow: View {
     var onOpenAnon: (StoryGroup) -> Void = { _ in }
     @State private var prefsTick = 0   // re-render after hide/notify toggles
     @State private var showMyViewers = false   // My Story → "View all" → viewers sheet
+    @State private var hideTarget: StoryGroup?   // "Hide Story?" confirmation target
 
     private let storySpacing: CGFloat = 10
     private let storyHPad: CGFloat = 12
@@ -117,9 +118,8 @@ struct StoriesRow: View {
                         .contextMenu {
                             Button { onMessage(g) } label: { Label("Send Message", systemImage: "message") }
                             Button { onProfile(g) } label: { Label("Open Profile", systemImage: "person.crop.circle") }
-                            Button(role: .destructive) {   // Hide → moves them to Archived Stories
-                                StoryPrefs.toggleHidden(g.authorUid); prefsTick += 1
-                            } label: { Label("Hide Story", systemImage: "xmark.circle") }
+                            Button(role: .destructive) { hideTarget = g }   // confirm first, then archive
+                                label: { Label("Hide Story", systemImage: "xmark.circle") }
                         }
                 }
             }
@@ -130,6 +130,14 @@ struct StoriesRow: View {
             get: { stories.uploadError != nil },
             set: { if !$0 { stories.uploadError = nil } }
         )) { Button("OK", role: .cancel) {} } message: { Text(stories.uploadError ?? "") }
+        .confirmationDialog("Hide Story?",
+                            isPresented: Binding(get: { hideTarget != nil }, set: { if !$0 { hideTarget = nil } }),
+                            titleVisibility: .visible, presenting: hideTarget) { g in
+            Button("Hide Story", role: .destructive) { StoryPrefs.toggleHidden(g.authorUid); prefsTick += 1; hideTarget = nil }
+            Button("Cancel", role: .cancel) { hideTarget = nil }
+        } message: { g in
+            Text("New story updates from \(g.name.isEmpty ? "this person" : g.name) won't appear at the top of the stories list anymore.")
+        }
         .task { await repo.load() }
     }
 
