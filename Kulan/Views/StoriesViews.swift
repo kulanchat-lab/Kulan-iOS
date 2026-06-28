@@ -262,6 +262,15 @@ struct StoryViewer: View {
     var onProfile: (StoryGroup) -> Void = { _ in }   // tap the story header → that user's profile
     @State private var isPresented = true
     @State private var sentToast = false   // "Sent" confirmation after a reply (WhatsApp-style)
+    // Owner controls (my own story): Views/reactions/delete bar instead of the reply bar.
+    @State private var currentBucketUid = ""
+    @State private var currentStoryId = ""
+    @State private var barViewers: [StoryViewerInfo] = []
+    @State private var showViewers = false
+    @State private var confirmDelete = false
+    private var me: String { AuthService.shared.uid ?? "" }
+    private var currentIsMine: Bool { groups.first { $0.authorUid == currentBucketUid }?.isMine ?? false }
+    private var myStories: [Story] { groups.first { $0.isMine }?.stories ?? [] }
 
     init(group: StoryGroup, anonymous: Bool = false, onClose: @escaping () -> Void,
          onProfile: @escaping (StoryGroup) -> Void = { _ in }) {
@@ -287,11 +296,14 @@ struct StoryViewer: View {
                         mediaURL: s.mediaUrl,
                         date: timeAgo(s.createdAt),
                         config: StoryConfiguration(
-                            storyType: s.allowsReplies
-                                ? .message(config: StoryInteractionConfig(showLikeButton: true),
-                                           emojis: [["❤️", "😂", "😮"], ["😢", "👏", "🔥"]],
-                                           placeholder: "Send message…")
-                                : .plain(),
+                            // My own story shows NO reply bar (owner bar is overlaid instead).
+                            storyType: g.isMine
+                                ? .plain()
+                                : (s.allowsReplies
+                                    ? .message(config: StoryInteractionConfig(showLikeButton: true),
+                                               emojis: [["❤️", "😂", "😮"], ["😢", "👏", "🔥"]],
+                                               placeholder: "Send message…")
+                                    : .plain()),
                             mediaType: .image
                         )
                     )
@@ -311,10 +323,19 @@ struct StoryViewer: View {
             onProfile: { user in
                 if let g = groups.first(where: { $0.authorUid == user.id }) { onClose(); onProfile(g) }
             },
-            onUserChanged: { uid in markSeen(authorUid: uid) },   // clear the ring on landing
-            onItemSeen: { id in markSeenItem(id) }                // receipt ONLY the photo actually seen
+            onUserChanged: { uid in currentBucketUid = uid; markSeen(authorUid: uid); loadBarViewers() },
+            onItemSeen: { id in currentStoryId = id; markSeenItem(id); loadBarViewers() }
         )
         .ignoresSafeArea()
+        // My own story: Telegram owner bar (Views + reactions + delete) instead of a reply bar.
+        .overlay(alignment: .bottom) { if currentIsMine { ownerBar } }
+        .sheet(isPresented: $showViewers) {
+            StoryViewersSheet(stories: myStories, selectedId: currentStoryId)
+        }
+        .confirmationDialog("Delete this story?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { Task { await deleteCurrent() } }
+            Button("Cancel", role: .cancel) {}
+        }
         .overlay(alignment: .bottom) {
             if sentToast {
                 Text("Sent")
@@ -370,6 +391,57 @@ struct StoryViewer: View {
         let f = RelativeDateTimeFormatter(); f.unitsStyle = .abbreviated
         return f.localizedString(for: d, relativeTo: Date())
     }
+
+    // Telegram owner bar: overlapping viewer avatars + "N Views" + ❤️ reactions (tap → sheet) + delete.
+    private var ownerBar: some View {
+        let reactions = barViewers.filter { !($0.reaction ?? "").isEmpty }.count
+        return HStack(spacing: 12) {
+            Button { showViewers = true } label: {
+                HStack(spacing: 8) {
+                    if !barViewers.isEmpty {
+                        HStack(spacing: -8) {
+                            ForEach(barViewers.prefix(3)) { v in
+                                AvatarView(name: v.name, photoUrl: v.photoUrl, size: 26)
+                                    .overlay(Circle().stroke(.black, lineWidth: 1.5))
+                            }
+                        }
+                    } else {
+                        Image(systemName: "eye").font(.subheadline).foregroundStyle(.white)
+                    }
+                    Text("\(barViewers.count) View\(barViewers.count == 1 ? "" : "s")")
+                        .font(.subheadline.weight(.medium)).foregroundStyle(.white)
+                    if reactions > 0 {
+                        Image(systemName: "heart.fill").font(.subheadline).foregroundStyle(.red)
+                        Text("\(reactions)").font(.subheadline).foregroundStyle(.white)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            Spacer()
+            Button { confirmDelete = true } label: {
+                Image(systemName: "trash").font(.title3).foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 20)
+        .background(LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom))
+    }
+
+    private func loadBarViewers() {
+        guard currentIsMine, !currentStoryId.isEmpty else { return }
+        let id = currentStoryId
+        Task {
+            let v = await StoriesService.shared.fetchViewers(storyId: id)
+            if id == currentStoryId { barViewers = v }
+        }
+    }
+
+    private func deleteCurrent() async {
+        guard !currentStoryId.isEmpty else { return }
+        await StoriesService.shared.deleteStory(currentStoryId)
+        await StoriesRepository.shared.load(force: true)
+        onClose()
+    }
 }
 
 // "Seen by" sheet — who viewed my status (premium, like WhatsApp/IG).
@@ -416,3 +488,130 @@ struct SeenBySheet: View {
     }
 }
 
+
+// Telegram-style story viewers sheet: horizontal cards of my stories (with view/❤️ counts),
+// All-Viewers/Contacts segmented control, search, and a viewer list (avatar, name, time, heart).
+struct StoryViewersSheet: View {
+    let stories: [Story]
+    let selectedId: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: String = ""
+    @State private var byStory: [String: [StoryViewerInfo]] = [:]
+    @State private var segment = 0          // 0 = All Viewers, 1 = Contacts
+    @State private var search = ""
+    @State private var loading = true
+
+    private var me: String { AuthService.shared.uid ?? "" }
+    private var contactUids: Set<String> {
+        Set(ConversationsRepository.shared.conversations.compactMap { $0.isGroup ? nil : $0.otherUid(me) })
+    }
+    private var viewers: [StoryViewerInfo] {
+        var v = byStory[selected] ?? []
+        if segment == 1 { v = v.filter { contactUids.contains($0.id) } }
+        let q = search.trimmingCharacters(in: .whitespaces)
+        if !q.isEmpty { v = v.filter { $0.name.localizedCaseInsensitiveContains(q) } }
+        return v
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.title3.weight(.semibold)).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 16).padding(.top, 14)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .center, spacing: 10) {
+                    ForEach(stories, id: \.id) { s in storyCard(s) }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+            }
+
+            Picker("", selection: $segment) {
+                Text("All Viewers").tag(0)
+                Text("Contacts").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16).padding(.vertical, 10)
+
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search", text: $search)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(Color(.secondarySystemBackground), in: Capsule())
+            .padding(.horizontal, 16).padding(.bottom, 8)
+
+            if loading {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewers.isEmpty {
+                ContentUnavailableView("No viewers", systemImage: "eye",
+                                       description: Text("No one in this list yet."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(viewers) { v in viewerRow(v) }
+                    .listStyle(.plain)
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .task { await loadAll() }
+    }
+
+    private func storyCard(_ s: Story) -> some View {
+        let vs = byStory[s.id] ?? []
+        let reacts = vs.filter { !($0.reaction ?? "").isEmpty }.count
+        let sel = s.id == selected
+        return StoryImage(url: s.mediaUrl)
+            .frame(width: sel ? 122 : 80, height: sel ? 210 : 150)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(alignment: .bottom) {
+                HStack(spacing: 5) {
+                    Image(systemName: "eye.fill").font(.caption2)
+                    Text("\(vs.count)").font(.caption2.weight(.semibold))
+                    if reacts > 0 {
+                        Image(systemName: "heart.fill").font(.caption2).foregroundStyle(.red)
+                        Text("\(reacts)").font(.caption2.weight(.semibold))
+                    }
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(.black.opacity(0.45), in: Capsule())
+                .padding(.bottom, 8)
+            }
+            .onTapGesture { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { selected = s.id } }
+    }
+
+    private func viewerRow(_ v: StoryViewerInfo) -> some View {
+        HStack(spacing: 12) {
+            AvatarView(name: v.name, photoUrl: v.photoUrl, size: 44)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(v.name).font(.body)
+                Text(dateFmt(v.viewedAt)).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let r = v.reaction, !r.isEmpty {
+                Image(systemName: "heart.fill").foregroundStyle(.red).font(.title3)
+            }
+        }
+        .listRowSeparator(.hidden)
+    }
+
+    private func dateFmt(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "dd/MM/yy 'at' h:mm a"
+        return f.string(from: d)
+    }
+
+    private func loadAll() async {
+        selected = selectedId.isEmpty ? (stories.last?.id ?? "") : selectedId
+        await withTaskGroup(of: (String, [StoryViewerInfo]).self) { group in
+            for s in stories { group.addTask { (s.id, await StoriesService.shared.fetchViewers(storyId: s.id)) } }
+            for await (id, v) in group { byStory[id] = v }
+        }
+        loading = false
+    }
+}
