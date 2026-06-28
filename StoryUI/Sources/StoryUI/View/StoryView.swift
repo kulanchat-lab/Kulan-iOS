@@ -80,7 +80,7 @@ public struct StoryView: View {
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .scaleEffect(cardScale, anchor: .center)    // shrink as you pull down
                 .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-                .offset(x: drag.width * 0.9, y: down)       // follow the finger on both axes
+                .offset(y: down)       // close goes STRAIGHT DOWN (Telegram) — no sideways drift
                 .opacity(cardOpacity)
             }
             .ignoresSafeArea(.keyboard, edges: .bottom)
