@@ -8,6 +8,7 @@ struct StoryTextComposer: View {
     var onClose: () -> Void
 
     @State private var text = ""
+    private let charLimit = 700   // WhatsApp-style text-status cap
     @State private var bgIndex = 0
     @FocusState private var focused: Bool
     @State private var showDiscard = false
@@ -46,6 +47,7 @@ struct StoryTextComposer: View {
                             .allowsHitTesting(false)
                     }
                     TextField("", text: $text, axis: .vertical)
+                        .onChange(of: text) { _, v in if v.count > charLimit { text = String(v.prefix(charLimit)) } }
                         .focused($focused)
                         .multilineTextAlignment(.center)
                         .font(.system(size: 30, weight: .bold))
