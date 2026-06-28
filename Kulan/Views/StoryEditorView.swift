@@ -495,15 +495,22 @@ struct DrawingCanvas: UIViewRepresentable {
         v.isOpaque = false
         v.tool = PKInkingTool(.pen, color: .white, width: 6)
         v.delegate = context.coordinator
+        context.coordinator.toolPicker.addObserver(v)   // native PencilKit tool palette
         return v
     }
     func updateUIView(_ v: PKCanvasView, context: Context) {
         if v.drawing != drawing { v.drawing = drawing }
         v.isUserInteractionEnabled = isActive
+        // Show Apple's PKToolPicker (pens/marker/eraser/colors/undo) while drawing is active.
+        let picker = context.coordinator.toolPicker
+        picker.setVisible(isActive, forFirstResponder: v)
+        if isActive { DispatchQueue.main.async { v.becomeFirstResponder() } }
+        else { v.resignFirstResponder() }
     }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     final class Coordinator: NSObject, PKCanvasViewDelegate {
         let parent: DrawingCanvas
+        let toolPicker = PKToolPicker()
         init(_ p: DrawingCanvas) { parent = p }
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) { parent.drawing = canvasView.drawing }
     }
