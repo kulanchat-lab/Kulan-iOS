@@ -95,6 +95,7 @@ struct StoriesRow: View {
     var onProfile: (StoryGroup) -> Void = { _ in }
     var onOpenAnon: (StoryGroup) -> Void = { _ in }
     @State private var prefsTick = 0   // re-render after hide/notify toggles
+    @State private var showArchive = false   // Archived (hidden) stories page
 
     private let storySpacing: CGFloat = 10
     private let storyHPad: CGFloat = 12
@@ -158,7 +159,9 @@ struct StoriesRow: View {
                         Task { await StoriesService.shared.deleteStory(last.id); await repo.load(force: true) }
                     } label: { Label("Delete", systemImage: "trash") }
                 }
+                Button { showArchive = true } label: { Label("Archived Stories", systemImage: "archivebox") }
             }
+            .sheet(isPresented: $showArchive) { ArchivedStoriesView(onOpen: onOpen) }
             .sheet(item: $seenBy) { t in SeenBySheet(storyId: t.id) }
         }
     }
@@ -622,5 +625,53 @@ struct StoryViewersSheet: View {
             for await (id, v) in group { byStory[id] = v }
         }
         loading = false
+    }
+}
+
+// Archived Stories: people whose stories I've hidden. Tap to view, Unhide to bring them back (Telegram).
+struct ArchivedStoriesView: View {
+    var onOpen: (StoryGroup) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var repo = StoriesRepository.shared
+    @State private var tick = 0   // re-render after an unhide (StoryPrefs is UserDefaults, not observed)
+
+    private var hidden: [StoryGroup] { repo.others.filter { StoryPrefs.isHidden($0.authorUid) } }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if hidden.isEmpty {
+                    ContentUnavailableView("No archived stories", systemImage: "archivebox",
+                                           description: Text("Stories you hide appear here. Long-press a story and tap Hide Stories."))
+                } else {
+                    List(hidden) { g in
+                        HStack(spacing: 12) {
+                            AvatarView(name: g.name, photoUrl: g.photoUrl, size: 46)
+                                .overlay(StoryRingView(count: g.stories.count, unseen: g.hasUnseen, lineWidth: 2)
+                                    .frame(width: 52, height: 52))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(g.name.isEmpty ? "User" : g.name).font(.body)
+                                Text("\(g.stories.count) stor\(g.stories.count == 1 ? "y" : "ies")")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Unhide") { StoryPrefs.toggleHidden(g.authorUid); tick += 1 }
+                                .buttonStyle(.bordered).controlSize(.small)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { dismiss(); onOpen(g) }
+                        .listRowSeparator(.hidden)
+                        .swipeActions {
+                            Button("Unhide") { StoryPrefs.toggleHidden(g.authorUid); tick += 1 }.tint(.blue)
+                        }
+                    }
+                    .listStyle(.plain)
+                    .id(tick)
+                }
+            }
+            .navigationTitle("Archived Stories")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+        }
     }
 }
