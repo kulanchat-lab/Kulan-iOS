@@ -34,8 +34,8 @@ struct ShareStorySheet: View {
                 VStack(spacing: 0) {
                     HStack {
                         Button { dismiss() } label: {
-                            Image(systemName: "xmark").font(.system(size: 16, weight: .semibold)).foregroundStyle(.primary)
-                                .frame(width: 40, height: 40).liquidGlass(Circle())
+                            Image(systemName: "xmark").font(.system(size: 18, weight: .semibold)).foregroundStyle(.primary)
+                                .frame(width: 48, height: 48).liquidGlass(Circle())
                         }
                         Spacer(); Text("Share Story").font(.headline); Spacer()
                         Color.clear.frame(width: 40, height: 40)
@@ -49,7 +49,8 @@ struct ShareStorySheet: View {
                         Divider().padding(.leading, 60)
                         optionRow(2, "person.crop.circle.badge.checkmark", "Only share with", "\(included.count) included")
                     }
-                    .liquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .background(Color(.secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: 22, style: .continuous))   // native iOS 26 card
                     .padding(16)
                     .animation(.spring(response: 0.3, dampingFraction: 0.7), value: mode)
 
@@ -77,7 +78,7 @@ struct ShareStorySheet: View {
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: icon).font(.system(size: 16)).foregroundStyle(.primary)
-                    .frame(width: 34, height: 34).liquidGlass(Circle())
+                    .frame(width: 34, height: 34).background(Color.primary.opacity(0.08), in: Circle())
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).foregroundStyle(.primary)
                     if let subtitle { Text("\(subtitle) · Edit").font(.footnote).foregroundStyle(.green) }
