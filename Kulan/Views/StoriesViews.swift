@@ -123,18 +123,18 @@ struct StoriesRow: View {
             HStack(alignment: .top, spacing: storySpacing) {
                 myCard
                 ForEach(repo.others.filter { !StoryPrefs.isHidden($0.authorUid) }) { g in
-                    card(cover: g.stories.last?.mediaUrl,
-                         name: g.name.isEmpty ? "User" : g.name,
-                         avatar: g.photoUrl, seen: StoryPrefs.seenFlags(g.stories)) { onOpen(g) }
-                        // Native Apple peek: long-press lifts THIS card + shows the system menu
-                        // (same as the chat rows). Works here because the row is a ScrollView, not a List.
-                        .contextMenu {   // friend menu: Send Message + Open Profile + Hide Stories
-                            // No custom preview → the card lifts IN PLACE (original position), not centered.
-                            Button { onMessage(g) } label: { Label("Send Message", systemImage: "message") }
-                            Button { onProfile(g) } label: { Label("Open Profile", systemImage: "person.crop.circle") }
-                            Button(role: .destructive) { hideTarget = g }   // confirm first, then archive
-                                label: { Label("Hide Stories", systemImage: "archivebox") }
-                        }
+                    // Each friend card is its OWN Equatable view so its long-press survives the row's
+                    // re-renders (inline ForEach context menus only fired on the first card).
+                    StoryFriendCard(cover: g.stories.last?.mediaUrl,
+                                    name: g.name.isEmpty ? "User" : g.name,
+                                    avatar: g.photoUrl,
+                                    seen: StoryPrefs.seenFlags(g.stories),
+                                    cardW: cardW,
+                                    onOpen: { onOpen(g) },
+                                    onMessage: { onMessage(g) },
+                                    onProfile: { onProfile(g) },
+                                    onHide: { hideTarget = g })
+                        .equatable()
                 }
             }
             .padding(.horizontal, storyHPad)
@@ -260,6 +260,60 @@ struct StoriesRow: View {
     }
 
     func reload() { Task { await repo.load(force: true) } }
+}
+
+// One friend's story card in the row. Its own Equatable view so the long-press context menu stays
+// armed across the row's re-renders (the inline-ForEach version only worked on the first card).
+private struct StoryFriendCard: View, Equatable {
+    let cover: String?
+    let name: String
+    let avatar: String?
+    let seen: [Bool]
+    let cardW: CGFloat
+    let onOpen: () -> Void
+    let onMessage: () -> Void
+    let onProfile: () -> Void
+    let onHide: () -> Void
+
+    static func == (l: StoryFriendCard, r: StoryFriendCard) -> Bool {
+        l.cover == r.cover && l.name == r.name && l.avatar == r.avatar
+            && l.seen == r.seen && l.cardW == r.cardW
+    }
+
+    private var cardH: CGFloat { cardW * 1.46 }
+
+    var body: some View {
+        Button(action: onOpen) {
+            VStack(spacing: 6) {
+                ZStack(alignment: .bottomLeading) {
+                    coverView
+                        .frame(width: cardW, height: cardH)
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    AvatarView(name: name, photoUrl: avatar, size: 32)
+                        .overlay { if !seen.isEmpty { StoryRingView(seen: seen).frame(width: 37, height: 37) } }
+                        .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
+                        .padding(8)
+                }
+                Text(name).font(.system(size: 12)).lineLimit(1).frame(width: cardW)
+            }
+            .frame(width: cardW)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {   // lifts THIS card in place + friend menu
+            Button { onMessage() } label: { Label("Send Message", systemImage: "message") }
+            Button { onProfile() } label: { Label("Open Profile", systemImage: "person.crop.circle") }
+            Button(role: .destructive) { onHide() } label: { Label("Hide Stories", systemImage: "archivebox") }
+        }
+    }
+
+    @ViewBuilder private var coverView: some View {
+        if let cover, !cover.isEmpty {
+            StoryImage(url: cover)
+        } else {
+            ZStack { Color.secondary.opacity(0.2); AvatarView(name: name, photoUrl: avatar, size: cardW * 0.62) }
+        }
+    }
 }
 
 // MARK: - Story Viewer (Instagram-style)
