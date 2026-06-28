@@ -109,7 +109,7 @@ struct StoryEditorView: View {
                     HStack {
                         Button { dismiss() } label: {
                             Image(systemName: "xmark").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
-                                .frame(width: 48, height: 48).background(.black.opacity(0.4), in: Circle())
+                                .frame(width: 48, height: 48).liquidGlass(Circle())   // real Apple glass
                         }
                         Spacer()
                         if isDrawing {
@@ -162,7 +162,6 @@ struct StoryEditorView: View {
                 Image(systemName: "plus.square.on.square").foregroundStyle(.white)
                 TextField("", text: $caption, prompt: Text("Add a caption…").foregroundColor(Color(.systemGray3)))
                     .foregroundStyle(.white).focused($captionFocused)
-                Image(systemName: "at").foregroundStyle(.white)
             }
             .padding(.horizontal, 16).frame(height: 46)
             .background(Color(white: 0.13), in: Capsule())
@@ -173,7 +172,6 @@ struct StoryEditorView: View {
                     tool("textformat", active: false) { addTextOverlay() }   // Aa — add text on the photo
                     tool("crop", active: croppedSource != nil) { showCrop = true }
                     tool(isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle", active: isDrawing) { isDrawing.toggle() }
-                    tool("slider.horizontal.3", active: filterIndex != 0) { filterIndex = (filterIndex + 1) % Self.filters.count }
 
                     Spacer()
 
@@ -204,7 +202,8 @@ struct StoryEditorView: View {
                     Image(systemName: icon).font(.system(size: 20, weight: .medium)).foregroundStyle(active ? .green : .white)
                 }
             }
-            .frame(width: 46, height: 46)
+            .frame(width: 44, height: 44)
+            .liquidGlass(Circle())   // real Apple .glassEffect, not a custom background
         }
         .buttonStyle(StoryPressStyle())
     }
