@@ -493,13 +493,12 @@ struct ChatsView: View {
         Menu {
             Button { markAllRead() } label: { Label("Mark All Read", systemImage: "checkmark.circle") }
             Divider()
-            Picker("Filter by", selection: $chatFilter) {
-                Label("All Chats", systemImage: "bubble.left.and.bubble.right").tag(0)
-                Label("Unread", systemImage: "circlebadge.fill").tag(1)
-                Label("Groups", systemImage: "person.3").tag(2)
-            }
+            // Flat filter items (no "Filter by" header) — checkmark on the active one.
+            Button { chatFilter = 0 } label: { if chatFilter == 0 { Label("All", systemImage: "checkmark") } else { Text("All") } }
+            Button { chatFilter = 1 } label: { if chatFilter == 1 { Label("Unread", systemImage: "checkmark") } else { Text("Unread") } }
+            Button { chatFilter = 2 } label: { if chatFilter == 2 { Label("Groups", systemImage: "checkmark") } else { Text("Groups") } }
             Divider()
-            Button { showArchived = true } label: { Label("Archived", systemImage: "archivebox") }
+            Button { showArchived = true } label: { Label("Archive", systemImage: "archivebox") }
             Button { showCompose = true } label: { Label("Add Story", systemImage: "plus.circle") }
         } label: {
             Image(systemName: chatFilter != 0 ? "line.3.horizontal.decrease.circle.fill"
