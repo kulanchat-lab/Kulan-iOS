@@ -326,9 +326,15 @@ final class StoriesRepository {
                        lastViewedAt: nil, isMine: false)
         }
         return [
-            group("demo_alex", "Alex (demo)", 12, ["alexa", "alexb", "alexc"]),
-            group("demo_maya", "Maya (demo)", 45, ["mayaa", "mayab"]),
-            group("demo_sam",  "Sam (demo)",  33, ["sama", "samb", "samc", "samd"]),
+            group("demo_alex",  "Alex (demo)",  12, ["alexa", "alexb", "alexc"]),
+            group("demo_maya",  "Maya (demo)",  45, ["mayaa", "mayab"]),
+            group("demo_sam",   "Sam (demo)",   33, ["sama", "samb", "samc", "samd"]),
+            group("demo_lena",  "Lena (demo)",  5,  ["lenaa"]),
+            group("demo_omar",  "Omar (demo)",  68, ["omara", "omarb", "omarc", "omard", "omare"]),
+            group("demo_nina",  "Nina (demo)",  47, ["ninaa", "ninab"]),
+            group("demo_jay",   "Jay (demo)",   15, ["jaya", "jayb", "jayc"]),
+            group("demo_zoe",   "Zoe (demo)",   9,  ["zoea", "zoeb", "zoec", "zoed"]),
+            group("demo_kofi",  "Kofi (demo)",  60, ["kofia", "kofib"]),
         ]
     }
 }
