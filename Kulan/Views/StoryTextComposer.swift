@@ -29,9 +29,12 @@ struct StoryTextComposer: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Full-bleed gradient background.
+                // Full-bleed gradient background. Tapping it toggles the keyboard (WhatsApp: tap to
+                // dismiss and see the full text, tap again to edit) — was stuck open with no way out.
                 gradient(bgIndex).ignoresSafeArea()
                     .animation(.easeInOut(duration: 0.35), value: bgIndex)   // smooth background cycle
+                    .contentShape(Rectangle())
+                    .onTapGesture { focused.toggle() }
 
                 // Centered editable text — .plain removes the iOS default white box.
                 ZStack {

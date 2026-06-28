@@ -51,6 +51,8 @@ struct StoryEditorView: View {
                 Image(uiImage: edited)
                     .resizable().scaledToFit()
                     .frame(width: geo.size.width, height: geo.size.height)
+                    .contentShape(Rectangle())
+                    .onTapGesture { captionFocused = false }   // tap photo dismisses the caption keyboard
 
                 if isDrawing {
                     DrawingCanvas(drawing: $drawing, isActive: true).ignoresSafeArea()
