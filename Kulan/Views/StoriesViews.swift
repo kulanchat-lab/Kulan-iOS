@@ -277,7 +277,8 @@ struct StoryViewer: View {
             onProfile: { user in
                 if let g = groups.first(where: { $0.authorUid == user.id }) { onClose(); onProfile(g) }
             },
-            onUserChanged: { uid in markSeen(authorUid: uid) }   // mark ONLY the bucket actually viewed
+            onUserChanged: { uid in markSeen(authorUid: uid) },   // clear the ring on landing
+            onItemSeen: { id in markSeenItem(id) }                // receipt ONLY the photo actually seen
         )
         .ignoresSafeArea()
         .onChange(of: isPresented) { _, shown in if !shown { onClose() } }
@@ -300,12 +301,17 @@ struct StoryViewer: View {
         }
     }
 
-    // Mark ONLY the bucket the viewer is currently on seen (fired on open + each swipe), so opening
-    // one person's story no longer clears everyone's unseen ring.
+    // Landing on a person clears THEIR ring (not everyone's). Per-photo receipts are sent
+    // separately by markSeenItem, so we no longer receipt photos the viewer never reached.
     private func markSeen(authorUid: String) {
-        guard !anonymous, let g = groups.first(where: { $0.authorUid == authorUid }) else { return }
+        guard !anonymous else { return }
         StoriesRepository.shared.markSeenLocally(authorUid)   // clear the ring immediately (H8 race fix)
-        Task { for s in g.stories { await StoriesService.shared.markViewed(s) } }
+    }
+
+    // Receipt ONLY the photo actually shown (drives accurate view counts + "Seen by").
+    private func markSeenItem(_ storyId: String) {
+        guard !anonymous, let s = groups.flatMap(\.stories).first(where: { $0.id == storyId }) else { return }
+        Task { await StoriesService.shared.markViewed(s) }
     }
 
     private func timeAgo(_ d: Date) -> String {

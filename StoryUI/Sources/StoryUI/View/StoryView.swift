@@ -21,6 +21,7 @@ public struct StoryView: View {
     let userClosure: UserCompletionHandler?
     let onProfile: ((StoryUIUser) -> Void)?
     let onUserChanged: ((String) -> Void)?   // fires the current bucket id on open + each page change
+    let onItemSeen: ((String) -> Void)?      // fires each individual story id as it becomes visible
 
     @State private var drag: CGSize = .zero   // swipe-down-to-dismiss
 
@@ -36,7 +37,8 @@ public struct StoryView: View {
         isPresented: Binding<Bool>,
         userClosure: UserCompletionHandler? = nil,
         onProfile: ((StoryUIUser) -> Void)? = nil,
-        onUserChanged: ((String) -> Void)? = nil
+        onUserChanged: ((String) -> Void)? = nil,
+        onItemSeen: ((String) -> Void)? = nil
     ) {
         self.stories = stories
         self.selectedIndex = selectedIndex
@@ -44,6 +46,7 @@ public struct StoryView: View {
         self.userClosure = userClosure
         self.onProfile = onProfile
         self.onUserChanged = onUserChanged
+        self.onItemSeen = onItemSeen
     }
     
     public var body: some View {
@@ -64,7 +67,8 @@ public struct StoryView: View {
                             model: model,
                             isPresented: $isPresented,
                             userClosure: userClosure,
-                            onProfile: onProfile
+                            onProfile: onProfile,
+                            onItemSeen: onItemSeen
                         )
                     }
                 }

@@ -22,6 +22,8 @@ struct StoryDetailView: View {
     
     let userClosure: UserCompletionHandler?
     var onProfile: ((StoryUIUser) -> Void)?
+    var onItemSeen: ((String) -> Void)?
+    @State private var lastSeenItem: String = ""
 
     // MARK: Private Properties
     @StateObject private var keyboardManager = KeyboardManager()   // own it once (was re-created each re-init)
@@ -69,6 +71,8 @@ struct StoryDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .overlay(
                 getUserInfoAndProgressBar(with: index)
+                    .opacity(isPaused ? 0 : 1)                       // fade chrome out while holding (IG/WhatsApp)
+                    .animation(.linear(duration: 0.2), value: isPaused)
                 ,alignment: .top
             )
             .rotation3DEffect(
@@ -289,6 +293,12 @@ private extension StoryDetailView {
     }
     
     func startProgress() {
+        // Report the ACTUAL current item as seen (per-item, not the whole bucket) — drives accurate
+        // view receipts + "Seen by". Runs before the pause guard so it fires the moment an item shows.
+        if viewModel.currentStoryUser == model.id {
+            let cur = getStory(with: getCurrentIndex())
+            if cur.id != lastSeenItem { lastSeenItem = cur.id; onItemSeen?(cur.id) }
+        }
         // Pause sources: emoji-fly animation (isTimerRunning), hold-to-pause (isPaused),
         // and composing a reply (keyboard open) — any of them freezes the segment + progress.
         guard !isTimerRunning, !isPaused, !keyboardManager.isKeyboardOpen else { return }
@@ -347,6 +357,21 @@ private extension StoryDetailView {
         if !model.stories[index].isReady {
             model.stories[index].isReady = true
         }
+        prefetchNext(after: index)   // warm the next photo so advancing is instant
+    }
+
+    // Predictive prefetch: pull the next item's image into URLCache (what ImageLoader reads from),
+    // so tapping/auto-advancing to it shows instantly. One ahead — caching handles the rest.
+    private func prefetchNext(after index: Int) {
+        let next = index + 1
+        guard next < model.stories.count,
+              model.stories[next].config.mediaType == .image,
+              let url = URL(string: model.stories[next].mediaURL),
+              URLCache.shared.cachedResponse(for: URLRequest(url: url)) == nil else { return }
+        URLSession.shared.dataTask(with: url) { data, response, _ in
+            guard let data, let response else { return }
+            URLCache.shared.storeCachedResponse(.init(response: response, data: data), for: URLRequest(url: url))
+        }.resume()
     }
     
     func getProgressBarFrame(duration: Double) {
