@@ -116,6 +116,10 @@ struct StoriesRow: View {
                         .contextMenu {
                             Button { onMessage(g) } label: { Label("Send Message", systemImage: "message") }
                             Button { onProfile(g) } label: { Label("Open Profile", systemImage: "person.crop.circle") }
+                            Button { StoryPrefs.toggleNotify(g.authorUid); prefsTick += 1 } label: {
+                                Label(StoryPrefs.isNotifying(g.authorUid) ? "Mute Stories" : "Notify About Stories",
+                                      systemImage: StoryPrefs.isNotifying(g.authorUid) ? "bell.slash" : "bell")
+                            }
                             Button { onOpenAnon(g) } label: { Label("View Anonymously", systemImage: "eye.slash") }
                             // Report this person's latest story (H7 entry point; reportStory now writes reporterUid).
                             Button { if let s = g.stories.last { Task { await StoriesService.shared.reportStory(s) } } }
@@ -146,6 +150,8 @@ struct StoriesRow: View {
                 if let m = repo.mine { onOpen(m) } else { onCompose() }
             }
             .contextMenu {
+                // Always present so long-pressing My Story works even before I post (Telegram).
+                Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
                 if let last = repo.mine?.stories.last {
                     Button { seenBy = SeenByTarget(id: last.id) } label: { Label("Seen by", systemImage: "eye") }
                     Button(role: .destructive) {   // delete my most recent status (H5 UI)
