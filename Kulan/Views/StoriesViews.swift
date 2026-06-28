@@ -448,9 +448,8 @@ struct StoryViewer: View {
     // "…" more menu: actions differ for my story vs someone else's.
     private var moreButton: some View {
         Menu {
-            if currentIsMine {
-                Button(role: .destructive) { confirmDelete = true } label: { Label("Delete", systemImage: "trash") }
-            } else {
+            // My own story: delete lives in the owner bar (views + delete), so "⋯" is just Save/Forward/Share.
+            if !currentIsMine {
                 Button { StoryPrefs.toggleHidden(currentBucketUid); isPresented = false } label: {
                     Label("Hide Stories", systemImage: "archivebox")
                 }
