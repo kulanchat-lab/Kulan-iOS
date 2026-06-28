@@ -100,6 +100,10 @@ struct StoriesRow: View {
             .padding(.horizontal, storyHPad)
             .padding(.vertical, 10)
         }
+        .alert("Couldn't post story", isPresented: Binding(
+            get: { stories.uploadError != nil },
+            set: { if !$0 { stories.uploadError = nil } }
+        )) { Button("OK", role: .cancel) {} } message: { Text(stories.uploadError ?? "") }
         .task { await repo.load() }
     }
 

@@ -46,6 +46,7 @@ final class StoriesService {
     // Optimistic upload state — drives the "Uploading…" indicator + spinner ring in the story row.
     var uploading = false
     var uploadingImage: UIImage?
+    var uploadError: String?   // set when a post fails so the UI can show it (was swallowed → "dead silent")
     private var uploadTask: Task<Void, Never>?
 
     // Fire-and-forget post: pop back to chat immediately, upload in the background, show progress.
@@ -54,9 +55,10 @@ final class StoriesService {
         uploadingImage = UIImage(data: image)
         uploading = true
         uploadTask = Task {
+            var failure: String?
             do { try await postStory(image: image, excluded: excluded, included: included) }
-            catch { /* swallow; uploadingImage clears below either way */ }
-            await MainActor.run { uploading = false; uploadingImage = nil; uploadTask = nil }
+            catch { failure = error.localizedDescription }   // surface it instead of dying silently
+            await MainActor.run { uploading = false; uploadingImage = nil; uploadTask = nil; uploadError = failure }
             await StoriesRepository.shared.load(force: true)   // just posted → bypass the throttle
         }
     }
