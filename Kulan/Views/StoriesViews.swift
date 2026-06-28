@@ -269,9 +269,13 @@ struct StoryViewer: View {
     @State private var barViewers: [StoryViewerInfo] = []
     @State private var showViewers = false
     @State private var confirmDelete = false
+    @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
+    @State private var forwardImg: StoryImagePayload?   // … → Forward (chat picker)
+    @State private var toastText = "Sent"               // reused for "Sent" (reply) and "Saved"
     private var me: String { AuthService.shared.uid ?? "" }
     private var currentIsMine: Bool { groups.first { $0.authorUid == currentBucketUid }?.isMine ?? false }
     private var myStories: [Story] { groups.first { $0.isMine }?.stories ?? [] }
+    private var currentStory: Story? { groups.flatMap(\.stories).first { $0.id == currentStoryId } }
 
     init(group: StoryGroup, anonymous: Bool = false, onClose: @escaping () -> Void,
          onProfile: @escaping (StoryGroup) -> Void = { _ in }) {
@@ -328,18 +332,23 @@ struct StoryViewer: View {
             onItemSeen: { id in currentStoryId = id; markSeenItem(id); loadBarViewers() }
         )
         .ignoresSafeArea()
+        // "…" more menu, left of the library's X (Telegram). Position is approximate (no safe-area
+        // access here) — tune on device if it isn't perfectly aligned with the X.
+        .overlay(alignment: .topTrailing) { moreButton.padding(.top, 56).padding(.trailing, 64) }
         // My own story: Telegram owner bar (Views + reactions + delete) instead of a reply bar.
         .overlay(alignment: .bottom) { if currentIsMine { ownerBar } }
         .sheet(isPresented: $showViewers) {
             StoryViewersSheet(stories: myStories, selectedId: currentStoryId)
         }
+        .sheet(item: $shareImg) { p in ActivityView(items: [p.image]) }
+        .sheet(item: $forwardImg) { p in StoryForwardSheet(image: p.image, onSent: { flashSentToast() }) }
         .confirmationDialog("Delete this story?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { Task { await deleteCurrent() } }
             Button("Cancel", role: .cancel) {}
         }
         .overlay(alignment: .bottom) {
             if sentToast {
-                Text("Sent")
+                Text(toastText)
                     .font(.subheadline.weight(.medium)).foregroundStyle(.white)
                     .padding(.horizontal, 18).padding(.vertical, 10)
                     .background(.black.opacity(0.75), in: Capsule())
@@ -350,10 +359,54 @@ struct StoryViewer: View {
         .onChange(of: isPresented) { _, shown in if !shown { onClose() } }
     }
 
-    private func flashSentToast() {
+    private func flashSentToast(_ text: String = "Sent") {
+        toastText = text
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { sentToast = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             withAnimation(.easeOut(duration: 0.25)) { sentToast = false }
+        }
+    }
+
+    // "…" more menu: actions differ for my story vs someone else's.
+    private var moreButton: some View {
+        Menu {
+            if currentIsMine {
+                Button(role: .destructive) { confirmDelete = true } label: { Label("Delete", systemImage: "trash") }
+            } else {
+                Button { StoryPrefs.toggleHidden(currentBucketUid); isPresented = false } label: {
+                    Label("Hide Stories", systemImage: "archivebox")
+                }
+            }
+            Button { saveCurrentImage() } label: { Label("Save", systemImage: "square.and.arrow.down") }
+            Button { Task { if let img = await loadCurrentImage() { forwardImg = StoryImagePayload(image: img) } } }
+                label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
+            Button { Task { if let img = await loadCurrentImage() { shareImg = StoryImagePayload(image: img) } } }
+                label: { Label("Share", systemImage: "square.and.arrow.up") }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+                .frame(width: 34, height: 34).background(.white.opacity(0.18), in: Circle())
+        }
+    }
+
+    private func loadCurrentImage() async -> UIImage? {
+        guard let url = currentStory?.mediaUrl, !url.isEmpty else { return nil }
+        if let m = DiskImageCache.shared.memoryImage(url) { return m }
+        return await DiskImageCache.shared.image(for: url)
+    }
+
+    private func saveCurrentImage() {
+        Task {
+            guard let img = await loadCurrentImage() else { return }
+            let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+            guard status == .authorized || status == .limited else { return }
+            try? await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAsset(from: img)
+            }
+            await MainActor.run {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                flashSentToast("Saved")
+            }
         }
     }
 
@@ -614,5 +667,72 @@ struct StoryViewersSheet: View {
             for await (id, v) in group { byStory[id] = v }
         }
         loading = false
+    }
+}
+
+// Wrapper so a UIImage can drive a .sheet(item:).
+struct StoryImagePayload: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
+// Forward a story image to one or more chats. sendImage re-encrypts per chat (and auto-fetches
+// group members), so this works for 1:1 and groups. Real send pipeline — no fakes.
+struct StoryForwardSheet: View {
+    let image: UIImage
+    var onSent: () -> Void = {}
+    @Environment(\.dismiss) private var dismiss
+    @State private var repo = ConversationsRepository.shared
+    @State private var query = ""
+    @State private var selected = Set<String>()
+    @State private var sending = false
+    private var me: String { AuthService.shared.uid ?? "" }
+
+    private var people: [Conversation] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let list = repo.conversations.filter { ($0.isGroup || !$0.otherUid(me).isEmpty) && !$0.isCleared(me) }
+        return (q.isEmpty ? list : list.filter { $0.displayName(me).lowercased().contains(q) })
+            .sorted { $0.displayUpdatedAt(me) > $1.displayUpdatedAt(me) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(people) { c in
+                Button {
+                    if selected.contains(c.id) { selected.remove(c.id) } else { selected.insert(c.id) }
+                } label: {
+                    HStack(spacing: 12) {
+                        AvatarView(name: c.displayName(me), photoUrl: c.displayPhoto(me), size: 44)
+                        Text(c.displayName(me)).font(.body)
+                        Spacer()
+                        Image(systemName: selected.contains(c.id) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(selected.contains(c.id) ? Color.accentColor : .secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .listRowSeparator(.hidden)
+            }
+            .listStyle(.plain)
+            .searchable(text: $query, prompt: "Search")
+            .navigationTitle("Forward to…")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(sending ? "Sending…" : "Send") { send() }
+                        .disabled(selected.isEmpty || sending).fontWeight(.semibold)
+                }
+            }
+        }
+    }
+
+    private func send() {
+        guard let data = image.jpegData(compressionQuality: 0.9), !selected.isEmpty else { return }
+        sending = true
+        let ids = Array(selected)
+        Task {
+            for cid in ids { try? await ChatService.sendImage(cid: cid, data: data) }
+            await MainActor.run { dismiss(); onSent() }
+        }
     }
 }
