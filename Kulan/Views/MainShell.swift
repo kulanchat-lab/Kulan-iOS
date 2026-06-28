@@ -416,6 +416,7 @@ struct ChatsView: View {
     @State private var viewerGroup: StoryGroup?
     @State private var viewerAnonymous = false
     @State private var profileGroup: StoryGroup?
+    @Namespace private var storyNS   // zoom transition: story card ⇄ full-screen viewer
 
     private func storyCid(_ other: String) -> String {
         [AuthService.shared.uid ?? "", other].sorted().joined(separator: "_")
@@ -615,6 +616,7 @@ struct ChatsView: View {
                     List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row
                       // Stories row as the FIRST List cell so it scrolls with the chats.
                       StoriesRow(meName: profile.me?.name ?? "You", mePhoto: profile.me?.photoUrl,
+                                 storyNS: storyNS,
                                  onCompose: { showCompose = true },
                                  onOpen: { g in viewerAnonymous = false; viewerGroup = g },
                                  onMessage: { g in openStoryChat(g) },
@@ -702,13 +704,16 @@ struct ChatsView: View {
                 }
                 // A friend's story opens the whole ordered list (swipe person to person);
                 // My Story (not in `others`) opens on its own.
-                if let idx = others.firstIndex(where: { $0.id == g.id }) {
-                    StoryViewer(groups: others, startIndex: idx, anonymous: viewerAnonymous, onClose: close,
-                                onProfile: { grp in profileGroup = grp })
-                } else {
-                    StoryViewer(group: g, anonymous: viewerAnonymous, onClose: close,
-                                onProfile: { grp in profileGroup = grp })
+                Group {
+                    if let idx = others.firstIndex(where: { $0.id == g.id }) {
+                        StoryViewer(groups: others, startIndex: idx, anonymous: viewerAnonymous, onClose: close,
+                                    onProfile: { grp in profileGroup = grp })
+                    } else {
+                        StoryViewer(group: g, anonymous: viewerAnonymous, onClose: close,
+                                    onProfile: { grp in profileGroup = grp })
+                    }
                 }
+                .navigationTransition(.zoom(sourceID: g.id, in: storyNS))   // zoom from/to the tapped card
             }
             .sheet(item: $profileGroup) { g in
                 NavigationStack {
