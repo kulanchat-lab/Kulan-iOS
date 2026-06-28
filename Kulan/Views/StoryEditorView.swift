@@ -247,7 +247,10 @@ struct StoryEditorView: View {
             Image(uiImage: base).resizable().scaledToFill()
                 .frame(width: size.width, height: size.height).clipped()
                 .blur(radius: 32).opacity(0.55)
-            Image(uiImage: base).resizable().scaledToFit().frame(width: size.width, height: size.height)
+            // Fill the frame (crop, never stretch) so a captioned/edited photo posts full — the
+            // preview card then shows it filled like WhatsApp, not small with bars. (Overlays use
+            // canvas coords so their positions are unaffected by fill vs fit.)
+            Image(uiImage: base).resizable().scaledToFill().frame(width: size.width, height: size.height).clipped()
             if !drawing.bounds.isEmpty {
                 Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: size), scale: UIScreen.main.scale)).resizable()
             }
