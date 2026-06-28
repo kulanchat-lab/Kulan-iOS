@@ -105,7 +105,8 @@ struct StoryEditorView: View {
                         .position(trashCenter)
                 }
 
-                VStack(spacing: 0) {
+                // Top controls — stay put when the keyboard opens (don't ride up with it).
+                VStack {
                     HStack {
                         Button { dismiss() } label: {
                             Image(systemName: "xmark").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
@@ -118,8 +119,15 @@ struct StoryEditorView: View {
                     }
                     .padding(.horizontal, 16).padding(.top, geo.safeAreaInsets.top + 6)
                     Spacer()
+                }
+                .opacity(draggingID == nil ? 1 : 0)
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+
+                // Bottom bar — ONLY this rises above the keyboard (caption docks above it, toolbar hides).
+                VStack {
+                    Spacer()
                     bottomBar
-                        .padding(.bottom, geo.safeAreaInsets.bottom + 8)
+                        .padding(.bottom, captionFocused ? 8 : geo.safeAreaInsets.bottom + 8)
                 }
                 .opacity(draggingID == nil ? 1 : 0)   // hide chrome while dragging text (trash owns the bottom)
             }
@@ -156,24 +164,26 @@ struct StoryEditorView: View {
             .padding(.horizontal, 16).frame(height: 46)
             .background(Color(white: 0.13), in: Capsule())
 
-            // Tool row (crop · draw · adjust · HD) + green send — flat icons, like image 212.
-            HStack(spacing: 0) {
-                tool("textformat", active: false) { addTextOverlay() }   // Aa — add text on the photo
-                tool("crop", active: aspectIndex != 0) { aspectIndex = (aspectIndex + 1) % Self.aspects.count }
-                tool(isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle", active: isDrawing) { isDrawing.toggle() }
-                tool("slider.horizontal.3", active: filterIndex != 0) { filterIndex = (filterIndex + 1) % Self.filters.count }
-                tool("", active: hd, label: "HD") { hd.toggle() }
+            // Tool row hides while typing a caption (IG/WA: only the caption field stays, above the keyboard).
+            if !captionFocused {
+                HStack(spacing: 0) {
+                    tool("textformat", active: false) { addTextOverlay() }   // Aa — add text on the photo
+                    tool("crop", active: aspectIndex != 0) { aspectIndex = (aspectIndex + 1) % Self.aspects.count }
+                    tool(isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle", active: isDrawing) { isDrawing.toggle() }
+                    tool("slider.horizontal.3", active: filterIndex != 0) { filterIndex = (filterIndex + 1) % Self.filters.count }
+                    tool("", active: hd, label: "HD") { hd.toggle() }
 
-                Spacer()
+                    Spacer()
 
-                Button { Task { await send() } } label: {
-                    Image(systemName: posting ? "ellipsis" : "paperplane.fill")
-                        .font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 46, height: 46).background(Color(.systemGreen), in: Circle())
-                        .shadow(color: Color(.systemGreen).opacity(0.5), radius: posting ? 2 : 8)
+                    Button { Task { await send() } } label: {
+                        Image(systemName: posting ? "ellipsis" : "paperplane.fill")
+                            .font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                            .contentTransition(.symbolEffect(.replace))
+                            .frame(width: 46, height: 46).background(Color(.systemGreen), in: Circle())
+                            .shadow(color: Color(.systemGreen).opacity(0.5), radius: posting ? 2 : 8)
+                    }
+                    .buttonStyle(StoryPressStyle()).disabled(posting)
                 }
-                .buttonStyle(StoryPressStyle()).disabled(posting)
             }
         }
         .padding(.horizontal, 16)
