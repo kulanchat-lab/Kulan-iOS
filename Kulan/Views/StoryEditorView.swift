@@ -25,7 +25,7 @@ struct StoryEditorView: View {
     @GestureState private var gZoom: CGFloat = 1
     @State private var photoOffset: CGSize = .zero
     @GestureState private var gPan: CGSize = .zero
-    private var liveZoom: CGFloat { min(5, max(0.5, photoZoom * gZoom)) }
+    private var liveZoom: CGFloat { min(6, max(0.6, photoZoom * gZoom)) }   // rubber during gesture; clamped to [1,4] on release
     private var livePan: CGSize { CGSize(width: photoOffset.width + gPan.width, height: photoOffset.height + gPan.height) }
     @State private var posting = false
     @State private var postError = false
@@ -52,16 +52,28 @@ struct StoryEditorView: View {
         editedCache = Self.apply(Self.filters[filterIndex].ci, to: croppedSource ?? source)
     }
 
+    // The photo's aspect-fit size inside the frame (Signal "always-cover" clamp basis).
+    private func fittedSize(in frame: CGSize) -> CGSize {
+        let s = edited.size
+        guard s.width > 0, s.height > 0 else { return frame }
+        let scale = min(frame.width / s.width, frame.height / s.height)
+        return CGSize(width: s.width * scale, height: s.height * scale)
+    }
+    // Clamp the pan so the photo edge can reach the frame edge but never past it (no gaps / floating).
+    // offset ∈ ±(scaledSize − frameSize)/2  — exactly Signal's ImageEditorTransform.normalize math.
+    private func clampedOffset(_ off: CGSize, zoom: CGFloat, in frame: CGSize) -> CGSize {
+        let fit = fittedSize(in: frame)
+        let maxX = max(0, (fit.width * zoom - frame.width) / 2)
+        let maxY = max(0, (fit.height * zoom - frame.height) / 2)
+        return CGSize(width: min(maxX, max(-maxX, off.width)),
+                      height: min(maxY, max(-maxY, off.height)))
+    }
+
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 Color.black.ignoresSafeArea()
-                // Blurred fill behind (IG/WhatsApp), so a non-full-screen photo isn't on black bars.
-                Image(uiImage: edited)
-                    .resizable().scaledToFill()
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped().blur(radius: 32).opacity(0.55)
-                    .ignoresSafeArea()
+                // Photo: aspect-fit on BLACK (Signal/WhatsApp lobby — NO blurred self-background).
                 Image(uiImage: edited)
                     .resizable().scaledToFit()
                     .scaleEffect(liveZoom)
@@ -70,12 +82,24 @@ struct StoryEditorView: View {
                     .clipped()
                     .contentShape(Rectangle())
                     .onTapGesture { captionFocused = false; selectedID = nil }   // dismiss keyboard + deselect
-                    .gesture(   // pinch to zoom, drag to position (only when not drawing)
+                    .gesture(   // pinch to zoom IN (min = fit), pan within bounds; springs back on release
                         SimultaneousGesture(
                             MagnificationGesture().updating($gZoom) { v, s, _ in s = v }
-                                .onEnded { v in photoZoom = min(5, max(0.5, photoZoom * v)) },
+                                .onEnded { v in
+                                    let z = min(4, max(1, photoZoom * v))   // never below fit, never past 4×
+                                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                                        photoZoom = z
+                                        photoOffset = clampedOffset(photoOffset, zoom: z, in: geo.size)
+                                    }
+                                },
                             DragGesture().updating($gPan) { v, s, _ in s = v.translation }
-                                .onEnded { v in photoOffset.width += v.translation.width; photoOffset.height += v.translation.height }
+                                .onEnded { v in
+                                    let o = CGSize(width: photoOffset.width + v.translation.width,
+                                                   height: photoOffset.height + v.translation.height)
+                                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                                        photoOffset = clampedOffset(o, zoom: photoZoom, in: geo.size)   // can't drift off
+                                    }
+                                }
                         )
                     )
 
@@ -272,11 +296,7 @@ struct StoryEditorView: View {
         }
         let size = canvasSize == .zero ? UIScreen.main.bounds.size : canvasSize
         let composed = ZStack(alignment: .bottom) {
-            Color.black
-            // Bake the blurred fill behind, so an edited non-full-screen photo also reads like IG/WhatsApp.
-            Image(uiImage: base).resizable().scaledToFill()
-                .frame(width: size.width, height: size.height).clipped()
-                .blur(radius: 32).opacity(0.55)
+            Color.black   // Signal/WhatsApp lobby = photo on black (no blurred self-background)
             // Foreground photo with the SAME fit + zoom + pan as the editor → WYSIWYG.
             Image(uiImage: base).resizable().scaledToFit()
                 .scaleEffect(photoZoom).offset(photoOffset)
