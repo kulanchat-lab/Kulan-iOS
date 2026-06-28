@@ -62,10 +62,17 @@ struct StoryImage: View {
 
 // Local per-author story prefs.
 enum StoryPrefs {
+    // In-memory cache so we don't re-parse the UserDefaults string on every call (seenFlags is called
+    // per card per render — re-parsing each time made hide/unhide feel laggy).
+    private static var cache: [String: Set<String>] = [:]
     private static func set(_ key: String) -> Set<String> {
-        Set((UserDefaults.standard.string(forKey: key) ?? "").split(separator: " ").map(String.init))
+        if let c = cache[key] { return c }
+        let s = Set((UserDefaults.standard.string(forKey: key) ?? "").split(separator: " ").map(String.init))
+        cache[key] = s
+        return s
     }
     private static func save(_ key: String, _ s: Set<String>) {
+        cache[key] = s   // update cache synchronously → instant reads
         UserDefaults.standard.set(s.joined(separator: " "), forKey: key)
     }
     static func isHidden(_ uid: String) -> Bool { set("hiddenStories").contains(uid) }
@@ -102,8 +109,8 @@ struct StoriesRow: View {
     var onProfile: (StoryGroup) -> Void = { _ in }
     var onOpenAnon: (StoryGroup) -> Void = { _ in }
     @State private var prefsTick = 0   // re-render after hide/notify toggles
-    @State private var showMyViewers = false   // My Story → "View all" → viewers sheet
-    @State private var hideTarget: StoryGroup?   // "Hide Story?" confirmation target
+    @State private var showArchive = false       // My Story → "Archived Stories"
+    @State private var hideTarget: StoryGroup?   // "Hide Stories?" confirmation target
 
     private let storySpacing: CGFloat = 10
     private let storyHPad: CGFloat = 12
@@ -122,11 +129,18 @@ struct StoriesRow: View {
                          avatar: g.photoUrl, seen: StoryPrefs.seenFlags(g.stories)) { onOpen(g) }
                         // Native Apple peek: long-press lifts THIS card + shows the system menu
                         // (same as the chat rows). Works here because the row is a ScrollView, not a List.
-                        .contextMenu {
+                        .contextMenu {   // full Telegram friend menu
                             Button { onMessage(g) } label: { Label("Send Message", systemImage: "message") }
                             Button { onProfile(g) } label: { Label("Open Profile", systemImage: "person.crop.circle") }
+                            Button { StoryPrefs.toggleNotify(g.authorUid); prefsTick += 1 } label: {
+                                Label(StoryPrefs.isNotifying(g.authorUid) ? "Mute Stories" : "Notify About Stories",
+                                      systemImage: StoryPrefs.isNotifying(g.authorUid) ? "bell.slash" : "bell")
+                            }
+                            Button { onOpenAnon(g) } label: { Label("View Anonymously", systemImage: "eye.slash") }
                             Button(role: .destructive) { hideTarget = g }   // confirm first, then archive
-                                label: { Label("Hide Story", systemImage: "xmark.circle") }
+                                label: { Label("Hide Stories", systemImage: "archivebox") }
+                        } preview: {   // lifted peek = ONLY this person's story card image (Telegram)
+                            cardPreview(g.stories.last?.mediaUrl, g.photoUrl, g.name.isEmpty ? "User" : g.name)
                         }
                 }
             }
@@ -137,10 +151,10 @@ struct StoriesRow: View {
             get: { stories.uploadError != nil },
             set: { if !$0 { stories.uploadError = nil } }
         )) { Button("OK", role: .cancel) {} } message: { Text(stories.uploadError ?? "") }
-        .confirmationDialog("Hide Story?",
+        .confirmationDialog("Hide Stories?",
                             isPresented: Binding(get: { hideTarget != nil }, set: { if !$0 { hideTarget = nil } }),
                             titleVisibility: .visible, presenting: hideTarget) { g in
-            Button("Hide Story", role: .destructive) { StoryPrefs.toggleHidden(g.authorUid); prefsTick += 1; hideTarget = nil }
+            Button("Hide Stories", role: .destructive) { StoryPrefs.toggleHidden(g.authorUid); prefsTick += 1; hideTarget = nil }
             Button("Cancel", role: .cancel) { hideTarget = nil }
         } message: { g in
             Text("New story updates from \(g.name.isEmpty ? "this person" : g.name) won't appear at the top of the stories list anymore.")
@@ -157,16 +171,15 @@ struct StoriesRow: View {
                  seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []), onBadge: onCompose) {
                 if let m = repo.mine { onOpen(m) } else { onCompose() }
             }
-            .contextMenu {
+            .contextMenu {   // full Telegram My Story menu
                 Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
-                Button { if repo.mine?.stories.isEmpty == false { showMyViewers = true } }
-                    label: { Label("View all", systemImage: "eye") }
+                Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
+                    label: { Label("Posted Stories", systemImage: "circle.dashed") }
+                Button { showArchive = true } label: { Label("Archived Stories", systemImage: "archivebox") }
+            } preview: {   // lifted peek = ONLY the My Story card image
+                cardPreview(repo.mine?.stories.last?.mediaUrl ?? mePhoto, mePhoto, "My Story")
             }
-            // "View all" → Telegram viewers sheet: who viewed each of my stories.
-            .sheet(isPresented: $showMyViewers) {
-                StoryViewersSheet(stories: repo.mine?.stories ?? [],
-                                  selectedId: repo.mine?.stories.last?.id ?? "")
-            }
+            .sheet(isPresented: $showArchive) { ArchivedChatsView() }   // archived (hidden) stories live here
         }
     }
 
@@ -193,6 +206,13 @@ struct StoriesRow: View {
             Text("Uploading…").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).frame(width: cardW)
         }
         .frame(width: cardW)
+    }
+
+    // Long-press peek preview: ONLY the story card image (cover), rounded — no name/chrome (Telegram).
+    private func cardPreview(_ cover: String?, _ avatar: String?, _ name: String) -> some View {
+        coverImage(cover, name: name, avatar: avatar)
+            .frame(width: cardW, height: cardH)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private func card(cover: String?, name: String, avatar: String?, seen: [Bool],
