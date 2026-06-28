@@ -148,9 +148,11 @@ struct StoryEditorView: View {
         .alert("Couldn't share", isPresented: $postError) { Button("OK", role: .cancel) {} }
         .sheet(item: $pendingShare) { s in ShareStorySheet(image: s.data, onPosted: { onPosted(); dismiss() }) }
         .fullScreenCover(isPresented: $showCrop) {
-            CropView(source: source,   // always crop from the original (no cumulative degradation)
-                     onDone: { cropped in croppedSource = cropped; showCrop = false; recomputeEdited() },
-                     onCancel: { showCrop = false })
+            // TOCropViewController (TimOliver) — proven crop engine. Always crop from the original.
+            TOCropView(image: source,
+                       onDone: { cropped in croppedSource = cropped; showCrop = false; recomputeEdited() },
+                       onCancel: { showCrop = false })
+                .ignoresSafeArea()
         }
         .toolbar(.hidden, for: .navigationBar)
     }

@@ -29,6 +29,10 @@ packages:
   # header→profile tap, swipe-down dismiss, exact Instagram sizing, transitions).
   StoryUI:
     path: StoryUI
+  # Gold-standard iOS image cropper (zoom/rotate/aspect/reset) — TimOliver/TOCropViewController.
+  TOCropViewController:
+    url: https://github.com/TimOliver/TOCropViewController
+    from: "2.7.0"
 
 targets:
   Kulan:
@@ -85,3 +89,5 @@ targets:
         product: LiveKit
       - package: StoryUI
         product: StoryUI
+      - package: TOCropViewController
+        product: CropViewController
