@@ -35,9 +35,9 @@ struct UserView: View {
 
             Spacer()
 
-            // 24pt glyph in a 44×44 invisible touch target.
+            // 18pt glyph (was 24, looked oversized) in a 44×44 invisible touch target.
             Image(systemName: "xmark")
-                .font(.system(size: 24, weight: .semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
