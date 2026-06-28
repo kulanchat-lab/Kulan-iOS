@@ -450,10 +450,24 @@ struct ChatsView: View {
         return (g.hasUnseen, g.stories.count)
     }
 
+    // Mark every (non-archived) unread chat as read.
+    private func markAllRead() {
+        let ids = repo.conversations
+            .filter { !$0.isCleared(me) && !$0.isArchived(me) && $0.unread(me) > 0 }
+            .map(\.id)
+        Task { for id in ids { await ChatService.resetUnread(id); await ChatService.markRead(id) } }
+    }
+
     private var visible: [Conversation] {
         repo.conversations
             .filter { !$0.isCleared(me) && !$0.isArchived(me) }
-            .filter { chatFilter == 0 || $0.unread(me) > 0 }   // Filter: All / Unread
+            .filter { c in   // Filter: 0 = All, 1 = Unread, 2 = Groups
+                switch chatFilter {
+                case 1: return c.unread(me) > 0
+                case 2: return c.isGroup
+                default: return true
+                }
+            }
             .sorted { a, b in
                 if a.isPinned(me) != b.isPinned(me) { return a.isPinned(me) }
                 // Both pinned: manual order (higher rank = higher in list).
@@ -474,17 +488,21 @@ struct ChatsView: View {
     private var editButton: some View {
         Button("Edit") { withAnimation(.spring(response: 0.4, dampingFraction: 0.72)) { selecting = true } }.tint(.primary)
     }
-    // Right: filter the list (All / Unread) + reach Archived.
+    // Right: Mark all read + filter (All / Unread / Groups) + Archived + Add Story.
     private var filterMenu: some View {
         Menu {
-            Picker("Filter", selection: $chatFilter) {
+            Button { markAllRead() } label: { Label("Mark All Read", systemImage: "checkmark.circle") }
+            Divider()
+            Picker("Filter by", selection: $chatFilter) {
                 Label("All Chats", systemImage: "bubble.left.and.bubble.right").tag(0)
                 Label("Unread", systemImage: "circlebadge.fill").tag(1)
+                Label("Groups", systemImage: "person.3").tag(2)
             }
             Divider()
             Button { showArchived = true } label: { Label("Archived", systemImage: "archivebox") }
+            Button { showCompose = true } label: { Label("Add Story", systemImage: "plus.circle") }
         } label: {
-            Image(systemName: chatFilter == 1 ? "line.3.horizontal.decrease.circle.fill"
+            Image(systemName: chatFilter != 0 ? "line.3.horizontal.decrease.circle.fill"
                                               : "line.3.horizontal.decrease.circle")
                 .font(.system(size: 18))
         }
