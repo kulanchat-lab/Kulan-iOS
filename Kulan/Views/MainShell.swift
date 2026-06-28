@@ -713,7 +713,9 @@ struct ChatsView: View {
                                     onProfile: { grp in profileGroup = grp })
                     }
                 }
-                .navigationTransition(.zoom(sourceID: g.id, in: storyNS))   // zoom from/to the tapped card
+                // Open/close uses the standard native cover (slide up to open, straight slide down to
+                // close) — paired with the StoryUI vertical swipe-down. The zoom-to-card was removed
+                // because it pulled the close diagonally toward the thumbnail (not straight up/down).
             }
             .sheet(item: $profileGroup) { g in
                 NavigationStack {

@@ -99,7 +99,6 @@ struct StoriesRow: View {
                                 StoryPrefs.toggleHidden(g.authorUid); prefsTick += 1
                             } label: { Label("Hide Stories", systemImage: "xmark.circle") }
                         }
-                        .matchedTransitionSource(id: g.id, in: storyNS)   // zoom from this card
                 }
             }
             .padding(.horizontal, storyHPad)
@@ -130,7 +129,6 @@ struct StoriesRow: View {
                 }
             }
             .sheet(item: $seenBy) { t in SeenBySheet(storyId: t.id) }
-            .matchedTransitionSource(id: repo.mine?.id ?? "mystory", in: storyNS)   // zoom from My Story card
         }
     }
 
