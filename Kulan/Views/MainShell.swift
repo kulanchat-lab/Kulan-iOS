@@ -401,6 +401,7 @@ struct ChatsView: View {
     private var repo = ConversationsRepository.shared
     private var profile = ProfileStore.shared
     private var router = AppRouter.shared
+    private var storiesRepo = StoriesRepository.shared   // @Observable: drives the chat-list story rings
     @Environment(\.colorScheme) private var scheme
     @State private var showNew = false
     @State private var chatFilter = 0   // 0 = all, 1 = unread
@@ -441,6 +442,13 @@ struct ChatsView: View {
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
+    // Story ring for a 1:1 chat row: does the other person have an active story, and how many.
+    private func storyState(_ conv: Conversation) -> (unseen: Bool, count: Int) {
+        guard !conv.isGroup,
+              let g = storiesRepo.others.first(where: { $0.authorUid == conv.otherUid(me) })
+        else { return (false, 0) }
+        return (g.hasUnseen, g.stories.count)
+    }
 
     private var visible: [Conversation] {
         repo.conversations
@@ -635,7 +643,8 @@ struct ChatsView: View {
                             path.append(ChatTarget(id: conv.id, name: conv.displayName(me),
                                                    photo: conv.displayPhoto(me)))
                         } label: {
-                            ChatRow(conv: conv, me: me, dark: dark)
+                            ChatRow(conv: conv, me: me, dark: dark,
+                                    storyUnseen: storyState(conv).unseen, storyCount: storyState(conv).count)
                                 .equatable()   // skip rebuild when this conversation is unchanged
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())   // whole row tappable (incl. empty space)
@@ -925,11 +934,16 @@ struct ChatRow: View, Equatable {
     let conv: Conversation
     let me: String
     let dark: Bool
+    var storyUnseen: Bool = false   // this person has an active story (ring around avatar, Telegram-style)
+    var storyCount: Int = 0         // number of stories → segmented ring
 
     // Skip re-rendering a row whose conversation is unchanged, even when the parent body re-runs on
     // every snapshot (typing/unread/presence on OTHER chats). Conversation is Equatable → covers
     // lastMessage/unread/updatedAt/pinned/muted/etc.; decryption/avatars/time only recompute on change.
-    static func == (l: ChatRow, r: ChatRow) -> Bool { l.conv == r.conv && l.me == r.me && l.dark == r.dark }
+    static func == (l: ChatRow, r: ChatRow) -> Bool {
+        l.conv == r.conv && l.me == r.me && l.dark == r.dark
+            && l.storyUnseen == r.storyUnseen && l.storyCount == r.storyCount
+    }
 
     private var decodedLast: String {
         if conv.leaksBlocked(me) { return "" }   // don't leak a blocked person's message into the list
@@ -1020,6 +1034,12 @@ struct ChatRow: View, Equatable {
         // 56pt avatar; up to 2 preview lines; mute/pin/tick indicators inline.
         HStack(spacing: 12) {
             AvatarView(name: conv.displayName(me), photoUrl: conv.displayPhoto(me), size: 56)
+                .overlay {   // story ring around the avatar when this person has an active story (Telegram)
+                    if storyCount > 0 {
+                        StoryRingView(count: storyCount, unseen: storyUnseen, lineWidth: 2)
+                            .frame(width: 63, height: 63)
+                    }
+                }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(conv.displayName(me))

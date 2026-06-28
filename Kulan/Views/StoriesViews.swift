@@ -4,6 +4,31 @@ import Photos
 import UIKit
 import StoryUI
 
+// Telegram/IG segmented story ring: one arc per story (3 stories = 3 arcs with gaps, 1 = full circle).
+// Colorful gradient when unviewed, grey when viewed. Reused on story cards AND chat-list avatars.
+struct StoryRingView: View {
+    let count: Int
+    let unseen: Bool
+    var lineWidth: CGFloat = 2.5
+    var body: some View {
+        let n = max(1, count)
+        let gap: CGFloat = n > 1 ? 0.045 : 0          // gap between segments (fraction of the circle)
+        let seg: CGFloat = 1.0 / CGFloat(n)
+        let style: AnyShapeStyle = unseen
+            ? AnyShapeStyle(AngularGradient(colors: [Color(hex: 0xF7971E), Color(hex: 0xDD2476),
+                                                     Color(hex: 0x7F00FF), Color(hex: 0xF7971E)], center: .center))
+            : AnyShapeStyle(Color.gray.opacity(0.55))
+        ZStack {
+            ForEach(0..<n, id: \.self) { i in
+                Circle()
+                    .trim(from: CGFloat(i) * seg + gap / 2, to: CGFloat(i + 1) * seg - gap / 2)
+                    .stroke(style, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            }
+        }
+        .rotationEffect(.degrees(-90))                // first segment starts at the top
+    }
+}
+
 // Cached story image: memory + persistent disk (DiskImageCache), so swiping
 // back/forward, reopening, and app relaunches load instantly with no re-download.
 struct StoryImage: View {
@@ -157,26 +182,6 @@ struct StoriesRow: View {
         .frame(width: cardW)
     }
 
-    // Telegram/IG segmented ring: one arc per story (3 stories = 3 arcs with gaps, 1 = full circle).
-    // Colorful gradient when unviewed, grey when viewed. Sits only around the small profile badge.
-    private func storyRing(count: Int, unseen: Bool) -> some View {
-        let n = max(1, count)
-        let gap: CGFloat = n > 1 ? 0.045 : 0          // gap between segments (fraction of the circle)
-        let seg: CGFloat = 1.0 / CGFloat(n)
-        let style: AnyShapeStyle = unseen
-            ? AnyShapeStyle(AngularGradient(colors: [Color(hex: 0xF7971E), Color(hex: 0xDD2476),
-                                                     Color(hex: 0x7F00FF), Color(hex: 0xF7971E)], center: .center))
-            : AnyShapeStyle(Color.gray.opacity(0.55))
-        return ZStack {
-            ForEach(0..<n, id: \.self) { i in
-                Circle()
-                    .trim(from: CGFloat(i) * seg + gap / 2, to: CGFloat(i + 1) * seg - gap / 2)
-                    .stroke(style, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-            }
-        }
-        .rotationEffect(.degrees(-90))                // first segment starts at the top
-    }
-
     private func card(cover: String?, name: String, avatar: String?, unseen: Bool, count: Int = 1,
                       onBadge: (() -> Void)? = nil, tap: @escaping () -> Void) -> some View {
         VStack(spacing: 6) {
@@ -194,7 +199,7 @@ struct StoriesRow: View {
                     .buttonStyle(.plain).padding(8)
                 } else {
                     AvatarView(name: name, photoUrl: avatar, size: 32)
-                        .overlay(storyRing(count: count, unseen: unseen).frame(width: 37, height: 37))
+                        .overlay(StoryRingView(count: count, unseen: unseen).frame(width: 37, height: 37))
                         .animation(.easeInOut(duration: 0.3), value: unseen)
                         .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
                         .padding(8)
