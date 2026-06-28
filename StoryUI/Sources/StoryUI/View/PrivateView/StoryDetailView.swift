@@ -24,7 +24,7 @@ struct StoryDetailView: View {
     var onProfile: ((StoryUIUser) -> Void)?
 
     // MARK: Private Properties
-    @ObservedObject private var keyboardManager = KeyboardManager()
+    @StateObject private var keyboardManager = KeyboardManager()   // own it once (was re-created each re-init)
     @State private var state: MediaState = .notStarted
     @State private var player = AVPlayer()
     @State private var animate = false
@@ -217,17 +217,18 @@ private extension StoryDetailView {
                     .fill(.black.opacity(0.01))
                     .onTapGesture { tapNextStory() }     // right two-thirds = next
             }
-            // Hold anywhere to pause (touch-down, no delay — like IG/Snap); release to resume.
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        guard !keyboardManager.isKeyboardOpen, !isPaused else { return }
-                        isPaused = true; pauseVideo()
-                    }
-                    .onEnded { _ in
-                        if isPaused { isPaused = false; playVideo() }
-                    }
-            )
+            // Hold to pause (IG/Snap). onLongPressGesture's onPressingChanged pauses on press-down
+            // and resumes on release; crucially, a horizontal swipe exceeds maximumDistance and
+            // CANCELS the press (→ resume) so the TabView can still page between users (R2 fix —
+            // a minimumDistance:0 drag stole the touch from the pager).
+            .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 10, perform: {}, onPressingChanged: { pressing in
+                if pressing {
+                    guard !keyboardManager.isKeyboardOpen else { return }
+                    isPaused = true; pauseVideo()
+                } else {
+                    isPaused = false; playVideo()
+                }
+            })
         }
     }
     
@@ -241,6 +242,7 @@ private extension StoryDetailView {
     func resetProgress() {
         timerProgress = 0
         isAdvancing = false
+        isPaused = false   // safety: never carry a stuck pause across a user switch (R1 freeze fix)
     }
     
     func getPreviousStory() {

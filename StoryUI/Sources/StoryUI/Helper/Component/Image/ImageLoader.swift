@@ -58,7 +58,6 @@ final class ImageLoader: UIView {
 
         guard let imageURL else { return }
 
-        apply(nil)
         // stop video if it's playing before image request
         NotificationCenter.default.post(name: .stopVideo, object: nil)
 
@@ -70,6 +69,7 @@ final class ImageLoader: UIView {
             return
         }
 
+        apply(nil)   // only clear when we must fetch (spinner shows) — cache hits no longer flash black
         addIndicator()
 
         URLSession.shared.dataTask(
