@@ -109,7 +109,6 @@ struct StoriesRow: View {
     var onProfile: (StoryGroup) -> Void = { _ in }
     var onOpenAnon: (StoryGroup) -> Void = { _ in }
     @State private var prefsTick = 0   // re-render after hide/notify toggles
-    @State private var showArchive = false       // My Story → "Archived Stories"
     @State private var hideTarget: StoryGroup?   // "Hide Stories?" confirmation target
 
     private let storySpacing: CGFloat = 10
@@ -171,15 +170,13 @@ struct StoriesRow: View {
                  seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []), onBadge: onCompose) {
                 if let m = repo.mine { onOpen(m) } else { onCompose() }
             }
-            .contextMenu {   // full Telegram My Story menu
+            .contextMenu {   // My Story menu: Add Story + Posted Stories only
                 Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
                 Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
                     label: { Label("Posted Stories", systemImage: "circle.dashed") }
-                Button { showArchive = true } label: { Label("Archived Stories", systemImage: "archivebox") }
-            } preview: {   // lifted peek = ONLY the My Story card image
+            } preview: {   // lifted peek = My Story card image + name
                 cardPreview(repo.mine?.stories.last?.mediaUrl ?? mePhoto, mePhoto, "My Story")
             }
-            .sheet(isPresented: $showArchive) { ArchivedChatsView() }   // archived (hidden) stories live here
         }
     }
 
