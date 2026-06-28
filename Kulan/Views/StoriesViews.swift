@@ -174,14 +174,14 @@ struct StoriesRow: View {
                     .buttonStyle(.plain).padding(8)
                 } else {
                     AvatarView(name: name, photoUrl: avatar, size: 32)
-                        .overlay(   // unseen = colorful gradient ring (IG/WhatsApp); seen = none
+                        .overlay(   // Telegram: unseen = colorful gradient ring, seen = grey ring (small badge only)
                             Circle().strokeBorder(
                                 unseen
                                 ? AnyShapeStyle(AngularGradient(
                                     colors: [Color(hex: 0xF7971E), Color(hex: 0xDD2476),
                                              Color(hex: 0x7F00FF), Color(hex: 0xF7971E)], center: .center))
-                                : AnyShapeStyle(Color.clear),
-                                lineWidth: unseen ? 2.5 : 0)
+                                : AnyShapeStyle(Color.gray.opacity(0.55)),
+                                lineWidth: 2.5)
                         )
                         .animation(.easeInOut(duration: 0.3), value: unseen)
                         .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
