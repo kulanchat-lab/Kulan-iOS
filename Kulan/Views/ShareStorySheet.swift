@@ -11,9 +11,10 @@ struct ShareStorySheet: View {
     var onPosted: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var repo = ConversationsRepository.shared
-    @State private var mode = 0          // 0 = contacts, 1 = except, 2 = only
-    @State private var excluded = Set<String>()
-    @State private var included = Set<String>()
+    // Remember the last audience choice (WhatsApp/Signal/Telegram all do) instead of resetting each post.
+    @State private var mode = UserDefaults.standard.integer(forKey: "storyAudMode")   // 0 contacts, 1 except, 2 only
+    @State private var excluded = Set(UserDefaults.standard.stringArray(forKey: "storyAudExcluded") ?? [])
+    @State private var included = Set(UserDefaults.standard.stringArray(forKey: "storyAudIncluded") ?? [])
     @State private var showExclude = false
     @State private var showInclude = false
     private var me: String { AuthService.shared.uid ?? "" }
@@ -98,6 +99,10 @@ struct ShareStorySheet: View {
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
             return   // stay on the sheet so the user can pick someone
         }
+        // Remember this audience for next time.
+        UserDefaults.standard.set(mode, forKey: "storyAudMode")
+        UserDefaults.standard.set(Array(excluded), forKey: "storyAudExcluded")
+        UserDefaults.standard.set(Array(included), forKey: "storyAudIncluded")
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         StoriesService.shared.postStoryBackground(
             image: image,

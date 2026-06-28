@@ -35,6 +35,15 @@ struct StoryGroup: Identifiable {
     }
 }
 
+// One viewer of my story, for the "Seen by" sheet.
+struct StoryViewerInfo: Identifiable {
+    let id: String        // viewer uid
+    let name: String
+    let photoUrl: String?
+    let viewedAt: Date
+    let reaction: String?
+}
+
 @Observable
 final class StoriesService {
     static let shared = StoriesService()
@@ -136,6 +145,36 @@ final class StoriesService {
                 .collection("views").document(me)
                 .setData(["viewedAt": FieldValue.serverTimestamp()])
         }
+    }
+
+    // Set my reaction emoji on my view receipt (shows in the author's "Seen by" list).
+    func setStoryReaction(_ story: Story, emoji: String) async {
+        let me = uid
+        guard !me.isEmpty, story.authorUid != me else { return }
+        let receiptsOn = UserDefaults.standard.object(forKey: "storyViewReceipts") as? Bool ?? true
+        guard receiptsOn else { return }
+        try? await db.collection("stories").document(story.id)
+            .collection("views").document(me)
+            .setData(["viewedAt": FieldValue.serverTimestamp(), "reaction": emoji], merge: true)
+    }
+
+    // Who viewed a story I posted (author-only per rules) → for the "Seen by" sheet.
+    func fetchViewers(storyId: String) async -> [StoryViewerInfo] {
+        guard !uid.isEmpty else { return [] }
+        let snap = try? await db.collection("stories").document(storyId).collection("views").getDocuments()
+        let docs = snap?.documents ?? []
+        let (convs, me) = await MainActor.run { (ConversationsRepository.shared.conversations, uid) }
+        return docs.map { d in
+            let u = d.documentID
+            let c = convs.first { $0.otherUid(me) == u }
+            return StoryViewerInfo(
+                id: u,
+                name: c?.name(for: me) ?? "Someone",
+                photoUrl: c?.photoUrl(for: me),
+                viewedAt: (d.data()["viewedAt"] as? Timestamp)?.dateValue() ?? Date(),
+                reaction: d.data()["reaction"] as? String
+            )
+        }.sorted { $0.viewedAt > $1.viewedAt }
     }
 
     func deleteStory(_ id: String) async {

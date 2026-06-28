@@ -55,9 +55,12 @@ enum StoryPrefs {
 }
 
 // Horizontal Stories row for the top of the Chats screen.
+struct SeenByTarget: Identifiable { let id: String }
+
 struct StoriesRow: View {
     @State private var repo = StoriesRepository.shared
     @State private var stories = StoriesService.shared   // observe the live upload state
+    @State private var seenBy: SeenByTarget?             // "Seen by" sheet target
     var meName: String
     var mePhoto: String?
     var onCompose: () -> Void
@@ -117,12 +120,14 @@ struct StoriesRow: View {
                 if let m = repo.mine { onOpen(m) } else { onCompose() }
             }
             .contextMenu {
-                if let last = repo.mine?.stories.last {   // delete my most recent status (H5 UI)
-                    Button(role: .destructive) {
+                if let last = repo.mine?.stories.last {
+                    Button { seenBy = SeenByTarget(id: last.id) } label: { Label("Seen by", systemImage: "eye") }
+                    Button(role: .destructive) {   // delete my most recent status (H5 UI)
                         Task { await StoriesService.shared.deleteStory(last.id); await repo.load(force: true) }
                     } label: { Label("Delete", systemImage: "trash") }
                 }
             }
+            .sheet(item: $seenBy) { t in SeenBySheet(storyId: t.id) }
         }
     }
 
@@ -288,7 +293,11 @@ struct StoryViewer: View {
         let cid = [me, s.authorUid].sorted().joined(separator: "_")
         // Attach the status reference so the reply shows as a "Status" quote (thumbnail) in chat.
         let ref = ReplyRef(id: s.id, authorId: s.authorUid, text: "", isStatus: true, storyThumbUrl: s.mediaUrl)
-        Task { try? await ChatService.sendText(cid: cid, text: text, replyTo: ref) }
+        let isReaction = (message?.trimmingCharacters(in: .whitespaces) ?? "").isEmpty && (emoji != nil || isLiked)
+        Task {
+            try? await ChatService.sendText(cid: cid, text: text, replyTo: ref)
+            if isReaction { await StoriesService.shared.setStoryReaction(s, emoji: text) }   // shows in "Seen by"
+        }
     }
 
     // Mark ONLY the bucket the viewer is currently on seen (fired on open + each swipe), so opening
@@ -302,6 +311,50 @@ struct StoryViewer: View {
     private func timeAgo(_ d: Date) -> String {
         let f = RelativeDateTimeFormatter(); f.unitsStyle = .abbreviated
         return f.localizedString(for: d, relativeTo: Date())
+    }
+}
+
+// "Seen by" sheet — who viewed my status (premium, like WhatsApp/IG).
+struct SeenBySheet: View {
+    let storyId: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var viewers: [StoryViewerInfo] = []
+    @State private var loading = true
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if loading {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if viewers.isEmpty {
+                    ContentUnavailableView("No views yet", systemImage: "eye",
+                        description: Text("When people view your status, they'll appear here."))
+                } else {
+                    List(viewers) { v in
+                        HStack(spacing: 12) {
+                            AvatarView(name: v.name, photoUrl: v.photoUrl, size: 42)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(v.name).font(.body)
+                                Text(v.viewedAt, format: .relative(presentation: .named))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if let r = v.reaction, !r.isEmpty { Text(r).font(.title3) }
+                        }
+                        .listRowSeparator(.hidden)
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle(viewers.isEmpty ? "Seen by" : "Seen by \(viewers.count)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
+        .task {
+            viewers = await StoriesService.shared.fetchViewers(storyId: storyId)
+            loading = false
+        }
     }
 }
 
