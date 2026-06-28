@@ -93,6 +93,11 @@ struct ShareStorySheet: View {
     }
 
     private func post() {
+        // "Only share with" + nobody selected would post to NO audience — block it (I6).
+        if mode == 2 && included.isEmpty {
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            return   // stay on the sheet so the user can pick someone
+        }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         StoriesService.shared.postStoryBackground(
             image: image,

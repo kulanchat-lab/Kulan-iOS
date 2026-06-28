@@ -201,7 +201,7 @@ private extension StoryDetailView {
             userClosure: userClosure
         )
         .padding()
-        .animation(messageViewPosition == 0 ? .none : .easeOut)
+        .animation(messageViewPosition == 0 ? .none : .easeOut, value: messageViewPosition)
         .offset(y: messageViewPosition)
     }
     

@@ -62,15 +62,6 @@ private extension MessageView {
         }
     }
     
-    var shareButton: some View  {
-        Button {
-        } label: {
-            Image(systemName: Constant.MessageView.shareImage)
-                .font(.title2)
-                .foregroundColor(.white)
-        }
-    }
-    
     @ViewBuilder
     func buttonViewBuilder(_ config: StoryInteractionConfig?) -> some View {
         if let config {
