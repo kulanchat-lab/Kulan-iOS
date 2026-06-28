@@ -177,14 +177,19 @@ struct StoryEditorView: View {
 
     private var bottomBar: some View {
         VStack(spacing: 10) {
-            // Caption bar — dark pill, same as image 212.
+            // Caption bar — dark pill. While typing, Send sits beside it so you can post without
+            // dismissing the keyboard (it used to hide with the toolbar → no way to send).
             HStack(spacing: 10) {
-                Image(systemName: "plus.square.on.square").foregroundStyle(.white)
-                TextField("", text: $caption, prompt: Text("Add a caption…").foregroundColor(Color(.systemGray3)))
-                    .foregroundStyle(.white).focused($captionFocused)
+                HStack(spacing: 10) {
+                    Image(systemName: "plus.square.on.square").foregroundStyle(.white)
+                    TextField("", text: $caption, prompt: Text("Add a caption…").foregroundColor(Color(.systemGray3)))
+                        .foregroundStyle(.white).focused($captionFocused)
+                }
+                .padding(.horizontal, 16).frame(height: 46)
+                .background(Color(white: 0.13), in: Capsule())
+
+                if captionFocused { sendButton }
             }
-            .padding(.horizontal, 16).frame(height: 46)
-            .background(Color(white: 0.13), in: Capsule())
 
             // Tool row hides while typing a caption (IG/WA: only the caption field stays, above the keyboard).
             if !captionFocused {
@@ -194,19 +199,23 @@ struct StoryEditorView: View {
                     tool(isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle", active: isDrawing) { isDrawing.toggle() }
 
                     Spacer()
-
-                    Button { Task { await send() } } label: {
-                        Image(systemName: posting ? "ellipsis" : "paperplane.fill")
-                            .font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                            .contentTransition(.symbolEffect(.replace))
-                            .frame(width: 46, height: 46).background(Color(.systemGreen), in: Circle())
-                            .shadow(color: Color(.systemGreen).opacity(0.5), radius: posting ? 2 : 8)
-                    }
-                    .buttonStyle(StoryPressStyle()).disabled(posting)
+                    sendButton
                 }
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    // Shared green Send — used in the toolbar (idle) AND beside the caption (while typing).
+    private var sendButton: some View {
+        Button { Task { await send() } } label: {
+            Image(systemName: posting ? "ellipsis" : "paperplane.fill")
+                .font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 46, height: 46).background(Color(.systemGreen), in: Circle())
+                .shadow(color: Color(.systemGreen).opacity(0.5), radius: posting ? 2 : 8)
+        }
+        .buttonStyle(StoryPressStyle()).disabled(posting)
     }
 
     // Flat tool button: white icon, green when active; "HD" renders as a bordered badge.
