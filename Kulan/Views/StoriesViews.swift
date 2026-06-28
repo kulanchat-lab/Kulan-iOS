@@ -95,6 +95,7 @@ struct StoriesRow: View {
     var onProfile: (StoryGroup) -> Void = { _ in }
     var onOpenAnon: (StoryGroup) -> Void = { _ in }
     @State private var prefsTick = 0   // re-render after hide/notify toggles
+    @State private var showMyViewers = false   // My Story → "View all" → viewers sheet
 
     private let storySpacing: CGFloat = 10
     private let storyHPad: CGFloat = 12
@@ -143,8 +144,13 @@ struct StoriesRow: View {
             }
             .contextMenu {
                 Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
-                Button { if let m = repo.mine { onOpen(m) } else { onCompose() } }
-                    label: { Label("View all", systemImage: "rectangle.stack") }
+                Button { if repo.mine?.stories.isEmpty == false { showMyViewers = true } }
+                    label: { Label("View all", systemImage: "eye") }
+            }
+            // "View all" → Telegram viewers sheet: who viewed each of my stories.
+            .sheet(isPresented: $showMyViewers) {
+                StoryViewersSheet(stories: repo.mine?.stories ?? [],
+                                  selectedId: repo.mine?.stories.last?.id ?? "")
             }
         }
     }
