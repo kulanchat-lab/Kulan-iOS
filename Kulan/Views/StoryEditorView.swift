@@ -17,7 +17,6 @@ struct StoryEditorView: View {
     @State private var isDrawing = false
     @State private var filterIndex = 0
     @State private var aspectIndex = 0
-    @State private var hd = false
     @State private var editedCache: UIImage?         // filtered+cropped; recomputed only on tool change
     @State private var canvasSize: CGSize = .zero
     @State private var posting = false
@@ -172,7 +171,6 @@ struct StoryEditorView: View {
                     tool("crop", active: aspectIndex != 0) { aspectIndex = (aspectIndex + 1) % Self.aspects.count }
                     tool(isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle", active: isDrawing) { isDrawing.toggle() }
                     tool("slider.horizontal.3", active: filterIndex != 0) { filterIndex = (filterIndex + 1) % Self.filters.count }
-                    tool("", active: hd, label: "HD") { hd.toggle() }
 
                     Spacer()
 
@@ -235,7 +233,7 @@ struct StoryEditorView: View {
 
     @MainActor private func flatten() async -> Data {
         let base = edited
-        let quality: CGFloat = hd ? 0.95 : 0.85
+        let quality: CGFloat = 0.9
         let cap = caption.trimmingCharacters(in: .whitespacesAndNewlines)
         // No drawing AND no caption AND no text overlays → post the full-resolution edited image.
         if drawing.bounds.isEmpty && cap.isEmpty && overlays.isEmpty {
