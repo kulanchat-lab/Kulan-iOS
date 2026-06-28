@@ -208,11 +208,15 @@ struct StoriesRow: View {
         .frame(width: cardW)
     }
 
-    // Long-press peek preview: ONLY the story card image (cover), rounded — no name/chrome (Telegram).
+    // Long-press peek preview: the story card image + the name below it (Telegram), no ring/badge chrome.
     private func cardPreview(_ cover: String?, _ avatar: String?, _ name: String) -> some View {
-        coverImage(cover, name: name, avatar: avatar)
-            .frame(width: cardW, height: cardH)
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        VStack(spacing: 6) {
+            coverImage(cover, name: name, avatar: avatar)
+                .frame(width: cardW, height: cardH)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            Text(name).font(.system(size: 12)).lineLimit(1).frame(width: cardW)
+        }
+        .padding(8)
     }
 
     private func card(cover: String?, name: String, avatar: String?, seen: [Bool],
