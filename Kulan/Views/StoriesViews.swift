@@ -678,7 +678,8 @@ struct StoryViewersSheet: View {
         }
         .frame(width: w, height: h)
         .id(s.id)
-        .onTapGesture { withAnimation(.easeOut(duration: 0.25)) { scrolledID = s.id } }   // tap → scroll to it
+        // Springy physics: tapping a side card springs it to centre (momentum/snap on free-scroll is native).
+        .onTapGesture { withAnimation(.spring(response: 0.42, dampingFraction: 0.68)) { scrolledID = s.id } }
     }
 
     private func viewerRow(_ v: StoryViewerInfo) -> some View {
