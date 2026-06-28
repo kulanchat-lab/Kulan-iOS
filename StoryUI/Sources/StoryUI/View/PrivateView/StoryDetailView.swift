@@ -11,6 +11,7 @@ import AVKit
 struct StoryDetailView: View {
     // MARK: Public Properties
     @ObservedObject var viewModel: StoryViewModel
+    @Environment(\.scenePhase) private var scenePhase
 
     @State var model: StoryUIModel
     @Binding var isPresented: Bool
@@ -34,6 +35,7 @@ struct StoryDetailView: View {
     @State private var isTapDisabled: Bool = false
     @State private var showEmoji: Bool = true
     @State private var isPaused: Bool = false   // hold-to-pause
+    @State private var isAdvancing: Bool = false   // guard the segment-end double-advance
 
     private var messageViewPosition: CGFloat {
         return -keyboardManager.currentHeight
@@ -90,6 +92,12 @@ struct StoryDetailView: View {
         }
         .onChange(of: keyboardManager.isKeyboardOpen) { open in
             open ? pauseVideo() : playVideo()   // composing a reply pauses; resumes on dismiss
+        }
+        .onChange(of: scenePhase) { phase in
+            // Pause when the app leaves the foreground; resume on return (the timer also
+            // naturally suspends with the run loop, this coordinates video too).
+            if phase == .active { isPaused = false; playVideo() }
+            else { isPaused = true; pauseVideo() }
         }
     }
 }
@@ -232,6 +240,7 @@ private extension StoryDetailView {
     
     func resetProgress() {
         timerProgress = 0
+        isAdvancing = false
     }
     
     func getPreviousStory() {
@@ -250,8 +259,8 @@ private extension StoryDetailView {
             let story = getStory(with: index)
             if story.config.mediaType == .video {
                 NotificationCenter.default.post(name: .stopAndRestartVideo, object: nil)
-                resetProgress()
             }
+            resetProgress()   // restart the current segment (image OR video) — was a no-op for images
         }
         return
     }
@@ -293,7 +302,8 @@ private extension StoryDetailView {
                 if story.isReady {
                     getProgressBarFrame(duration: story.duration)
                 }
-            } else {
+            } else if !isAdvancing {
+                isAdvancing = true   // fire the user-advance once, not every 0.1s tick
                 updateStory()
             }
         }

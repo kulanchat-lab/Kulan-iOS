@@ -24,7 +24,7 @@ struct ProgressBarView: View {
                     Capsule()
                         .fill(.white)
                         .frame(width: width * perfectProgress)
-                    
+                        .animation(.linear(duration: 0.1), value: perfectProgress)   // interpolate between 0.1s ticks (smooth, not steppy)
                     ,alignment: .leading
                 )
         }.frame(height: Constant.progressBarHeight)
