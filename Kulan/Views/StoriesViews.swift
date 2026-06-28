@@ -7,22 +7,21 @@ import StoryUI
 // Telegram/IG segmented story ring: one arc per story (3 stories = 3 arcs with gaps, 1 = full circle).
 // Colorful gradient when unviewed, grey when viewed. Reused on story cards AND chat-list avatars.
 struct StoryRingView: View {
-    let count: Int
-    let unseen: Bool
+    let seen: [Bool]                 // per segment, oldest→newest; true = viewed (grey), false = colorful
     var lineWidth: CGFloat = 2.5
     var body: some View {
-        let n = max(1, count)
+        let n = max(1, seen.count)
         let gap: CGFloat = n > 1 ? 0.045 : 0          // gap between segments (fraction of the circle)
         let seg: CGFloat = 1.0 / CGFloat(n)
-        let style: AnyShapeStyle = unseen
-            ? AnyShapeStyle(AngularGradient(colors: [Color(hex: 0xF7971E), Color(hex: 0xDD2476),
-                                                     Color(hex: 0x7F00FF), Color(hex: 0xF7971E)], center: .center))
-            : AnyShapeStyle(Color.gray.opacity(0.55))
+        let gradient = AnyShapeStyle(AngularGradient(colors: [Color(hex: 0xF7971E), Color(hex: 0xDD2476),
+                                                             Color(hex: 0x7F00FF), Color(hex: 0xF7971E)], center: .center))
+        let grey = AnyShapeStyle(Color(white: 0.62))  // viewed: clearly visible grey (was too faint)
         ZStack {
             ForEach(0..<n, id: \.self) { i in
+                let isSeen = i < seen.count ? seen[i] : false
                 Circle()
                     .trim(from: CGFloat(i) * seg + gap / 2, to: CGFloat(i + 1) * seg - gap / 2)
-                    .stroke(style, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .stroke(isSeen ? grey : gradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
             }
         }
         .rotationEffect(.degrees(-90))                // first segment starts at the top
@@ -77,6 +76,14 @@ enum StoryPrefs {
     static func toggleNotify(_ uid: String) {
         var s = set("notifyStories"); if s.contains(uid) { s.remove(uid) } else { s.insert(uid) }; save("notifyStories", s)
     }
+    // Per-STORY-ITEM seen state (drives the segmented ring: each arc greys as you view that story).
+    static func isStorySeen(_ id: String) -> Bool { set("seenStoryItems").contains(id) }
+    static func markStorySeen(_ id: String) {
+        guard !id.isEmpty else { return }
+        var s = set("seenStoryItems"); s.insert(id); save("seenStoryItems", s)
+    }
+    // seen flags for a bucket's stories (oldest→newest), for StoryRingView.
+    static func seenFlags(_ stories: [Story]) -> [Bool] { stories.map { isStorySeen($0.id) } }
 }
 
 // Horizontal Stories row for the top of the Chats screen.
@@ -112,7 +119,7 @@ struct StoriesRow: View {
                 ForEach(repo.others.filter { !StoryPrefs.isHidden($0.authorUid) }) { g in
                     card(cover: g.stories.last?.mediaUrl,
                          name: g.name.isEmpty ? "User" : g.name,
-                         avatar: g.photoUrl, unseen: g.hasUnseen, count: g.stories.count) { onOpen(g) }
+                         avatar: g.photoUrl, seen: StoryPrefs.seenFlags(g.stories)) { onOpen(g) }
                         // Native Apple peek: long-press lifts THIS card + shows the system menu
                         // (same as the chat rows). Works here because the row is a ScrollView, not a List.
                         .contextMenu {
@@ -147,7 +154,7 @@ struct StoriesRow: View {
         } else {
             card(cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
                  name: "My Story", avatar: mePhoto,
-                 unseen: repo.mine?.hasUnseen ?? false, count: repo.mine?.stories.count ?? 0, onBadge: onCompose) {
+                 seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []), onBadge: onCompose) {
                 if let m = repo.mine { onOpen(m) } else { onCompose() }
             }
             .contextMenu {
@@ -188,7 +195,7 @@ struct StoriesRow: View {
         .frame(width: cardW)
     }
 
-    private func card(cover: String?, name: String, avatar: String?, unseen: Bool, count: Int = 1,
+    private func card(cover: String?, name: String, avatar: String?, seen: [Bool],
                       onBadge: (() -> Void)? = nil, tap: @escaping () -> Void) -> some View {
         // Button (not onTapGesture) so the caller's .contextMenu long-press fires reliably.
         Button(action: tap) {
@@ -200,7 +207,7 @@ struct StoriesRow: View {
                 if let onBadge {
                     // My Story: profile picture + ring (colorful before I view it, grey after) + small + badge.
                     AvatarView(name: name, photoUrl: avatar, size: 32)
-                        .overlay { if count > 0 { StoryRingView(count: count, unseen: unseen).frame(width: 37, height: 37) } }
+                        .overlay { if !seen.isEmpty { StoryRingView(seen: seen).frame(width: 37, height: 37) } }
                         .overlay(alignment: .bottomTrailing) {
                             Image(systemName: "plus.circle.fill")
                                 .font(.system(size: 16)).symbolRenderingMode(.palette)
@@ -209,13 +216,13 @@ struct StoriesRow: View {
                                 // high-priority so tapping + adds a story without triggering the card's open tap
                                 .highPriorityGesture(TapGesture().onEnded { onBadge() })
                         }
-                        .animation(.easeInOut(duration: 0.3), value: unseen)
+                        .animation(.easeInOut(duration: 0.3), value: seen)
                         .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
                         .padding(8)
                 } else {
                     AvatarView(name: name, photoUrl: avatar, size: 32)
-                        .overlay { if count > 0 { StoryRingView(count: count, unseen: unseen).frame(width: 37, height: 37) } }
-                        .animation(.easeInOut(duration: 0.3), value: unseen)
+                        .overlay { if !seen.isEmpty { StoryRingView(seen: seen).frame(width: 37, height: 37) } }
+                        .animation(.easeInOut(duration: 0.3), value: seen)
                         .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
                         .padding(8)
                 }
@@ -337,7 +344,7 @@ struct StoryViewer: View {
                 if let g = groups.first(where: { $0.authorUid == user.id }) { onClose(); onProfile(g) }
             },
             onUserChanged: { uid in currentBucketUid = uid; markSeen(authorUid: uid); loadBarViewers() },
-            onItemSeen: { id in currentStoryId = id; markSeenItem(id); loadBarViewers() }
+            onItemSeen: { id in currentStoryId = id; StoryPrefs.markStorySeen(id); markSeenItem(id); loadBarViewers() }
         )
         .ignoresSafeArea()
         // "…" more menu, left of the library's X (Telegram). Position is approximate (no safe-area

@@ -442,12 +442,12 @@ struct ChatsView: View {
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var dark: Bool { scheme == .dark }
-    // Story ring for a 1:1 chat row: does the other person have an active story, and how many.
-    private func storyState(_ conv: Conversation) -> (unseen: Bool, count: Int) {
+    // Per-segment seen flags for the 1:1 peer's stories (empty = no active story → no ring).
+    private func storySeen(_ conv: Conversation) -> [Bool] {
         guard !conv.isGroup,
               let g = storiesRepo.others.first(where: { $0.authorUid == conv.otherUid(me) })
-        else { return (false, 0) }
-        return (g.hasUnseen, g.stories.count)
+        else { return [] }
+        return StoryPrefs.seenFlags(g.stories)
     }
 
     // Mark every (non-archived) unread chat as read.
@@ -661,7 +661,7 @@ struct ChatsView: View {
                                                    photo: conv.displayPhoto(me)))
                         } label: {
                             ChatRow(conv: conv, me: me, dark: dark,
-                                    storyUnseen: storyState(conv).unseen, storyCount: storyState(conv).count,
+                                    storySeen: storySeen(conv),
                                     onStoryTap: {   // open this person's story in the same viewer the stories row uses
                                         if let g = storiesRepo.others.first(where: { $0.authorUid == conv.otherUid(me) }) {
                                             viewerAnonymous = false; viewerGroup = g
@@ -860,7 +860,7 @@ struct ArchivedChatsView: View {
                                     .frame(width: storyCardW, height: storyCardW * 1.46)
                                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                                 AvatarView(name: g.name, photoUrl: g.photoUrl, size: 30)
-                                    .overlay(StoryRingView(count: g.stories.count, unseen: g.hasUnseen, lineWidth: 2)
+                                    .overlay(StoryRingView(seen: StoryPrefs.seenFlags(g.stories), lineWidth: 2)
                                         .frame(width: 35, height: 35))
                                     .padding(7)
                             }
@@ -1016,8 +1016,7 @@ struct ChatRow: View, Equatable {
     let conv: Conversation
     let me: String
     let dark: Bool
-    var storyUnseen: Bool = false   // this person has an active story (ring around avatar, Telegram-style)
-    var storyCount: Int = 0         // number of stories → segmented ring
+    var storySeen: [Bool] = []      // per-segment seen flags for this person's stories ([] = no active story)
     var onStoryTap: (() -> Void)? = nil   // tap the ringed avatar → open their story (not the chat)
 
     // Skip re-rendering a row whose conversation is unchanged, even when the parent body re-runs on
@@ -1025,7 +1024,7 @@ struct ChatRow: View, Equatable {
     // lastMessage/unread/updatedAt/pinned/muted/etc.; decryption/avatars/time only recompute on change.
     static func == (l: ChatRow, r: ChatRow) -> Bool {
         l.conv == r.conv && l.me == r.me && l.dark == r.dark
-            && l.storyUnseen == r.storyUnseen && l.storyCount == r.storyCount
+            && l.storySeen == r.storySeen
     }
 
     private var decodedLast: String {
@@ -1118,13 +1117,13 @@ struct ChatRow: View, Equatable {
         HStack(spacing: 12) {
             AvatarView(name: conv.displayName(me), photoUrl: conv.displayPhoto(me), size: 56)
                 .overlay {   // story ring around the avatar when this person has an active story (Telegram)
-                    if storyCount > 0 {
-                        StoryRingView(count: storyCount, unseen: storyUnseen, lineWidth: 2)
+                    if !storySeen.isEmpty {
+                        StoryRingView(seen: storySeen, lineWidth: 2)
                             .frame(width: 63, height: 63)
                     }
                 }
                 // Tap the ringed avatar → open their story (high-priority so it beats the row's open-chat tap).
-                .modifier(StoryAvatarTap(active: storyCount > 0 && onStoryTap != nil) { onStoryTap?() })
+                .modifier(StoryAvatarTap(active: !storySeen.isEmpty && onStoryTap != nil) { onStoryTap?() })
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(conv.displayName(me))
