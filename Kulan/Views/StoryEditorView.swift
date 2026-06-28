@@ -86,6 +86,7 @@ struct StoryEditorView: View {
                             guideV = v; guideH = h
                         }
                     )
+                    .opacity(editingID == o.id ? 0 : 1)   // hide the one being edited (it lives in the editor)
                 }
 
                 if isDrawing {
@@ -120,7 +121,7 @@ struct StoryEditorView: View {
                     .padding(.horizontal, 16).padding(.top, geo.safeAreaInsets.top + 6)
                     Spacer()
                 }
-                .opacity(draggingID == nil ? 1 : 0)
+                .opacity(draggingID == nil && editingID == nil ? 1 : 0)
                 .ignoresSafeArea(.keyboard, edges: .bottom)
 
                 // Bottom bar — ONLY this rises above the keyboard (caption docks above it, toolbar hides).
@@ -129,7 +130,7 @@ struct StoryEditorView: View {
                     bottomBar
                         .padding(.bottom, captionFocused ? 8 : geo.safeAreaInsets.bottom + 8)
                 }
-                .opacity(draggingID == nil ? 1 : 0)   // hide chrome while dragging text (trash owns the bottom)
+                .opacity(draggingID == nil && editingID == nil ? 1 : 0)   // hide chrome while dragging text (trash owns the bottom)
             }
             .coordinateSpace(name: "canvas")
             .onAppear { canvasSize = geo.size; recomputeEdited() }
