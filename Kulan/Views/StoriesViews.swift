@@ -572,6 +572,7 @@ struct StoryViewersSheet: View {
     let selectedId: String
     @Environment(\.dismiss) private var dismiss
     @State private var selected: String = ""
+    @State private var scrolledID: String?   // carousel-centered card → drives `selected`
     @State private var byStory: [String: [StoryViewerInfo]] = [:]
     @State private var segment = 0          // 0 = All Viewers, 1 = Contacts
     @State private var search = ""
@@ -600,11 +601,22 @@ struct StoryViewersSheet: View {
             .padding(.horizontal, 16).padding(.top, 14)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .center, spacing: 10) {
-                    ForEach(stories, id: \.id) { s in storyCard(s) }
+                HStack(alignment: .center, spacing: 12) {
+                    ForEach(stories, id: \.id) { s in
+                        storyCard(s)
+                            .scrollTransition { content, phase in   // carousel: centered card full, sides shrink/fade
+                                content.scaleEffect(phase.isIdentity ? 1 : 0.82)
+                                       .opacity(phase.isIdentity ? 1 : 0.55)
+                            }
+                    }
                 }
-                .padding(.horizontal, 16).padding(.vertical, 8)
+                .scrollTargetLayout()
+                .padding(.horizontal, max(16, (UIScreen.main.bounds.width - 128) / 2))   // center the focused card
+                .padding(.vertical, 8)
             }
+            .scrollTargetBehavior(.viewAligned)                      // snaps to each card
+            .scrollPosition(id: $scrolledID)                         // centered card → auto-select
+            .frame(height: 232)
 
             Picker("", selection: $segment) {
                 Text("All Viewers").tag(0)
@@ -634,15 +646,15 @@ struct StoryViewersSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        .onChange(of: scrolledID) { _, v in if let v { selected = v } }   // centered card drives the viewer list
         .task { await loadAll() }
     }
 
     private func storyCard(_ s: Story) -> some View {
         let vs = byStory[s.id] ?? []
         let reacts = vs.filter { !($0.reaction ?? "").isEmpty }.count
-        let sel = s.id == selected
         return StoryImage(url: s.mediaUrl)
-            .frame(width: sel ? 122 : 80, height: sel ? 210 : 150)
+            .frame(width: 128, height: 216)                 // uniform; the carousel scales the centered one
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(alignment: .bottom) {
                 HStack(spacing: 5) {
@@ -658,7 +670,8 @@ struct StoryViewersSheet: View {
                 .background(.black.opacity(0.45), in: Capsule())
                 .padding(.bottom, 8)
             }
-            .onTapGesture { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { selected = s.id } }
+            .id(s.id)
+            .onTapGesture { withAnimation(.easeOut(duration: 0.25)) { scrolledID = s.id } }   // tap → scroll to it
     }
 
     private func viewerRow(_ v: StoryViewerInfo) -> some View {
@@ -684,6 +697,7 @@ struct StoryViewersSheet: View {
 
     private func loadAll() async {
         selected = selectedId.isEmpty ? (stories.last?.id ?? "") : selectedId
+        scrolledID = selected   // start the carousel centered on the tapped story
         await withTaskGroup(of: (String, [StoryViewerInfo]).self) { group in
             for s in stories { group.addTask { (s.id, await StoriesService.shared.fetchViewers(storyId: s.id)) } }
             for await (id, v) in group { byStory[id] = v }
