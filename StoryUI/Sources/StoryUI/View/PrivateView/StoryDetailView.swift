@@ -16,7 +16,7 @@ struct StoryDetailView: View {
     @State var model: StoryUIModel
     @Binding var isPresented: Bool
     
-    @State var timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+    @State var timer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()   // 20fps for a smooth bar
     @State var timerProgress: CGFloat = 0
 
     
@@ -351,7 +351,7 @@ private extension StoryDetailView {
     
     func getProgressBarFrame(duration: Double) {
         let calculatedDuration = viewModel.getVideoProgressBarFrame(duration: duration)
-        timerProgress += (0.01 / calculatedDuration)
+        timerProgress += (0.005 / calculatedDuration)   // halved to match the 0.05s tick (same segment duration)
     }
     
     func dissmis() {
