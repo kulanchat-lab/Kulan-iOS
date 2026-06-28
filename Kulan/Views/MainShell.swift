@@ -644,7 +644,12 @@ struct ChatsView: View {
                                                    photo: conv.displayPhoto(me)))
                         } label: {
                             ChatRow(conv: conv, me: me, dark: dark,
-                                    storyUnseen: storyState(conv).unseen, storyCount: storyState(conv).count)
+                                    storyUnseen: storyState(conv).unseen, storyCount: storyState(conv).count,
+                                    onStoryTap: {   // open this person's story in the same viewer the stories row uses
+                                        if let g = storiesRepo.others.first(where: { $0.authorUid == conv.otherUid(me) }) {
+                                            viewerAnonymous = false; viewerGroup = g
+                                        }
+                                    })
                                 .equatable()   // skip rebuild when this conversation is unchanged
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())   // whole row tappable (incl. empty space)
@@ -930,12 +935,24 @@ private struct ChatRowPressStyle: ButtonStyle {
     }
 }
 
+// Adds a high-priority tap ONLY when the avatar has a story, so it opens the story instead of the
+// chat; otherwise the row's normal open-chat tap is untouched.
+private struct StoryAvatarTap: ViewModifier {
+    let active: Bool
+    let action: () -> Void
+    func body(content: Content) -> some View {
+        if active { content.highPriorityGesture(TapGesture().onEnded(action)) }
+        else { content }
+    }
+}
+
 struct ChatRow: View, Equatable {
     let conv: Conversation
     let me: String
     let dark: Bool
     var storyUnseen: Bool = false   // this person has an active story (ring around avatar, Telegram-style)
     var storyCount: Int = 0         // number of stories → segmented ring
+    var onStoryTap: (() -> Void)? = nil   // tap the ringed avatar → open their story (not the chat)
 
     // Skip re-rendering a row whose conversation is unchanged, even when the parent body re-runs on
     // every snapshot (typing/unread/presence on OTHER chats). Conversation is Equatable → covers
@@ -1040,6 +1057,8 @@ struct ChatRow: View, Equatable {
                             .frame(width: 63, height: 63)
                     }
                 }
+                // Tap the ringed avatar → open their story (high-priority so it beats the row's open-chat tap).
+                .modifier(StoryAvatarTap(active: storyCount > 0 && onStoryTap != nil) { onStoryTap?() })
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(conv.displayName(me))
