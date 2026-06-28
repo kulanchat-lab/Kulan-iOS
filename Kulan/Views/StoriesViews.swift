@@ -129,12 +129,11 @@ struct StoriesRow: View {
                         // Native Apple peek: long-press lifts THIS card + shows the system menu
                         // (same as the chat rows). Works here because the row is a ScrollView, not a List.
                         .contextMenu {   // friend menu: Send Message + Open Profile + Hide Stories
+                            // No custom preview → the card lifts IN PLACE (original position), not centered.
                             Button { onMessage(g) } label: { Label("Send Message", systemImage: "message") }
                             Button { onProfile(g) } label: { Label("Open Profile", systemImage: "person.crop.circle") }
                             Button(role: .destructive) { hideTarget = g }   // confirm first, then archive
                                 label: { Label("Hide Stories", systemImage: "archivebox") }
-                        } preview: {   // lifted peek = this person's story card image + name (Telegram)
-                            cardPreview(g.stories.last?.mediaUrl, g.photoUrl, g.name.isEmpty ? "User" : g.name)
                         }
                 }
             }
@@ -165,12 +164,10 @@ struct StoriesRow: View {
                  seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []), onBadge: onCompose) {
                 if let m = repo.mine { onOpen(m) } else { onCompose() }
             }
-            .contextMenu {   // My Story menu: Add Story + Posted Stories only
+            .contextMenu {   // My Story menu: Add Story + Posted Stories only (lifts in place, not centered)
                 Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
                 Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
                     label: { Label("Posted Stories", systemImage: "circle.dashed") }
-            } preview: {   // lifted peek = My Story card image + name
-                cardPreview(repo.mine?.stories.last?.mediaUrl ?? mePhoto, mePhoto, "My Story")
             }
         }
     }
@@ -198,17 +195,6 @@ struct StoriesRow: View {
             Text("Uploading…").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).frame(width: cardW)
         }
         .frame(width: cardW)
-    }
-
-    // Long-press peek preview: the story card image + the name below it (Telegram), no ring/badge chrome.
-    private func cardPreview(_ cover: String?, _ avatar: String?, _ name: String) -> some View {
-        VStack(spacing: 6) {
-            coverImage(cover, name: name, avatar: avatar)
-                .frame(width: cardW, height: cardH)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            Text(name).font(.system(size: 12)).lineLimit(1).frame(width: cardW)
-        }
-        .padding(8)
     }
 
     private func card(cover: String?, name: String, avatar: String?, seen: [Bool],
