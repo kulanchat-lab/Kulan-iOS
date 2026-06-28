@@ -437,7 +437,7 @@ struct TextEditorOverlay: View {
                 }
                 .padding()
                 Spacer()
-                TextField("", text: $draft.text, axis: .vertical, prompt: Text("Type…").foregroundColor(.white.opacity(0.5)))
+                TextField("", text: $draft.text, prompt: Text("Type…").foregroundColor(.white.opacity(0.5)), axis: .vertical)
                     .focused($focused)
                     .multilineTextAlignment(draft.alignment)
                     .font(.system(size: draft.baseSize, weight: .semibold, design: draft.font.design))
