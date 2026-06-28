@@ -46,6 +46,8 @@ private extension MessageView {
             }
             clearText.toggle()
             userClosure?(story, text, nil, false)
+            // Close the keyboard after sending (WhatsApp: send → keyboard dismisses, story resumes).
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
     }
     

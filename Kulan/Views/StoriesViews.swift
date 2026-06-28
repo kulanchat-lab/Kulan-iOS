@@ -228,6 +228,7 @@ struct StoryViewer: View {
     var onClose: () -> Void
     var onProfile: (StoryGroup) -> Void = { _ in }   // tap the story header → that user's profile
     @State private var isPresented = true
+    @State private var sentToast = false   // "Sent" confirmation after a reply (WhatsApp-style)
 
     init(group: StoryGroup, anonymous: Bool = false, onClose: @escaping () -> Void,
          onProfile: @escaping (StoryGroup) -> Void = { _ in }) {
@@ -281,7 +282,24 @@ struct StoryViewer: View {
             onItemSeen: { id in markSeenItem(id) }                // receipt ONLY the photo actually seen
         )
         .ignoresSafeArea()
+        .overlay(alignment: .bottom) {
+            if sentToast {
+                Text("Sent")
+                    .font(.subheadline.weight(.medium)).foregroundStyle(.white)
+                    .padding(.horizontal, 18).padding(.vertical, 10)
+                    .background(.black.opacity(0.75), in: Capsule())
+                    .padding(.bottom, 120)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         .onChange(of: isPresented) { _, shown in if !shown { onClose() } }
+    }
+
+    private func flashSentToast() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { sentToast = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation(.easeOut(duration: 0.25)) { sentToast = false }
+        }
     }
 
     // Reply text / tapped emoji / like → DM the story's author (mirrors the old sendToAuthor).
@@ -299,6 +317,7 @@ struct StoryViewer: View {
             try? await ChatService.sendText(cid: cid, text: text, replyTo: ref)
             if isReaction { await StoriesService.shared.setStoryReaction(s, emoji: text) }   // shows in "Seen by"
         }
+        flashSentToast()   // optimistic "Sent" confirmation (WhatsApp-style)
     }
 
     // Landing on a person clears THEIR ring (not everyone's). Per-photo receipts are sent
