@@ -23,6 +23,7 @@ struct StoryDetailView: View {
     let userClosure: UserCompletionHandler?
     var onProfile: ((StoryUIUser) -> Void)?
     var onItemSeen: ((String) -> Void)?
+    var isDismissing: Bool = false   // true while swiping down to close → cube fold off (no skew)
     @State private var lastSeenItem: String = ""
 
     // MARK: Private Properties
@@ -237,6 +238,9 @@ private extension StoryDetailView {
     }
     
     func getAngle(proxy: GeometryProxy) -> Angle {
+        // No cube fold while swiping DOWN to dismiss — the dismiss scale/offset shifts the global
+        // frame, which would otherwise skew the card (and make the rounded corners look square).
+        if isDismissing { return .zero }
         let rotation: CGFloat = 45
         let progress = proxy.frame(in: .global).minX / proxy.size.width
         let degrees = rotation * progress

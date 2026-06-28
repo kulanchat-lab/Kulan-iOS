@@ -526,6 +526,11 @@ struct DrawingCanvas: UIViewRepresentable {
         else { v.resignFirstResponder() }
     }
     func makeCoordinator() -> Coordinator { Coordinator(self) }
+    // Done removes this view from the hierarchy — hide the tool picker FIRST, or it lingers on screen.
+    static func dismantleUIView(_ uiView: PKCanvasView, coordinator: Coordinator) {
+        coordinator.toolPicker.setVisible(false, forFirstResponder: uiView)
+        uiView.resignFirstResponder()
+    }
     final class Coordinator: NSObject, PKCanvasViewDelegate {
         let parent: DrawingCanvas
         let toolPicker = PKToolPicker()

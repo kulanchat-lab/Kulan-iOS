@@ -287,6 +287,7 @@ struct StoryViewer: View {
     @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
     @State private var forwardImg: StoryImagePayload?   // … → Forward (chat picker)
     @State private var toastText = "Sent"               // reused for "Sent" (reply) and "Saved"
+    @State private var dragDown: CGFloat = 0            // swipe-down amount → fade my overlays with the card
     private var me: String { AuthService.shared.uid ?? "" }
     private var currentIsMine: Bool { groups.first { $0.authorUid == currentBucketUid }?.isMine ?? false }
     private var myStories: [Story] { groups.first { $0.isMine }?.stories ?? [] }
@@ -344,14 +345,20 @@ struct StoryViewer: View {
                 if let g = groups.first(where: { $0.authorUid == user.id }) { onClose(); onProfile(g) }
             },
             onUserChanged: { uid in currentBucketUid = uid; markSeen(authorUid: uid); loadBarViewers() },
-            onItemSeen: { id in currentStoryId = id; StoryPrefs.markStorySeen(id); markSeenItem(id); loadBarViewers() }
+            onItemSeen: { id in currentStoryId = id; StoryPrefs.markStorySeen(id); markSeenItem(id); loadBarViewers() },
+            onDrag: { d in dragDown = d }   // fade my overlays out as the card is pulled down
         )
         .ignoresSafeArea()
-        // "…" more menu, left of the library's X (Telegram). Position is approximate (no safe-area
-        // access here) — tune on device if it isn't perfectly aligned with the X.
-        .overlay(alignment: .topTrailing) { moreButton.padding(.top, 56).padding(.trailing, 64) }
+        // "…" more menu, left of the library's X (Telegram). Hidden while swiping down so it doesn't
+        // float free of the card. Position is approximate — tune on device if not aligned with the X.
+        .overlay(alignment: .topTrailing) {
+            moreButton.padding(.top, 56).padding(.trailing, 64)
+                .opacity(dragDown > 6 ? 0 : 1).animation(.easeOut(duration: 0.15), value: dragDown > 6)
+        }
         // My own story: Telegram owner bar (Views + reactions + delete) instead of a reply bar.
-        .overlay(alignment: .bottom) { if currentIsMine { ownerBar } }
+        .overlay(alignment: .bottom) {
+            if currentIsMine { ownerBar.opacity(dragDown > 6 ? 0 : 1).animation(.easeOut(duration: 0.15), value: dragDown > 6) }
+        }
         .sheet(isPresented: $showViewers) {
             StoryViewersSheet(stories: myStories, selectedId: currentStoryId)
         }

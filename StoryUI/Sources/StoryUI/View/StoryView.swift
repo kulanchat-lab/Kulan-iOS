@@ -22,6 +22,7 @@ public struct StoryView: View {
     let onProfile: ((StoryUIUser) -> Void)?
     let onUserChanged: ((String) -> Void)?   // fires the current bucket id on open + each page change
     let onItemSeen: ((String) -> Void)?      // fires each individual story id as it becomes visible
+    let onDrag: ((CGFloat) -> Void)?         // swipe-down amount (so the host can hide its overlays)
 
     @State private var drag: CGSize = .zero   // swipe-down-to-dismiss
 
@@ -38,7 +39,8 @@ public struct StoryView: View {
         userClosure: UserCompletionHandler? = nil,
         onProfile: ((StoryUIUser) -> Void)? = nil,
         onUserChanged: ((String) -> Void)? = nil,
-        onItemSeen: ((String) -> Void)? = nil
+        onItemSeen: ((String) -> Void)? = nil,
+        onDrag: ((CGFloat) -> Void)? = nil
     ) {
         self.stories = stories
         self.selectedIndex = selectedIndex
@@ -47,6 +49,7 @@ public struct StoryView: View {
         self.onProfile = onProfile
         self.onUserChanged = onUserChanged
         self.onItemSeen = onItemSeen
+        self.onDrag = onDrag
     }
     
     public var body: some View {
@@ -61,7 +64,7 @@ public struct StoryView: View {
             let cardScale: CGFloat = 1 - 0.18 * progress          // visible shrink (floor ~0.82)
             let cardOpacity: Double = Double(1 - 0.05 * progress) // card stays ~opaque (no ghosting)
             // Telegram/IG: the story card is ALWAYS rounded (not just during swipe). Grows as you pull.
-            let restCorner: CGFloat = 24
+            let restCorner: CGFloat = 32
             let corner: CGFloat = down > 0 ? min(42, max(restCorner, down * 0.7)) : restCorner
             ZStack {
                 Color.black.ignoresSafeArea().opacity(bgOpacity)
@@ -73,7 +76,8 @@ public struct StoryView: View {
                             isPresented: $isPresented,
                             userClosure: userClosure,
                             onProfile: onProfile,
-                            onItemSeen: onItemSeen
+                            onItemSeen: onItemSeen,
+                            isDismissing: down > 0
                         )
                     }
                 }
@@ -92,6 +96,7 @@ public struct StoryView: View {
                     .onChanged { v in
                         if v.translation.height > 0, v.translation.height > abs(v.translation.width) {
                             drag = v.translation
+                            onDrag?(drag.height)   // let the host fade its overlays out
                         }
                     }
                     .onEnded { v in
@@ -102,6 +107,7 @@ public struct StoryView: View {
                         } else {
                             withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) { drag = .zero }
                         }
+                        onDrag?(0)   // reset (overlays fade back if it springs back)
                     }
             )
             .onChange(of: viewModel.currentStoryUser) { new in onUserChanged?(new) }   // mark each viewed bucket (iOS14 single-arg onChange — pkg min is iOS14)
