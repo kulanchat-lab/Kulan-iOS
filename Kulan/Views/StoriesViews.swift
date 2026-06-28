@@ -286,7 +286,9 @@ struct StoryViewer: View {
               let s = groups.flatMap(\.stories).first(where: { $0.id == storyId }),
               let me = AuthService.shared.uid, me != s.authorUid else { return }
         let cid = [me, s.authorUid].sorted().joined(separator: "_")
-        Task { try? await ChatService.sendText(cid: cid, text: text) }
+        // Attach the status reference so the reply shows as a "Status" quote (thumbnail) in chat.
+        let ref = ReplyRef(id: s.id, authorId: s.authorUid, text: "", isStatus: true, storyThumbUrl: s.mediaUrl)
+        Task { try? await ChatService.sendText(cid: cid, text: text, replyTo: ref) }
     }
 
     // Mark ONLY the bucket the viewer is currently on seen (fired on open + each swipe), so opening

@@ -285,7 +285,10 @@ enum ChatService {
         var replyEnc: [String: Any]?
         if let r = replyTo {
             let rc = try await Crypto.shared.encryptForConversation(cid, r.text)
-            replyEnc = ["id": r.id, "authorId": r.authorId, "text": rc]
+            var e: [String: Any] = ["id": r.id, "authorId": r.authorId, "text": rc]
+            if r.isStatus { e["isStatus"] = true }
+            if let thumb = r.storyThumbUrl, !thumb.isEmpty { e["storyThumb"] = thumb }   // plaintext story URL (not E2EE)
+            replyEnc = e
         }
 
         let other = cid.split(separator: "_").map(String.init).first { $0 != uid } ?? ""
@@ -329,7 +332,10 @@ enum ChatService {
         var replyEnc: [String: Any]?
         if let r = replyTo {
             let rc = try await Crypto.shared.encryptForGroup(r.text, members: members)
-            replyEnc = ["id": r.id, "authorId": r.authorId, "text": rc]
+            var e: [String: Any] = ["id": r.id, "authorId": r.authorId, "text": rc]
+            if r.isStatus { e["isStatus"] = true }
+            if let thumb = r.storyThumbUrl, !thumb.isEmpty { e["storyThumb"] = thumb }
+            replyEnc = e
         }
         let convRef = db.collection("conversations").document(cid)
         let msgRef = convRef.collection("messages").document()

@@ -28,6 +28,8 @@ struct ThreadView: View {
     @State private var sendingPhoto = false
     @State private var typingSent = false
     @State private var viewerImage: Message?
+    @State private var storyToOpen: StoryGroup?      // tapped a status reply → open that status
+    @State private var statusUnavailable = false     // tapped a status reply whose story expired
     @State private var sendError: String?
     @State private var showCamera = false
     @State private var showAttachPanel = false
@@ -200,6 +202,12 @@ struct ThreadView: View {
 
     private var threadPickers: some View {
         threadCovers
+        .fullScreenCover(item: $storyToOpen) { g in
+            StoryViewer(group: g, onClose: { storyToOpen = nil }, onProfile: { _ in storyToOpen = nil })
+        }
+        .alert("Status no longer available", isPresented: $statusUnavailable) {
+            Button("OK", role: .cancel) {}
+        } message: { Text("This status has expired.") }
         .fullScreenCover(item: $viewerImage) { msg in
             ImageViewerView(message: msg, cid: cid)
         }
@@ -542,6 +550,7 @@ struct ThreadView: View {
                         isPinned: repo.pinnedMessageIds.contains(msg.id),
                         onResend: { m in resend(m) },
                         onJumpTo: { id in jump(to: id, proxy) },
+                        onTapStory: { id, author in openStory(id, author) },
                         isHighlighted: msg.id == highlightId,
                         isFirstInCluster: isFirstInCluster(at: index),
                         isLastInCluster: isLastInCluster(at: index),
@@ -956,6 +965,15 @@ struct ThreadView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             if highlightId == id { withAnimation { highlightId = nil } }
         }
+    }
+
+    // Tapped a "Status" reply quote → open that status if it's still live, else say it's gone.
+    // The repo only holds unexpired stories, so "found" == still viewable.
+    private func openStory(_ storyId: String, _ authorId: String) {
+        let repo = StoriesRepository.shared
+        let active = (repo.others + [repo.mine].compactMap { $0 })
+            .first { $0.authorUid == authorId && $0.stories.contains { $0.id == storyId } }
+        if let active { storyToOpen = active } else { statusUnavailable = true }
     }
 
     private func sendPicked(_ item: PhotosPickerItem?) async {
@@ -1481,6 +1499,7 @@ struct MessageBubble: View, Equatable {
     var onLongPress: (Message) -> Void = { _ in }
     var onResend: (Message) -> Void = { _ in }
     var onJumpTo: (String) -> Void = { _ in }
+    var onTapStory: (_ storyId: String, _ authorId: String) -> Void = { _, _ in }
     var isHighlighted: Bool = false
     var isFirstInCluster: Bool = true
     var isLastInCluster: Bool = true
@@ -1898,11 +1917,17 @@ struct MessageBubble: View, Equatable {
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(fg.opacity(0.7))
                     .frame(width: 3)
+                // Status reply → show the status thumbnail (WhatsApp-style).
+                if reply.isStatus, let thumb = reply.storyThumbUrl, !thumb.isEmpty {
+                    StoryImage(url: thumb)
+                        .frame(width: 30, height: 38)
+                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(nameFor(reply.authorId)).font(.caption.weight(.semibold))
-                        .foregroundStyle(fg.opacity(0.9))
-                    Text(reply.text.isEmpty ? "Message" : reply.text).font(.caption).lineLimit(1)
-                        .foregroundStyle(fg.opacity(0.75))
+                    Text(reply.authorId == AuthService.shared.uid ? "You" : nameFor(reply.authorId))
+                        .font(.caption.weight(.semibold)).foregroundStyle(fg.opacity(0.9))
+                    Text(reply.isStatus ? "Status" : (reply.text.isEmpty ? "Message" : reply.text))
+                        .font(.caption).lineLimit(1).foregroundStyle(fg.opacity(0.75))
                 }
                 Spacer(minLength: 0)
             }
@@ -1912,7 +1937,10 @@ struct MessageBubble: View, Equatable {
             .background(fg.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .contentShape(Rectangle())
-            .onTapGesture { onJumpTo(reply.id) }   // jump to the original message
+            .onTapGesture {
+                if reply.isStatus { onTapStory(reply.id, reply.authorId) }   // open the status (or "no longer available")
+                else { onJumpTo(reply.id) }                                  // jump to the original message
+            }
         }
     }
 }
