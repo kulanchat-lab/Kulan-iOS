@@ -190,6 +190,8 @@ struct StoriesRow: View {
 
     private func card(cover: String?, name: String, avatar: String?, unseen: Bool, count: Int = 1,
                       onBadge: (() -> Void)? = nil, tap: @escaping () -> Void) -> some View {
+        // Button (not onTapGesture) so the caller's .contextMenu long-press fires reliably.
+        Button(action: tap) {
         VStack(spacing: 6) {
             ZStack(alignment: .bottomLeading) {
                 coverImage(cover, name: name, avatar: avatar)
@@ -200,12 +202,12 @@ struct StoriesRow: View {
                     AvatarView(name: name, photoUrl: avatar, size: 32)
                         .overlay { if count > 0 { StoryRingView(count: count, unseen: unseen).frame(width: 37, height: 37) } }
                         .overlay(alignment: .bottomTrailing) {
-                            Button(action: onBadge) {
-                                Image(systemName: "plus.circle.fill")
-                                    .font(.system(size: 16)).symbolRenderingMode(.palette)
-                                    .foregroundStyle(.white, Color(.systemGreen))
-                            }
-                            .buttonStyle(.plain).offset(x: 4, y: 4)
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 16)).symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, Color(.systemGreen))
+                                .offset(x: 4, y: 4)
+                                // high-priority so tapping + adds a story without triggering the card's open tap
+                                .highPriorityGesture(TapGesture().onEnded { onBadge() })
                         }
                         .animation(.easeInOut(duration: 0.3), value: unseen)
                         .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
@@ -222,7 +224,8 @@ struct StoriesRow: View {
         }
         .frame(width: cardW)
         .contentShape(Rectangle())
-        .onTapGesture(perform: tap)
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder private func coverImage(_ cover: String?, name: String, avatar: String?) -> some View {
