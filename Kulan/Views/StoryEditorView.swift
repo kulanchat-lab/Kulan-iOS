@@ -82,8 +82,10 @@ struct StoryEditorView: View {
                     .clipped()
                     .contentShape(Rectangle())
                     .onTapGesture { captionFocused = false; selectedID = nil }   // dismiss keyboard + deselect
-                    .gesture(   // pinch to zoom IN (min = fit), pan within bounds; springs back on release
-                        SimultaneousGesture(
+                    .gesture(   // pinch to zoom IN (min = fit), pan within bounds; springs back on release.
+                        // Exclusive (not simultaneous): a 2-finger pinch wins, so the drag's centroid drift
+                        // never fires gPan mid-pinch — that drift was the "shaking" during zoom.
+                        ExclusiveGesture(
                             MagnificationGesture().updating($gZoom) { v, s, _ in s = v }
                                 .onEnded { v in
                                     let z = min(4, max(1, photoZoom * v))   // never below fit, never past 4×
