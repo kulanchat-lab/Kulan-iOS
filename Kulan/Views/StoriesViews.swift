@@ -776,11 +776,12 @@ struct StoryViewersSheet: View {
     // Pinned controls: All Viewers / Contacts + Search. Opaque bg so rows don't show through when pinned.
     private var listControls: some View {
         VStack(spacing: 10) {
-            Picker("", selection: $segment) {
-                Text("All Viewers").tag(0)
-                Text("Contacts").tag(1)
+            HStack(spacing: 8) {   // Telegram pill tabs (centered), not a segmented control
+                Spacer()
+                tabPill("All Viewers", 0)
+                tabPill("Contacts", 1)
+                Spacer()
             }
-            .pickerStyle(.segmented)
             .padding(.horizontal, 16)
 
             HStack(spacing: 8) {
@@ -829,12 +830,37 @@ struct StoryViewersSheet: View {
         .onTapGesture { withAnimation(.spring(response: 0.42, dampingFraction: 0.68)) { scrolledID = s.id } }
     }
 
+    // Telegram pill tab: filled capsule when selected, dimmed plain text otherwise.
+    private func tabPill(_ title: String, _ tag: Int) -> some View {
+        let selected = segment == tag
+        return Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(selected ? .white : .white.opacity(0.5))
+            .padding(.horizontal, 16).padding(.vertical, 7)
+            .background(selected ? Color.white.opacity(0.14) : .clear, in: Capsule())
+            .contentShape(Capsule())
+            .onTapGesture { withAnimation(.easeInOut(duration: 0.18)) { segment = tag } }
+    }
+
+    // Telegram's grey "seen" read-check shown before each viewer's timestamp (two offset checkmarks).
+    private var doubleCheck: some View {
+        ZStack(alignment: .leading) {
+            Image(systemName: "checkmark")
+            Image(systemName: "checkmark").offset(x: 4)
+        }
+        .font(.system(size: 9, weight: .bold))
+    }
+
     private func viewerRow(_ v: StoryViewerInfo) -> some View {
         HStack(spacing: 12) {
             AvatarView(name: v.name, photoUrl: v.photoUrl, size: 44)
             VStack(alignment: .leading, spacing: 2) {
                 Text(v.name).font(.body).foregroundStyle(.white)
-                Text(dateFmt(v.viewedAt)).font(.caption).foregroundStyle(.white.opacity(0.6))
+                HStack(spacing: 5) {
+                    doubleCheck                                    // grey read-check, like Telegram
+                    Text(dateFmt(v.viewedAt))
+                }
+                .font(.caption).foregroundStyle(.white.opacity(0.5))
             }
             Spacer()
             if let r = v.reaction, !r.isEmpty {
