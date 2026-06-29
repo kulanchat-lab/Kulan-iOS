@@ -93,14 +93,19 @@ public struct StoryView: View {
                         }
                     }
                     .onEnded { v in
-                        // Commit on distance OR a downward flick (predictedEnd = velocity proxy).
+                        // commit on distance or a downward flick (predictedEnd = velocity proxy)
                         let flick: CGFloat = v.predictedEndTranslation.height
                         if v.translation.height > 130 || flick > 500 {
-                            withAnimation(.easeOut(duration: 0.22)) { isPresented = false }
+                            // throw the card the rest of the way down with momentum, then close
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+                                drag.height = UIScreen.main.bounds.height
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { isPresented = false }
                         } else {
-                            withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) { drag = .zero }
+                            // bouncy spring back to place
+                            withAnimation(.spring(response: 0.34, dampingFraction: 0.66)) { drag = .zero }
+                            onDrag?(0)
                         }
-                        onDrag?(0)   // reset (overlays fade back if it springs back)
                     }
             )
             .onChange(of: viewModel.currentStoryUser) { new in onUserChanged?(new) }   // mark each viewed bucket (iOS14 single-arg onChange — pkg min is iOS14)
