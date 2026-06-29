@@ -174,9 +174,15 @@ final class ImageLoader: UIView {
 private extension ImageLoader {
    func setupImageView() {
        backgroundColor = .black
-       // Telegram sizing: aspect-FILL into the container, clipped. Portrait fills exactly; landscape is
-       // center-cropped to fill. Fill leaves no gaps, so no blur and no bars (Telegram's content path).
-       imageView.contentMode = .scaleAspectFill
+       // WhatsApp/Instagram for non-9:16 photos: a zoomed + heavily-blurred copy of the SAME image fills the
+       // whole screen behind, so the empty top/bottom become a blurred color-matched backdrop (no black bars).
+       backgroundImageView.contentMode = .scaleAspectFill
+       backgroundImageView.clipsToBounds = true
+       addSubview(backgroundImageView)
+       addSubview(blurView)   // heavy Gaussian blur over the fill copy
+
+       // Foreground: the photo at its TRUE aspect ratio — aspect-FIT so a square/landscape is never cropped.
+       imageView.contentMode = .scaleAspectFit
        imageView.clipsToBounds = true
        addSubview(imageView)
 
