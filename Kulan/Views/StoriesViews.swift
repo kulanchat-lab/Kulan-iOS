@@ -437,6 +437,11 @@ struct StoryViewer: View {
             showMore: true, // "…" is a native dropdown menu in the header; its buttons post notifications
             onSwipeUp: { if currentIsMine { showViewers = true } }  // Telegram: swipe up opens your viewers
         )
+        // While the viewers carousel is up, hide the live story behind it — otherwise the story shows TWICE
+        // (full behind + the carousel card). The carousel IS the story preview now. (A SwiftUI .sheet can't
+        // avoid this; the only full fix is the integrated non-sheet morph.)
+        .opacity(showViewers ? 0 : 1)
+        .animation(.easeInOut(duration: 0.25), value: showViewers)
         .ignoresSafeArea()
         // My own story: Telegram owner bar (Views + reactions + delete) instead of a reply bar.
         .overlay(alignment: .bottom) {
