@@ -68,6 +68,9 @@ struct StoryDetailView: View {
                                         ? -Constant.MessageView.height : .zero
                                     )
                             )
+                            // Apple-style continuous rounded corners on the media itself (header sits
+                            // above it, reply bar below it on black) — like Telegram's story card.
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         messageView(with: index)
                     }
                     getEmojiView(story: story)

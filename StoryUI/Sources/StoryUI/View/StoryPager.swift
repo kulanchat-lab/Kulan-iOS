@@ -26,10 +26,9 @@ struct StoryPager: UIViewControllerRepresentable {
         pager.dataSource = context.coordinator
         pager.delegate = context.coordinator
         pager.view.backgroundColor = .black   // solid card; slides as one unit during dismiss
-        // Telegram: the story is a rounded card on black (12pt continuous corners) at rest.
-        pager.view.layer.cornerRadius = 12
+        // The MEDIA is rounded inside StoryDetailView; the page itself stays square at rest (reply bar on
+        // black, not in a card). cornerCurve is set so the dismiss-grow uses the Apple squircle.
         pager.view.layer.cornerCurve = .continuous
-        pager.view.layer.masksToBounds = true
         context.coordinator.pager = pager
         if let first = context.coordinator.makePage(for: viewModel.currentStoryUser) {
             pager.setViewControllers([first], direction: .forward, animated: false)
@@ -190,7 +189,7 @@ struct StoryPager: UIViewControllerRepresentable {
                 let frac = min(1, ty / v.bounds.height)
                 let scale = 1.0 - 0.4 * frac            // Telegram: card scales 1.0 -> 0.6 as you pull
                 v.layer.cornerCurve = .continuous       // Apple squircle
-                v.layer.cornerRadius = min(40, 12 + ty * 0.3)
+                v.layer.cornerRadius = min(40, ty * 0.3) // grows from 0 as you pull down
                 v.layer.masksToBounds = true
                 v.transform = CGAffineTransform(translationX: 0, y: ty).scaledBy(x: scale, y: scale)
                 parent.onDragChanged(ty)                // fade the host overlays
@@ -206,7 +205,7 @@ struct StoryPager: UIViewControllerRepresentable {
                     UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.85,
                                    initialSpringVelocity: 0.3, options: []) {
                         v.transform = .identity
-                        v.layer.cornerRadius = 12   // back to the resting rounded-card corner
+                        v.layer.cornerRadius = 0   // back to square (the media keeps its own rounding)
                     } completion: { _ in self.parent.onCancel() }
                 }
             default: break
