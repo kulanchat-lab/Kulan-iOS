@@ -619,6 +619,7 @@ struct StoryViewersSheet: View {
     @State private var segment = 0          // 0 = All Viewers, 1 = Contacts
     @State private var search = ""
     @State private var loading = true
+    @State private var reactionsFirst = false   // Telegram sort: Recent (default) vs Reactions first
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var contactUids: Set<String> {
@@ -629,12 +630,32 @@ struct StoryViewersSheet: View {
         if segment == 1 { v = v.filter { contactUids.contains($0.id) } }
         let q = search.trimmingCharacters(in: .whitespaces)
         if !q.isEmpty { v = v.filter { $0.name.localizedCaseInsensitiveContains(q) } }
+        if reactionsFirst {
+            v.sort { a, b in
+                let ar = !(a.reaction ?? "").isEmpty, br = !(b.reaction ?? "").isEmpty
+                if ar != br { return ar }            // people who reacted bubble to the top
+                return a.viewedAt > b.viewedAt
+            }
+        } else {
+            v.sort { $0.viewedAt > $1.viewedAt }     // most recent viewer first
+        }
         return v
     }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
+                Menu {
+                    Button { reactionsFirst = false } label: {
+                        Label("Recent", systemImage: reactionsFirst ? "clock" : "checkmark")
+                    }
+                    Button { reactionsFirst = true } label: {
+                        Label("Reactions first", systemImage: reactionsFirst ? "checkmark" : "heart")
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.title3.weight(.semibold)).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button { dismiss() } label: {
                     Image(systemName: "xmark").font(.title3.weight(.semibold)).foregroundStyle(.secondary)
@@ -731,7 +752,7 @@ struct StoryViewersSheet: View {
             }
             Spacer()
             if let r = v.reaction, !r.isEmpty {
-                Image(systemName: "heart.fill").foregroundStyle(.red).font(.title3)
+                Text(r).font(.title3)   // show the actual reaction they left, not a generic heart
             }
         }
         .listRowSeparator(.hidden)
