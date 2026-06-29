@@ -238,13 +238,8 @@ private extension StoryDetailView {
     }
     
     func getAngle(proxy: GeometryProxy) -> Angle {
-        // No cube fold while swiping DOWN to dismiss — the dismiss scale/offset shifts the global
-        // frame, which would otherwise skew the card (and make the rounded corners look square).
-        if isDismissing { return .zero }
-        let rotation: CGFloat = 45
-        let progress = proxy.frame(in: .global).minX / proxy.size.width
-        let degrees = rotation * progress
-        return Angle(degrees: degrees)
+        // no cube / 3d. signal uses a flat page slide; the cube made it feel worse.
+        return .zero
     }
     
     func resetProgress() {
