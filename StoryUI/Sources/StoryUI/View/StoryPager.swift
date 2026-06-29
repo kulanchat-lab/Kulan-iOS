@@ -119,20 +119,23 @@ struct StoryPager: UIViewControllerRepresentable {
             switch g.state {
             case .changed:
                 let ty = max(0, t.y)
-                v.transform = CGAffineTransform(translationX: 0, y: ty)   // native, frame-synced
-                let corner = min(44, ty * 0.5)
-                v.layer.cornerRadius = corner
-                v.layer.masksToBounds = corner > 0
-                parent.onDragChanged(ty)   // fade the host overlays
+                let frac = min(1, ty / v.bounds.height)
+                let scale = 1.0 - 0.4 * frac            // Telegram: card scales 1.0 -> 0.6 as you pull
+                v.layer.cornerCurve = .continuous       // Apple squircle
+                v.layer.cornerRadius = min(40, 12 + ty * 0.3)
+                v.layer.masksToBounds = true
+                v.transform = CGAffineTransform(translationX: 0, y: ty).scaledBy(x: scale, y: scale)
+                parent.onDragChanged(ty)                // fade the host overlays
             case .ended, .cancelled:
                 let ty = t.y, vy = g.velocity(in: v).y
-                if ty > 120 || vy > 600 {
-                    UIView.animate(withDuration: 0.22, delay: 0, options: .curveEaseIn) {
-                        v.transform = CGAffineTransform(translationX: 0, y: v.bounds.height)
+                // Telegram commit: translation.y > 200 OR (translation.y > 5 AND velocity.y > 200)
+                if ty > 200 || (ty > 5 && vy > 200) {
+                    UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseIn) {
+                        v.transform = CGAffineTransform(translationX: 0, y: v.bounds.height).scaledBy(x: 0.6, y: 0.6)
                     } completion: { _ in self.parent.onCommit() }
                 } else {
-                    UIView.animate(withDuration: 0.34, delay: 0, usingSpringWithDamping: 0.82,
-                                   initialSpringVelocity: 0.4, options: [.curveEaseOut]) {
+                    UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.85,
+                                   initialSpringVelocity: 0.3, options: []) {
                         v.transform = .identity
                         v.layer.cornerRadius = 0
                     } completion: { _ in self.parent.onCancel() }

@@ -174,14 +174,9 @@ final class ImageLoader: UIView {
 private extension ImageLoader {
    func setupImageView() {
        backgroundColor = .black
-       // Viewer-only blurred fill behind the aspect-fit photo (Signal StoryItemMediaView). The editor
-       // stays plain black; this blur is added only here, at view time.
-       backgroundImageView.contentMode = .scaleAspectFill
-       backgroundImageView.clipsToBounds = true
-       addSubview(backgroundImageView)
-       addSubview(blurView)
-
-       imageView.contentMode = .scaleAspectFit   // whole photo, true shape, on top of the blur
+       // Telegram sizing: aspect-FILL into the container, clipped. Portrait fills exactly; landscape is
+       // center-cropped to fill. Fill leaves no gaps, so no blur and no bars (Telegram's content path).
+       imageView.contentMode = .scaleAspectFill
        imageView.clipsToBounds = true
        addSubview(imageView)
 
