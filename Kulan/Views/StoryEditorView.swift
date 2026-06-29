@@ -152,7 +152,8 @@ struct StoryEditorView: View {
                         }
                     }
                     // HIG: inside the safe area, 16pt leading, 12pt below the Dynamic Island / notch.
-                    .padding(.horizontal, 16).padding(.top, windowSafeTop + 12)
+                    // Higher up, into the top-left corner (clear of the centred Dynamic Island) per request.
+                    .padding(.horizontal, 16).padding(.top, max(windowSafeTop - 22, 10))
                     Spacer()
                 }
                 .opacity(draggingID == nil && editingID == nil ? 1 : 0)
