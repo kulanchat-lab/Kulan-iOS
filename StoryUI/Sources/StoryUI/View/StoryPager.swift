@@ -219,7 +219,11 @@ struct StoryPager: UIViewControllerRepresentable {
             if g.state == .ended, t.y < -90 || v.y < -600 { parent.onSwipeUp() }
         }
 
-        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith o: UIGestureRecognizer) -> Bool { false }
+        // Let the dismiss/swipe-up pans coexist with the hosted SwiftUI gestures (tap zones, hold-to-pause)
+        // and the page scroll. Returning false here blocked the pans whenever the content was tracking a
+        // touch, so swipe-down-to-close and swipe-up never fired. The horizontal-scroll relationship is
+        // still ordered by require(toFail:), so this doesn't double-handle paging.
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith o: UIGestureRecognizer) -> Bool { true }
     }
 }
 

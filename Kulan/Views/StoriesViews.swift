@@ -700,7 +700,6 @@ struct StoryViewersSheet: View {
     let selectedId: String
     @Environment(\.dismiss) private var dismiss
     @State private var selected: String = ""
-    @State private var scrolledID: String?   // carousel-centered card → drives `selected`
     @State private var byStory: [String: [StoryViewerInfo]] = [:]
     @State private var segment = 0          // 0 = All Viewers, 1 = Contacts
     @State private var search = ""
@@ -729,8 +728,13 @@ struct StoryViewersSheet: View {
     }
 
     var body: some View {
+        // Sheet content is ONLY: header (count + sort + close), Search, Seen list. No story carousel —
+        // the story stays in the viewer ABOVE this sheet (the .medium detent leaves it visible). Showing
+        // the story here again was the "owner image appears twice" bug.
         VStack(spacing: 0) {
             HStack {
+                Text(viewerCountTitle).font(.headline)
+                Spacer()
                 Menu {
                     Button { reactionsFirst = false } label: {
                         Label("Recent", systemImage: reactionsFirst ? "clock" : "checkmark")
@@ -740,33 +744,14 @@ struct StoryViewersSheet: View {
                     }
                 } label: {
                     Image(systemName: "arrow.up.arrow.down")
-                        .font(.title3.weight(.semibold)).foregroundStyle(.secondary)
+                        .font(.body.weight(.semibold)).foregroundStyle(.secondary)
                 }
-                Spacer()
+                .padding(.trailing, 6)
                 Button { dismiss() } label: {
-                    Image(systemName: "xmark").font(.title3.weight(.semibold)).foregroundStyle(.secondary)
+                    Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 16).padding(.top, 14)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 14) {
-                    ForEach(stories, id: \.id) { s in storyCard(s) }   // each scales by distance from center
-                }
-                .scrollTargetLayout()
-                .padding(.horizontal, max(16, (UIScreen.main.bounds.width - 150) / 2))   // center the focused card
-                .padding(.vertical, 8)
-            }
-            .scrollTargetBehavior(.viewAligned)                      // snaps to each card
-            .scrollPosition(id: $scrolledID)                         // centered card → auto-select
-            .frame(height: 290)
-
-            Picker("", selection: $segment) {
-                Text("All Viewers").tag(0)
-                Text("Contacts").tag(1)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16).padding(.vertical, 10)
+            .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 10)
 
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -779,8 +764,8 @@ struct StoryViewersSheet: View {
             if loading {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewers.isEmpty {
-                ContentUnavailableView("No viewers", systemImage: "eye",
-                                       description: Text("No one in this list yet."))
+                ContentUnavailableView("No views yet", systemImage: "eye",
+                                       description: Text("When people view this story, they'll show up here."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(viewers) { v in viewerRow(v) }
@@ -788,48 +773,16 @@ struct StoryViewersSheet: View {
                     .scrollDismissesKeyboard(.interactively)   // drag the list to dismiss the search keyboard
             }
         }
-        // Telegram-style bottom sheet: drag between half and full height, drag down to dismiss.
+        // Bottom sheet: half height (story stays visible above) up to full; drag down to dismiss.
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationContentInteraction(.scrolls)   // scrolling the list doesn't fight the sheet drag
-        .onChange(of: scrolledID) { _, v in if let v { selected = v } }   // centered card drives the viewer list
         .task { await loadAll() }
     }
 
-    private func storyCard(_ s: Story) -> some View {
-        let vs = byStory[s.id] ?? []
-        let reacts = vs.filter { !($0.reaction ?? "").isEmpty }.count
-        let w: CGFloat = 150, h: CGFloat = 258
-        return GeometryReader { geo in
-            // Scale by how close this card's centre is to the screen centre: centre = full, sides shrink.
-            let screenMid = UIScreen.main.bounds.width / 2
-            let dist = abs(geo.frame(in: .global).midX - screenMid)
-            let scale = max(0.72, 1 - dist / 600)
-            StoryImage(url: s.mediaUrl)
-                .frame(width: w, height: h)
-                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))   // iOS 26 generous corners
-                .overlay(alignment: .bottom) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "eye.fill").font(.caption2)
-                        Text("\(vs.count)").font(.caption2.weight(.semibold))
-                        if reacts > 0 {
-                            Image(systemName: "heart.fill").font(.caption2).foregroundStyle(.red)
-                            Text("\(reacts)").font(.caption2.weight(.semibold))
-                        }
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(.black.opacity(0.45), in: Capsule())
-                    .padding(.bottom, 10)
-                }
-                .scaleEffect(scale)
-                .opacity(Double(max(0.6, scale)))                // sides also dim slightly
-                .frame(maxWidth: .infinity, maxHeight: .infinity)  // centre the scaled card in its slot
-        }
-        .frame(width: w, height: h)
-        .id(s.id)
-        // Springy physics: tapping a side card springs it to centre (momentum/snap on free-scroll is native).
-        .onTapGesture { withAnimation(.spring(response: 0.42, dampingFraction: 0.68)) { scrolledID = s.id } }
+    private var viewerCountTitle: String {
+        let n = (byStory[selected] ?? []).count
+        return n == 0 ? "Viewers" : (n == 1 ? "1 viewer" : "\(n) viewers")
     }
 
     private func viewerRow(_ v: StoryViewerInfo) -> some View {
@@ -855,7 +808,6 @@ struct StoryViewersSheet: View {
 
     private func loadAll() async {
         selected = selectedId.isEmpty ? (stories.last?.id ?? "") : selectedId
-        scrolledID = selected   // start the carousel centered on the tapped story
         await withTaskGroup(of: (String, [StoryViewerInfo]).self) { group in
             for s in stories { group.addTask { (s.id, await StoriesService.shared.fetchViewers(storyId: s.id)) } }
             for await (id, v) in group { byStory[id] = v }
