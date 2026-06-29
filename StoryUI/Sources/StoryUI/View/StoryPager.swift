@@ -39,12 +39,32 @@ struct StoryPager: UIViewControllerRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
+    // Telegram's cube transform (sideAngle = 0): perspective m34 = -1/500, Y-rotation up to 90°, plus the
+    // cube-distance depth so the two faces meet at the shared edge, and a face push (+w/2 z) so the centred
+    // page sits flat at full size (cancels the -w/2). t in [-1, 1]: 0 = flat centre, ±1 = edge-on.
+    static func cubeTransform(_ t: CGFloat, width w: CGFloat) -> CATransform3D {
+        let tc = max(-1, min(1, t))
+        let absT = abs(tc)
+        let angle = tc * (.pi / 2)
+        let cubeDistance = 0.5 * w * (1.4142135623731 * sin((.pi / 2) * absT + .pi / 4) - 1.0)
+        var perspective = CATransform3DIdentity
+        perspective.m34 = -1.0 / 500.0
+        var t3d = CATransform3DTranslate(perspective, 0, 0, -w * 0.5)
+        t3d = CATransform3DTranslate(t3d, 0, 0, -cubeDistance)
+        t3d = CATransform3DConcat(CATransform3DMakeRotation(angle, 0, 1, 0), t3d)
+        let face = CATransform3DMakeTranslation(0, 0, w * 0.5)
+        return CATransform3DConcat(face, t3d)
+    }
+
     final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate, UIGestureRecognizerDelegate {
         let parent: StoryPager
         weak var pager: UIPageViewController?
+        weak var internalScroll: UIScrollView?
         private var didInstallPan = false
+        private var cubeLink: CADisplayLink?
 
         init(_ parent: StoryPager) { self.parent = parent }
+        deinit { cubeLink?.invalidate() }
 
         private func index(of id: String) -> Int? {
             parent.viewModel.stories.firstIndex { $0.id == id }
@@ -108,10 +128,33 @@ struct StoryPager: UIViewControllerRepresentable {
             guard !didInstallPan, let pager else { return }
             didInstallPan = true
             let scroll = pager.view.subviews.compactMap { $0 as? UIScrollView }.first
+            internalScroll = scroll
             let pan = DirectionalPanGestureRecognizer(direction: .down, target: self, action: #selector(handleDismiss(_:)))
             pan.delegate = self
             pager.view.addGestureRecognizer(pan)
             scroll?.panGestureRecognizer.require(toFail: pan)
+            // Drive Telegram's cube every frame from the pager scroll offset.
+            let link = CADisplayLink(target: self, selector: #selector(applyCube))
+            link.add(to: .main, forMode: .common)
+            cubeLink = link
+        }
+
+        // Telegram's cube: rotate each page around the shared vertical edge with perspective depth, driven
+        // by its position relative to screen centre. Centre page = flat; ±1 page = 90° (edge-on, hidden).
+        @objc func applyCube() {
+            guard let scroll = internalScroll else { return }
+            let w = scroll.bounds.width
+            guard w > 1 else { return }
+            for sub in scroll.subviews {
+                guard abs(sub.bounds.width - w) < 1.0 else { continue }   // page-sized views only
+                let t = (sub.frame.minX - scroll.contentOffset.x) / w     // 0 = centred
+                sub.layer.isDoubleSided = false                            // hide the back face
+                if abs(t) < 0.001 {
+                    sub.layer.transform = CATransform3DIdentity            // resting page is pixel-perfect
+                } else if abs(t) <= 1.0 {
+                    sub.layer.transform = StoryPager.cubeTransform(t, width: w)
+                }
+            }
         }
 
         @objc func handleDismiss(_ g: UIPanGestureRecognizer) {
