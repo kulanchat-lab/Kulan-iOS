@@ -99,6 +99,7 @@ private extension MessageView {
                 likeButtonTapped = newValue.isLiked
             })
             .foregroundColor(.white)
+            .tint(.white)                                      // visible caret + selection highlight on the dark pill
             .padding(.leading, 10)                              // small left space so text isn't flush to the edge
             .frame(height: Constant.MessageView.height)
             .padding(Constant.MessageView.padding)
