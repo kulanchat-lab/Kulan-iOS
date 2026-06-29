@@ -333,14 +333,15 @@ struct StoryEditorView: View {
                     .rotationEffect(o.rotation)
                     .position(o.center)
             }
-            if !cap.isEmpty {   // bake the caption (was silently dropped) — bottom band, like WhatsApp
+            if !cap.isEmpty {   // Telegram-style caption: SF regular, left-aligned, white, over a soft bottom scrim
+                LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: size.height * 0.32)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 Text(cap)
-                    .font(.system(size: 22, weight: .semibold)).foregroundStyle(.white)
-                    .multilineTextAlignment(.center).shadow(radius: 4)
-                    .padding(.horizontal, 18).padding(.vertical, 12)
-                    .frame(maxWidth: size.width)
-                    .background(Color.black.opacity(0.32))
-                    .padding(.bottom, size.height * 0.10)
+                    .font(.system(size: 19)).foregroundStyle(.white)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(.horizontal, 16).padding(.bottom, size.height * 0.05)
             }
         }
         .frame(width: size.width, height: size.height)
