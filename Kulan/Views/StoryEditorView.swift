@@ -143,8 +143,9 @@ struct StoryEditorView: View {
                     HStack {
                         Button { dismiss() } label: {
                             Image(systemName: "xmark").font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(topIconDark ? .black : .white)   // adaptive: dark over a light photo
-                                .frame(width: 48, height: 48).liquidGlass(Circle())   // real Apple glass
+                                .foregroundStyle(.white)   // always white; glass + shadow carry contrast
+                                .shadow(color: .black.opacity(0.35), radius: 2)
+                                .frame(width: 48, height: 48).contentShape(Circle()).liquidGlass(Circle())
                         }
                         Spacer()
                         if isDrawing {
@@ -248,11 +249,13 @@ struct StoryEditorView: View {
                         .overlay(RoundedRectangle(cornerRadius: 5).stroke(active ? Color.green : Color.white, lineWidth: 1.5))
                 } else {
                     Image(systemName: icon).font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(active ? .green : (bottomIconDark ? .black : .white))   // adaptive over a light photo
+                        .foregroundStyle(active ? .green : .white)   // always white; the glass + shadow carry contrast
+                        .shadow(color: .black.opacity(0.35), radius: 2)
                 }
             }
             .frame(width: 44, height: 44)
-            .liquidGlass(Circle())   // real Apple .glassEffect, not a custom background
+            .contentShape(Circle())   // whole 44pt circle is tappable, not just the glyph
+            .liquidGlass(Circle())    // real Apple .glassEffect (native Liquid Glass)
         }
         .buttonStyle(StoryPressStyle())
     }
