@@ -89,12 +89,19 @@ struct ThreadView: View {
             pinnedBar(proxy)
             ScrollView {
                 messageList(proxy)
+                    .contentShape(Rectangle())   // whole content tappable so the dismiss tap always lands
+                    .simultaneousGesture(
+                        // tap the chat to close the keyboard; force-resign so it always drops.
+                        // simultaneous = bubble taps still open the viewer (not consumed).
+                        TapGesture().onEnded {
+                            inputFocused = false
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                                            to: nil, from: nil, for: nil)
+                        }
+                    )
             }
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)   // drag the messages down -> keyboard follows
-            // Tap anywhere in the message area to close the keyboard (taps on
-            // image bubbles still open the viewer — simultaneous, not consumed).
-            .simultaneousGesture(TapGesture().onEnded { inputFocused = false })
             .onChange(of: repo.items.count) { old, new in
                 guard new > old else { return }
                 let mine = repo.items.last?.authorId == me
