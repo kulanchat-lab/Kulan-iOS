@@ -309,7 +309,7 @@ private extension StoryDetailView {
         }
         // Pause sources: emoji-fly animation (isTimerRunning), hold-to-pause (isPaused),
         // and composing a reply (keyboard open) — any of them freezes the segment + progress.
-        guard !isTimerRunning, !isPaused, !isFolding, !keyboardManager.isKeyboardOpen else { return }
+        guard !isTimerRunning, !isPaused, !isFolding, !isDismissing, !keyboardManager.isKeyboardOpen else { return }
         
         let index = getCurrentIndex()
         let story = getStory(with: index)

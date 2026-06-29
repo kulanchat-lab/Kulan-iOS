@@ -25,6 +25,7 @@ public struct StoryView: View {
     let onDrag: ((CGFloat) -> Void)?         // swipe-down amount (so the host can hide its overlays)
 
     @State private var drag: CGSize = .zero   // swipe-down-to-dismiss
+    @State private var verticalLock: Bool? = nil   // first move locks: true = dismiss, false = cube
 
     /// Stories and isPresented required, selectedIndex is optional default: 0
     /// - Parameters:
@@ -75,7 +76,7 @@ public struct StoryView: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                .disabled(down > 0)                         // lock cube while dragging down
+                .disabled(verticalLock == true)             // gesture locked vertical -> cube off
                 .background(Color.black)                    // solid card slides as one unit
                 .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
                 .offset(y: down)                            // straight down, full width
@@ -85,24 +86,28 @@ public struct StoryView: View {
             // Swipe DOWN anywhere to dismiss; release past 100pt pops, otherwise springs back.
             // simultaneousGesture + vertical-dominance check so horizontal paging still works.
             .simultaneousGesture(
-                DragGesture(minimumDistance: 12)
+                DragGesture(minimumDistance: 8)
                     .onChanged { v in
-                        if v.translation.height > 0, v.translation.height > abs(v.translation.width) {
-                            drag = v.translation
-                            onDrag?(drag.height)   // let the host fade its overlays out
+                        // first real move locks the axis so cube and dismiss never run together
+                        if verticalLock == nil {
+                            verticalLock = abs(v.translation.height) > abs(v.translation.width)
+                        }
+                        if verticalLock == true, v.translation.height > 0 {
+                            drag = CGSize(width: 0, height: v.translation.height)   // y only, no drift
+                            onDrag?(drag.height)
                         }
                     }
                     .onEnded { v in
-                        // commit on distance or a downward flick (predictedEnd = velocity proxy)
+                        let wasVertical = verticalLock == true
+                        verticalLock = nil
+                        guard wasVertical else { return }   // horizontal = cube, nothing to settle
                         let flick: CGFloat = v.predictedEndTranslation.height
                         if v.translation.height > 130 || flick > 500 {
-                            // throw the card the rest of the way down with momentum, then close
                             withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
                                 drag.height = UIScreen.main.bounds.height
                             }
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { isPresented = false }
                         } else {
-                            // bouncy spring back to place
                             withAnimation(.spring(response: 0.34, dampingFraction: 0.66)) { drag = .zero }
                             onDrag?(0)
                         }
