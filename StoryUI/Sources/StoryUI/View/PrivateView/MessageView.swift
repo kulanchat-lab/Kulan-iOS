@@ -111,7 +111,10 @@ private extension MessageView {
             } else {
                 Button(action: onCommitAction) {
                     Image(systemName: "paperplane.fill").font(.title2).foregroundColor(.white)
+                        .frame(width: 44, height: 44)        // bigger TAP target, same icon size
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
         }
     }
