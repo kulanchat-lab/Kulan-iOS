@@ -166,10 +166,14 @@ struct StoriesRow: View {
                  seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []), onBadge: onCompose) {
                 if let m = repo.mine { onOpen(m) } else { onCompose() }
             }
-            .contextMenu {   // My Story menu: Add Story + Posted Stories only (lifts in place, not centered)
+            .contextMenu {   // My Story menu: Add Story + Posted Stories only
                 Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
                 Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
                     label: { Label("Posted Stories", systemImage: "circle.dashed") }
+            } preview: {
+                coverImage(repo.mine?.stories.last?.mediaUrl ?? mePhoto, name: "My Story", avatar: mePhoto)
+                    .frame(width: cardW, height: cardH)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             }
             .matchedTransitionSource(id: repo.mine?.id ?? "my-story", in: storyNS)   // hero grow source
         }
@@ -305,10 +309,15 @@ private struct StoryFriendCard: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contextMenu {   // lifts THIS card in place + friend menu
+        .contextMenu {
             Button { onMessage() } label: { Label("Send Message", systemImage: "message") }
             Button { onProfile() } label: { Label("Open Profile", systemImage: "person.crop.circle") }
             Button(role: .destructive) { onHide() } label: { Label("Hide Stories", systemImage: "archivebox") }
+        } preview: {
+            // Just the rounded cover → no white platter border around the lift (was visible in light mode).
+            coverView
+                .frame(width: cardW, height: cardH)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
         .matchedTransitionSource(id: groupID, in: storyNS)   // hero grow source
     }
@@ -346,7 +355,6 @@ struct StoryViewer: View {
     @State private var barViewers: [StoryViewerInfo] = []
     @State private var showViewers = false
     @State private var confirmDelete = false
-    @State private var showStoryMenu = false   // "…" header tap → actions sheet
     @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
     @State private var forwardImg: StoryImagePayload?   // … → Forward (chat picker)
     @State private var toastText = "Sent"               // reused for "Sent" (reply) and "Saved"
@@ -356,7 +364,7 @@ struct StoryViewer: View {
     private var myStories: [Story] { groups.first { $0.isMine }?.stories ?? [] }
     private var currentStory: Story? { groups.flatMap(\.stories).first { $0.id == currentStoryId } }
     // Any sheet shown over the story → pause it (viewers list, share, forward, "…" menu, delete confirm).
-    private var sheetUp: Bool { showViewers || shareImg != nil || forwardImg != nil || showStoryMenu || confirmDelete }
+    private var sheetUp: Bool { showViewers || shareImg != nil || forwardImg != nil || confirmDelete }
 
     init(group: StoryGroup, anonymous: Bool = false, onClose: @escaping () -> Void,
          onProfile: @escaping (StoryGroup) -> Void = { _ in }) {
@@ -412,7 +420,7 @@ struct StoryViewer: View {
             onUserChanged: { uid in currentBucketUid = uid; markSeen(authorUid: uid); loadBarViewers() },
             onItemSeen: { id in currentStoryId = id; StoryPrefs.markStorySeen(id); markSeenItem(id); loadBarViewers() },
             onDrag: { d in dragDown = d },   // fade my overlays out as the card is pulled down
-            onMore: { showStoryMenu = true }, // "…" lives in the library header now, perfectly aligned with X
+            showMore: true, // "…" is a native dropdown menu in the header; its buttons post notifications
             onSwipeUp: { if currentIsMine { showViewers = true } }  // Telegram: swipe up opens your viewers
         )
         .ignoresSafeArea()
@@ -427,29 +435,30 @@ struct StoryViewer: View {
         .sheet(item: $forwardImg) { p in StoryForwardSheet(image: p.image, onSent: { flashSentToast() }) }
         // Native-style bottom action sheets. (confirmationDialog rendered CENTERED over the cover's clear
         // presentation background; this anchors to the bottom with a material group + a separate Cancel.)
+        // Delete stays a bottom action sheet; the "…" is now a native dropdown menu in the header.
         .overlay {
-            if showStoryMenu {
-                BottomActionSheet(onCancel: { showStoryMenu = false }) {
-                    if !currentIsMine {
-                        sheetButton("Hide Stories") { showStoryMenu = false; StoryPrefs.toggleHidden(currentBucketUid); isPresented = false }
-                        Divider()
-                    }
-                    sheetButton("Save") { let u = currentStory?.mediaUrl; showStoryMenu = false; saveCurrentImage(u) }
-                    Divider()
-                    sheetButton("Forward") { let u = currentStory?.mediaUrl; showStoryMenu = false
-                        Task { if let img = await loadCurrentImage(u) { forwardImg = StoryImagePayload(image: img) } } }
-                    Divider()
-                    sheetButton("Share") { let u = currentStory?.mediaUrl; showStoryMenu = false
-                        Task { if let img = await loadCurrentImage(u) { shareImg = StoryImagePayload(image: img) } } }
-                }
-            } else if confirmDelete {
+            if confirmDelete {
                 BottomActionSheet(onCancel: { confirmDelete = false }) {
                     sheetButton("Delete", destructive: true) { confirmDelete = false; Task { await deleteCurrent() } }
                 }
             }
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: showStoryMenu)
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: confirmDelete)
+        // "…" dropdown menu actions (posted from the library header Menu) — run on LIVE state here.
+        .onReceive(NotificationCenter.default.publisher(for: .init("storyActionSave"))) { _ in
+            saveCurrentImage(currentStory?.mediaUrl)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .init("storyActionForward"))) { _ in
+            let u = currentStory?.mediaUrl
+            Task { if let img = await loadCurrentImage(u) { forwardImg = StoryImagePayload(image: img) } }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .init("storyActionShare"))) { _ in
+            let u = currentStory?.mediaUrl
+            Task { if let img = await loadCurrentImage(u) { shareImg = StoryImagePayload(image: img) } }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .init("storyActionHide"))) { _ in
+            if !currentIsMine { StoryPrefs.toggleHidden(currentBucketUid); isPresented = false }
+        }
         .overlay(alignment: .bottom) {
             if sentToast {
                 Text(toastText)
