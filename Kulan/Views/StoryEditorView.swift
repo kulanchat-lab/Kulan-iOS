@@ -83,24 +83,14 @@ struct StoryEditorView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 // Photo: aspect-fit on BLACK (Signal/WhatsApp lobby — NO blurred self-background).
-                Image(uiImage: edited)
-                    .resizable().scaledToFit()
-                    .scaleEffect(photoZoom)
-                    .offset(photoOffset)
+                // Zoom/pan applied DIRECTLY to a UIImageView's transform in UIKit (no SwiftUI @State write
+                // per touch -> zero re-render mid-pinch -> butter smooth, anchored between the fingers).
+                // The final scale/offset sync back to photoZoom/photoOffset on release for the WYSIWYG flatten.
+                ZoomableImageView(image: edited, scale: $photoZoom, offset: $photoOffset,
+                                  maxScale: 4, interactive: !isDrawing && editingID == nil,
+                                  onTap: { captionFocused = false; selectedID = nil })
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
-                    // Telegram DrawingMediaEntityView zoom/pan: UIKit pinch + pan recognizers that recognize
-                    // SIMULTANEOUSLY and accumulate (scale *= recognizer.scale; translation += delta) then
-                    // reset the recognizer to identity each frame — no centroid drift, no jitter, no shake.
-                    .overlay {
-                        if !isDrawing && editingID == nil {
-                            PinchPanGestureView(
-                                scale: $photoZoom, offset: $photoOffset, maxScale: 4, minScale: 1,
-                                onTap: { captionFocused = false; selectedID = nil },
-                                clamp: { off, z in clampedOffset(off, zoom: z, in: geo.size) }
-                            )
-                        }
-                    }
 
                 // Text overlays — above the photo, below the drawing canvas + controls.
                 ForEach($overlays) { $o in
@@ -565,66 +555,131 @@ struct StoryPressStyle: ButtonStyle {
     }
 }
 
-// Telegram DrawingMediaEntityView zoom/pan, adapted: UIKit pinch + pan + tap recognizers that recognize
-// SIMULTANEOUSLY. Each .changed callback accumulates the delta into the bound scale/offset and then resets
-// the recognizer to identity (scale = 1, translation = .zero) — the exact pattern that makes Telegram's
-// zoom smooth with no centroid drift / jitter. On release it springs to the clamped value.
-struct PinchPanGestureView: UIViewRepresentable {
+// Smooth editor zoom/pan: a UIImageView pinned to fill the container (Auto Layout) whose layer TRANSFORM
+// is updated DIRECTLY inside the gesture handlers — no SwiftUI @State write per touch, so there is no body
+// re-render mid-pinch (that re-render is what caused the violent shake). Pinch + pan recognize together and
+// accumulate-then-reset; the pinch anchors between the fingers. On release it springs to the clamped value
+// and syncs the final scale/offset back to the bindings so the WYSIWYG flatten matches exactly.
+struct ZoomableImageView: UIViewRepresentable {
+    let image: UIImage
     @Binding var scale: CGFloat
     @Binding var offset: CGSize
     var maxScale: CGFloat = 4
     var minScale: CGFloat = 1
+    var interactive: Bool = true
     var onTap: () -> Void = {}
-    var clamp: (CGSize, CGFloat) -> CGSize = { o, _ in o }
 
     func makeUIView(context: Context) -> UIView {
-        let v = UIView()
-        v.backgroundColor = .clear
+        let container = UIView()
+        container.clipsToBounds = true
+        container.backgroundColor = .clear
+        let iv = UIImageView(image: image)
+        iv.contentMode = .scaleAspectFit
+        iv.isUserInteractionEnabled = false
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(iv)
+        NSLayoutConstraint.activate([
+            iv.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            iv.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            iv.topAnchor.constraint(equalTo: container.topAnchor),
+            iv.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        context.coordinator.container = container
+        context.coordinator.imageView = iv
+
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
         let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
-        pan.maximumNumberOfTouches = 2   // 2-finger pan rides along with the pinch (Telegram)
+        pan.maximumNumberOfTouches = 2
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
-        for g in [pinch, pan, tap] as [UIGestureRecognizer] { g.delegate = context.coordinator; v.addGestureRecognizer(g) }
-        return v
+        for g in [pinch, pan, tap] as [UIGestureRecognizer] { g.delegate = context.coordinator; container.addGestureRecognizer(g) }
+        context.coordinator.pinch = pinch; context.coordinator.pan = pan
+        return container
     }
-    func updateUIView(_ v: UIView, context: Context) { context.coordinator.parent = self }
+
+    func updateUIView(_ v: UIView, context: Context) {
+        let c = context.coordinator
+        c.parent = self
+        if c.imageView?.image !== image { c.imageView?.image = image }
+        c.pinch?.isEnabled = interactive
+        c.pan?.isEnabled = interactive
+        if !c.active {   // adopt external scale/offset (e.g. a reset) only when not mid-gesture
+            c.curScale = scale
+            c.curOffset = CGPoint(x: offset.width, y: offset.height)
+            c.applyTransform()
+        }
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var parent: PinchPanGestureView
-        init(_ p: PinchPanGestureView) { parent = p }
+        var parent: ZoomableImageView
+        weak var container: UIView?
+        weak var imageView: UIImageView?
+        var pinch: UIPinchGestureRecognizer?
+        var pan: UIPanGestureRecognizer?
+        var curScale: CGFloat
+        var curOffset: CGPoint
+        var active = false
+
+        init(_ p: ZoomableImageView) {
+            parent = p
+            curScale = p.scale
+            curOffset = CGPoint(x: p.offset.width, y: p.offset.height)
+        }
+
+        func applyTransform() {
+            imageView?.transform = CGAffineTransform(translationX: curOffset.x, y: curOffset.y).scaledBy(x: curScale, y: curScale)
+        }
+
+        private func clampOffset() {
+            guard let c = container, let img = imageView?.image else { return }
+            let b = c.bounds.size
+            guard b.width > 1, img.size.width > 1 else { return }
+            let fitScale = min(b.width / img.size.width, b.height / img.size.height)
+            let fit = CGSize(width: img.size.width * fitScale, height: img.size.height * fitScale)
+            let maxX = max(0, (fit.width * curScale - b.width) / 2)
+            let maxY = max(0, (fit.height * curScale - b.height) / 2)
+            curOffset.x = min(maxX, max(-maxX, curOffset.x))
+            curOffset.y = min(maxY, max(-maxY, curOffset.y))
+        }
 
         @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
             switch g.state {
+            case .began: active = true
             case .changed:
-                var s = parent.scale * g.scale                 // accumulate, then reset (no double-apply)
-                s = min(parent.maxScale * 1.12, max(parent.minScale * 0.92, s))   // soft rubber past limits
-                parent.scale = s
-                g.scale = 1.0
+                curScale = min(parent.maxScale * 1.15, max(parent.minScale * 0.9, curScale * g.scale))
+                g.scale = 1
+                applyTransform()   // direct transform — no SwiftUI write, no re-render, no shake
             case .ended, .cancelled:
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                    parent.scale = min(parent.maxScale, max(parent.minScale, parent.scale))
-                    parent.offset = parent.clamp(parent.offset, parent.scale)
-                }
+                active = false
+                curScale = min(parent.maxScale, max(parent.minScale, curScale))
+                clampOffset()
+                UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0.3,
+                               options: [.allowUserInteraction]) { self.applyTransform() }
+                parent.scale = curScale
+                parent.offset = CGSize(width: curOffset.x, height: curOffset.y)
             default: break
             }
         }
         @objc func handlePan(_ g: UIPanGestureRecognizer) {
             switch g.state {
+            case .began: active = true
             case .changed:
-                let t = g.translation(in: g.view)
-                parent.offset = CGSize(width: parent.offset.width + t.x, height: parent.offset.height + t.y)
-                g.setTranslation(.zero, in: g.view)            // accumulate, then reset
+                let t = g.translation(in: container)
+                g.setTranslation(.zero, in: container)
+                curOffset.x += t.x; curOffset.y += t.y
+                applyTransform()
             case .ended, .cancelled:
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                    parent.offset = parent.clamp(parent.offset, parent.scale)
-                }
+                active = false
+                clampOffset()
+                UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0.3,
+                               options: [.allowUserInteraction]) { self.applyTransform() }
+                parent.offset = CGSize(width: curOffset.x, height: curOffset.y)
             default: break
             }
         }
         @objc func handleTap(_ g: UITapGestureRecognizer) { parent.onTap() }
 
-        // Pinch + pan run together (Telegram); the tap fails if a drag/pinch starts.
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith o: UIGestureRecognizer) -> Bool {
             !(g is UITapGestureRecognizer || o is UITapGestureRecognizer)
         }
