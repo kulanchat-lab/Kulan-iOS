@@ -158,25 +158,31 @@ struct StoriesRow: View {
     }
 
     @ViewBuilder private var myCard: some View {
-        if stories.uploading {
-            uploadingCard
-        } else {
-            card(cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
-                 name: "My Story", avatar: mePhoto,
-                 seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []), onBadge: onCompose) {
-                if let m = repo.mine { onOpen(m) } else { onCompose() }
+        // ZStack + crossfade so the "Uploading…" placeholder morphs straight into the final card in the
+        // same frame (no jump). The reload happens before `uploading` flips, so there's no stale image.
+        ZStack {
+            if stories.uploading {
+                uploadingCard.transition(.opacity)
+            } else {
+                card(cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
+                     name: "My Story", avatar: mePhoto,
+                     seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []), onBadge: onCompose) {
+                    if let m = repo.mine { onOpen(m) } else { onCompose() }
+                }
+                .contextMenu {   // My Story menu: Add Story + Posted Stories only
+                    Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
+                    Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
+                        label: { Label("Posted Stories", systemImage: "circle.dashed") }
+                } preview: {
+                    coverImage(repo.mine?.stories.last?.mediaUrl ?? mePhoto, name: "My Story", avatar: mePhoto)
+                        .frame(width: cardW, height: cardH)
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                }
+                .matchedTransitionSource(id: repo.mine?.id ?? "my-story", in: storyNS)   // hero grow source
+                .transition(.opacity)
             }
-            .contextMenu {   // My Story menu: Add Story + Posted Stories only
-                Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
-                Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
-                    label: { Label("Posted Stories", systemImage: "circle.dashed") }
-            } preview: {
-                coverImage(repo.mine?.stories.last?.mediaUrl ?? mePhoto, name: "My Story", avatar: mePhoto)
-                    .frame(width: cardW, height: cardH)
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            }
-            .matchedTransitionSource(id: repo.mine?.id ?? "my-story", in: storyNS)   // hero grow source
         }
+        .animation(.easeInOut(duration: 0.3), value: stories.uploading)
     }
 
     // Shown in the first slot while a story is uploading: local image + spinner ring + "Uploading…".

@@ -67,8 +67,11 @@ final class StoriesService {
             var failure: String?
             do { try await postStory(image: image, excluded: excluded, included: included) }
             catch { failure = error.localizedDescription }   // surface it instead of dying silently
+            // On success, pull the new story into the repo BEFORE clearing the placeholder — otherwise the
+            // card briefly shows the OLD latest story (stale-cover flicker) then rebuilds again. Reloading
+            // first lets the "Uploading…" card morph straight into the final My Story card (one transition).
+            if failure == nil { await StoriesRepository.shared.load(force: true) }
             await MainActor.run { uploading = false; uploadingImage = nil; uploadTask = nil; uploadError = failure }
-            await StoriesRepository.shared.load(force: true)   // just posted → bypass the throttle
         }
     }
 
@@ -124,6 +127,9 @@ final class StoriesService {
             _ = try await ref.putDataAsync(jpeg, metadata: meta)
             let url = try await ref.downloadURL().absoluteString
             try await docRef.updateData(["mediaUrl": url])
+            // Warm the cache the My Story card reads from (DiskImageCache), so the final card shows the
+            // image instantly as the "Uploading…" placeholder morphs into it — no blank-then-fetch.
+            if let img = UIImage(data: jpeg) { DiskImageCache.shared.store(img, data: jpeg, for: url) }
         } catch {
             try? await docRef.delete()
             throw error
