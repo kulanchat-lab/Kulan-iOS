@@ -133,7 +133,9 @@ struct StoriesRow: View {
                                     onOpen: { onOpen(g) },
                                     onMessage: { onMessage(g) },
                                     onProfile: { onProfile(g) },
-                                    onHide: { hideTarget = g })
+                                    onHide: { hideTarget = g },
+                                    storyNS: storyNS,
+                                    groupID: g.id)
                         .equatable()
                 }
             }
@@ -169,6 +171,7 @@ struct StoriesRow: View {
                 Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
                     label: { Label("Posted Stories", systemImage: "circle.dashed") }
             }
+            .matchedTransitionSource(id: repo.mine?.id ?? "my-story", in: storyNS)   // hero grow source
         }
     }
 
@@ -274,10 +277,12 @@ private struct StoryFriendCard: View, Equatable {
     let onMessage: () -> Void
     let onProfile: () -> Void
     let onHide: () -> Void
+    let storyNS: Namespace.ID    // hero zoom: card ⇄ viewer
+    let groupID: String          // matches the viewer's zoom sourceID
 
     static func == (l: StoryFriendCard, r: StoryFriendCard) -> Bool {
         l.cover == r.cover && l.name == r.name && l.avatar == r.avatar
-            && l.seen == r.seen && l.cardW == r.cardW
+            && l.seen == r.seen && l.cardW == r.cardW && l.groupID == r.groupID
     }
 
     private var cardH: CGFloat { cardW * 1.46 }
@@ -305,6 +310,7 @@ private struct StoryFriendCard: View, Equatable {
             Button { onProfile() } label: { Label("Open Profile", systemImage: "person.crop.circle") }
             Button(role: .destructive) { onHide() } label: { Label("Hide Stories", systemImage: "archivebox") }
         }
+        .matchedTransitionSource(id: groupID, in: storyNS)   // hero grow source
     }
 
     @ViewBuilder private var coverView: some View {

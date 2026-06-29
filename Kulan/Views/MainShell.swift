@@ -743,9 +743,9 @@ struct ChatsView: View {
                                     onProfile: { grp in profileGroup = grp })
                     }
                 }
-                // Open/close uses the standard native cover (slide up to open, straight slide down to
-                // close) — paired with the StoryUI vertical swipe-down. The zoom-to-card was removed
-                // because it pulled the close diagonally toward the thumbnail (not straight up/down).
+                // Telegram hero: the viewer grows out of the tapped story card on open and shrinks back
+                // into it on close (matchedTransitionSource on the cards + this zoom transition).
+                .navigationTransition(.zoom(sourceID: g.id, in: storyNS))
             }
             .sheet(item: $profileGroup) { g in
                 NavigationStack {
