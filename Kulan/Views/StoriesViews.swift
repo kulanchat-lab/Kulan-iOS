@@ -663,11 +663,12 @@ struct UploadingStoryViewer: View {
     var onFinished: () -> Void          // kept for API compat; NO LONGER used to re-navigate (caused the flash)
     @State private var stories = StoriesService.shared
     @State private var completed = false   // upload finished → swap the bar IN-PLACE (no dismiss/re-nav)
+    @State private var localImage: UIImage?   // our OWN copy: the service nils uploadingImage on completion
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            if let img = stories.uploadingImage {
+            if let img = localImage {
                 // Blurred fill backdrop (WhatsApp/IG) so non-9:16 photos don't sit on black bars.
                 Image(uiImage: img).resizable().scaledToFill()
                     .ignoresSafeArea().blur(radius: 32).clipped()
@@ -727,12 +728,18 @@ struct UploadingStoryViewer: View {
                 .animation(.easeInOut(duration: 0.25), value: completed)
             }
         }
+        .onChange(of: stories.uploadingImage) { _, img in
+            if let img { localImage = img }   // grab our own copy before the service clears it on completion
+        }
         .onChange(of: stories.uploading) { _, up in
             guard !up else { return }                       // upload finished
             if stories.uploadError == nil { withAnimation { completed = true } }  // stay put; swap the bar
             else { onClose() }                              // failed → close
         }
-        .onAppear { if !stories.uploading && stories.uploadError == nil { completed = true } }
+        .onAppear {
+            localImage = stories.uploadingImage
+            if !stories.uploading && stories.uploadError == nil { completed = true }
+        }
     }
 
     private func deletePosted() {
