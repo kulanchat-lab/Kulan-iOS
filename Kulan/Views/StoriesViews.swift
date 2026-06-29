@@ -633,12 +633,16 @@ struct StoryViewer: View {
 
     private func deleteCurrent() async {
         guard !currentStoryId.isEmpty else { return }
-        await StoriesService.shared.deleteStory(currentStoryId)
+        let deletedId = currentStoryId
+        // Decide from the IN-MEMORY bucket, not the repo reload — the reload is async/stale right after a
+        // delete, so trusting it left the viewer re-presenting (staying open) when it should have closed.
+        let remaining = myStories.filter { $0.id != deletedId }
+        await StoriesService.shared.deleteStory(deletedId)
         await StoriesRepository.shared.load(force: true)
-        // Don't kick back to chats while I still have other stories — re-feed the viewer the remaining ones
-        // (the StoryUI library can't drop one item mid-view, so the host re-presents on the updated bucket).
-        if let mine = StoriesRepository.shared.mine, !mine.stories.isEmpty {
-            onDeletedRemaining(mine)
+        if remaining.isEmpty {
+            onClose()   // that was my last story → close the viewer
+        } else if let mine = StoriesRepository.shared.mine, !mine.stories.isEmpty {
+            onDeletedRemaining(mine)   // more remain → re-feed the viewer on the updated bucket
         } else {
             onClose()
         }
