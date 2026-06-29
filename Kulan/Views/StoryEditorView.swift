@@ -207,7 +207,7 @@ struct StoryEditorView: View {
         }
         .statusBarHidden()
         .alert("Couldn't share", isPresented: $postError) { Button("OK", role: .cancel) {} }
-        .sheet(item: $pendingShare) { s in ShareStorySheet(image: s.data, onPosted: { onPosted(); dismiss() }) }
+        .sheet(item: $pendingShare) { s in ShareStorySheet(image: s.data, caption: s.caption, onPosted: { onPosted(); dismiss() }) }
         .fullScreenCover(isPresented: $showCrop) {
             // Crop from the current cropped result if present, so re-opening crop refines instead of
             // resetting to the original (TOCropViewController, TimOliver — proven crop engine).
@@ -303,17 +303,18 @@ struct StoryEditorView: View {
         posting = true
         let data = await flatten()
         posting = false
-        pendingShare = StoryShareData(data: data)
+        // Caption travels as TEXT (rendered as a Telegram overlay in the viewer), NOT baked into the photo —
+        // baking it clipped the text when the image was cropped to fit.
+        pendingShare = StoryShareData(data: data, caption: caption.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     @MainActor private func flatten() async -> Data {
         let base = edited
         let quality: CGFloat = 0.9
-        let cap = caption.trimmingCharacters(in: .whitespacesAndNewlines)
-        // No drawing AND no caption AND no text overlays AND no real zoom/pan → post the full-resolution
-        // edited image. Use near-identity (a sub-pixel residual offset must not force the lossy path).
+        // No drawing AND no text overlays AND no real zoom/pan → post the full-resolution edited image
+        // (caption is no longer baked, so it doesn't force the lossy path). Use near-identity.
         let zoomed = abs(photoZoom - 1) > 0.001 || abs(photoOffset.width) > 0.5 || abs(photoOffset.height) > 0.5
-        if drawing.bounds.isEmpty && cap.isEmpty && overlays.isEmpty && !zoomed {
+        if drawing.bounds.isEmpty && overlays.isEmpty && !zoomed {
             return base.jpegData(compressionQuality: quality) ?? Data()
         }
         let size = canvasSize == .zero ? UIScreen.main.bounds.size : canvasSize
@@ -333,16 +334,7 @@ struct StoryEditorView: View {
                     .rotationEffect(o.rotation)
                     .position(o.center)
             }
-            if !cap.isEmpty {   // Telegram-style caption: SF regular, left-aligned, white, over a soft bottom scrim
-                LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: size.height * 0.32)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                Text(cap)
-                    .font(.system(size: 19)).foregroundStyle(.white)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                    .padding(.horizontal, 16).padding(.bottom, size.height * 0.05)
-            }
+            // (Caption is NOT baked here — it's posted as text and drawn as a Telegram-style overlay.)
         }
         .frame(width: size.width, height: size.height)
         let r = ImageRenderer(content: composed); r.scale = UIScreen.main.scale

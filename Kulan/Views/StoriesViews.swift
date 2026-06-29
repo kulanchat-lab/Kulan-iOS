@@ -397,6 +397,7 @@ struct StoryViewer: View {
                         id: s.id,
                         mediaURL: s.mediaUrl,
                         date: timeAgo(s.createdAt),
+                        caption: s.caption,
                         config: StoryConfiguration(
                             // My own story shows NO reply bar (owner bar is overlaid instead).
                             storyType: g.isMine

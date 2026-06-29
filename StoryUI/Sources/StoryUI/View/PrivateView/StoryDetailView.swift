@@ -42,6 +42,7 @@ struct StoryDetailView: View {
     @State private var hostPaused: Bool = false // app froze it while showing a sheet (e.g. viewers list)
     @State private var isAdvancing: Bool = false   // guard the segment-end double-advance
     @State private var isFolding: Bool = false   // true while this page is mid-cube-fold (pause timer)
+    @State private var captionExpanded: Bool = false   // Telegram: tap the caption to expand past 3 lines
 
     private var messageViewPosition: CGFloat {
         return -keyboardManager.currentHeight
@@ -71,6 +72,9 @@ struct StoryDetailView: View {
                             // Apple-style continuous rounded corners on the media itself (header sits
                             // above it, reply bar below it on black) — like Telegram's story card.
                             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            // Telegram-style caption: overlaid on the media (never baked into the photo,
+                            // which clipped it), bottom-left over a soft gradient, tap to expand.
+                            .overlay(alignment: .bottom) { captionView(story.caption) }
                         messageView(with: index)
                     }
                     getEmojiView(story: story)
@@ -231,6 +235,32 @@ private extension StoryDetailView {
         .offset(y: messageViewPosition)
     }
     
+    // Telegram StoryContentCaptionComponent: 16pt regular white text with a soft shadow, left-aligned,
+    // 16pt side padding, sitting over a 128pt black gradient (0 → 80%). Collapsed to 3 lines; tap to expand.
+    @ViewBuilder
+    func captionView(_ text: String) -> some View {
+        if !text.isEmpty {
+            ZStack(alignment: .bottomLeading) {
+                LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 128)
+                    .allowsHitTesting(false)
+                Text(text)
+                    .font(.system(size: 16))
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.25), radius: 4)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(captionExpanded ? nil : 3)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 14)
+                    .contentShape(Rectangle())
+                    .onTapGesture {   // tap expands/collapses; consumes the tap so it doesn't advance the story
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { captionExpanded.toggle() }
+                    }
+            }
+            .frame(maxWidth: .infinity, alignment: .bottomLeading)
+        }
+    }
+
     @ViewBuilder
     func tapStory() -> some View {
         GeometryReader { geo in
@@ -271,6 +301,7 @@ private extension StoryDetailView {
         isTimerRunning = false
         isAnimationStarted = false
         isFolding = false
+        captionExpanded = false   // collapse the caption when moving to another story
     }
     
     func getPreviousStory() {

@@ -13,6 +13,7 @@ struct Story: Identifiable, Hashable {
     let expiresAt: Date
     let mediaUrl: String
     let allowsReplies: Bool
+    var caption: String = ""   // Telegram-style overlay caption (stored as text, rendered in the viewer)
 }
 
 // A person's active (unexpired) stories — the unit behind a ring in the row + the viewer.
@@ -59,13 +60,13 @@ final class StoriesService {
     private var uploadTask: Task<Void, Never>?
 
     // Fire-and-forget post: pop back to chat immediately, upload in the background, show progress.
-    @MainActor func postStoryBackground(image: Data, excluded: Set<String> = [], included: Set<String> = []) {
+    @MainActor func postStoryBackground(image: Data, caption: String = "", excluded: Set<String> = [], included: Set<String> = []) {
         uploadTask?.cancel()
         uploadingImage = UIImage(data: image)
         uploading = true
         uploadTask = Task {
             var failure: String?
-            do { try await postStory(image: image, excluded: excluded, included: included) }
+            do { try await postStory(image: image, caption: caption, excluded: excluded, included: included) }
             catch { failure = error.localizedDescription }   // surface it instead of dying silently
             // On success, pull the new story into the repo BEFORE clearing the placeholder — otherwise the
             // card briefly shows the OLD latest story (stale-cover flicker) then rebuilds again. Reloading
@@ -81,7 +82,7 @@ final class StoriesService {
     }
 
     // Post a photo to "My Status": chosen audience can see it for 24h.
-    func postStory(image: Data, expiryHours: Double = 24,
+    func postStory(image: Data, caption: String = "", expiryHours: Double = 24,
                    excluded: Set<String> = [], included: Set<String> = []) async throws {
         let me = uid
         guard !me.isEmpty else { return }
@@ -112,6 +113,7 @@ final class StoriesService {
             "type": "image",
             "mediaPath": path,
             "mediaUrl": "",
+            "caption": caption,
             "audience": ["mode": mode, "listId": "my-story"],
             "allowsReplies": true,
             "replyCount": 0,
@@ -241,7 +243,8 @@ final class StoriesRepository {
             let created = (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
             return Story(id: d.documentID, authorUid: author, createdAt: created,
                          expiresAt: exp, mediaUrl: url,
-                         allowsReplies: data["allowsReplies"] as? Bool ?? true)
+                         allowsReplies: data["allowsReplies"] as? Bool ?? true,
+                         caption: data["caption"] as? String ?? "")
         }
     }
 
