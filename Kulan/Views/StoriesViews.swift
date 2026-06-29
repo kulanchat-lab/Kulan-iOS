@@ -125,6 +125,8 @@ struct StoriesRow: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: storySpacing) {
                 myCard
+                    .id("my-story")   // STABLE identity so its "Add Story/Posted Stories" menu never binds
+                                      // to a friend card when the row re-sorts (SwiftUI context-menu bug).
                 ForEach(repo.others.filter { !StoryPrefs.isHidden($0.authorUid) }) { g in
                     // Each friend card is its OWN Equatable view so its long-press survives the row's
                     // re-renders (inline ForEach context menus only fired on the first card).
@@ -140,6 +142,7 @@ struct StoriesRow: View {
                                     storyNS: storyNS,
                                     groupID: g.id)
                         .equatable()
+                        .id(g.authorUid)   // explicit stable identity → its menu stays bound to this person
                 }
             }
             .padding(.horizontal, storyHPad)
