@@ -130,7 +130,10 @@ struct StoryEditorView: View {
                 }
 
                 if isDrawing {
-                    DrawingCanvas(drawing: $drawing, isActive: true).ignoresSafeArea()
+                    // Must live in the SAME space (geo) as the photo + overlays + the flatten capture rect,
+                    // otherwise strokes bake shifted down by the top inset and the bottom band is clipped.
+                    DrawingCanvas(drawing: $drawing, isActive: true)
+                        .frame(width: geo.size.width, height: geo.size.height)
                 }
 
                 // Center alignment guides + trash zone (only while dragging an overlay).
@@ -190,8 +193,9 @@ struct StoryEditorView: View {
         .alert("Couldn't share", isPresented: $postError) { Button("OK", role: .cancel) {} }
         .sheet(item: $pendingShare) { s in ShareStorySheet(image: s.data, onPosted: { onPosted(); dismiss() }) }
         .fullScreenCover(isPresented: $showCrop) {
-            // TOCropViewController (TimOliver) — proven crop engine. Always crop from the original.
-            TOCropView(image: source,
+            // Crop from the current cropped result if present, so re-opening crop refines instead of
+            // resetting to the original (TOCropViewController, TimOliver — proven crop engine).
+            TOCropView(image: croppedSource ?? source,
                        onDone: { cropped in croppedSource = cropped; showCrop = false; recomputeEdited() },
                        onCancel: { showCrop = false })
                 .ignoresSafeArea()
@@ -290,8 +294,10 @@ struct StoryEditorView: View {
         let base = edited
         let quality: CGFloat = 0.9
         let cap = caption.trimmingCharacters(in: .whitespacesAndNewlines)
-        // No drawing AND no caption AND no text overlays → post the full-resolution edited image.
-        if drawing.bounds.isEmpty && cap.isEmpty && overlays.isEmpty && photoZoom == 1 && photoOffset == .zero {
+        // No drawing AND no caption AND no text overlays AND no real zoom/pan → post the full-resolution
+        // edited image. Use near-identity (a sub-pixel residual offset must not force the lossy path).
+        let zoomed = abs(photoZoom - 1) > 0.001 || abs(photoOffset.width) > 0.5 || abs(photoOffset.height) > 0.5
+        if drawing.bounds.isEmpty && cap.isEmpty && overlays.isEmpty && !zoomed {
             return base.jpegData(compressionQuality: quality) ?? Data()
         }
         let size = canvasSize == .zero ? UIScreen.main.bounds.size : canvasSize
