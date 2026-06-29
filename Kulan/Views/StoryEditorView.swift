@@ -184,7 +184,11 @@ struct StoryEditorView: View {
         }
         .statusBarHidden()
         .alert("Couldn't share", isPresented: $postError) { Button("OK", role: .cancel) {} }
-        .sheet(item: $pendingShare) { s in ShareStorySheet(image: s.data, caption: s.caption, onPosted: { onPosted(); dismiss() }) }
+        .sheet(item: $pendingShare) { s in
+            ShareStorySheet(image: s.data, caption: s.caption, onPosted: { onPosted(); dismiss() })
+                .presentationDetents([.medium, .large])   // small half-sheet (drag up for full)
+                .presentationDragIndicator(.visible)
+        }
         .fullScreenCover(isPresented: $showCrop) {
             // Crop from the current cropped result if present, so re-opening crop refines instead of
             // resetting to the original (TOCropViewController, TimOliver — proven crop engine).
