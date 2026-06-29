@@ -67,10 +67,18 @@ struct StoryPager: UIViewControllerRepresentable {
         // Keep the visible page synced if currentStoryUser changes from outside the pager (e.g. tap-advance
         // off the end of a bucket sets the next user).
         func syncIfNeeded() {
-            guard let pager,
-                  let shown = (pager.viewControllers?.first as? StoryPageHostVC)?.bucketID,
-                  shown != parent.viewModel.currentStoryUser,
-                  let from = index(of: shown), let to = index(of: parent.viewModel.currentStoryUser),
+            guard let pager else { return }
+            let shown = (pager.viewControllers?.first as? StoryPageHostVC)?.bucketID
+            // Initial population: stories/currentStoryUser weren't ready at makeUIViewController time
+            // (startStory runs in .onAppear, after), so the pager came up empty -> black. Fill it now.
+            if shown == nil {
+                if let first = makePage(for: parent.viewModel.currentStoryUser) {
+                    pager.setViewControllers([first], direction: .forward, animated: false)
+                }
+                return
+            }
+            guard shown != parent.viewModel.currentStoryUser,
+                  let from = index(of: shown!), let to = index(of: parent.viewModel.currentStoryUser),
                   let target = makePage(for: parent.viewModel.currentStoryUser)
             else { return }
             pager.setViewControllers([target], direction: to > from ? .forward : .reverse, animated: true)
