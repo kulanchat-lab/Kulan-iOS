@@ -19,6 +19,7 @@ struct StoryPager: UIViewControllerRepresentable {
     let onDragChanged: (CGFloat) -> Void   // overlay fade only; the card itself moves in UIKit (smooth)
     let onCommit: () -> Void               // pulled past threshold -> dismiss
     let onCancel: () -> Void               // released short -> overlays restore
+    let onSwipeUp: () -> Void              // up-swipe -> host opens the views sheet (Telegram)
 
     func makeUIViewController(context: Context) -> UIPageViewController {
         let pager = UIPageViewController(transitionStyle: .scroll, navigationOrientation: .horizontal)
@@ -133,6 +134,11 @@ struct StoryPager: UIViewControllerRepresentable {
             pan.delegate = self
             pager.view.addGestureRecognizer(pan)
             scroll?.panGestureRecognizer.require(toFail: pan)
+            // Up-swipe opens the views sheet (Telegram). Direction-locked so it never fights the cube or dismiss.
+            let upPan = DirectionalPanGestureRecognizer(direction: .up, target: self, action: #selector(handleSwipeUp(_:)))
+            upPan.delegate = self
+            pager.view.addGestureRecognizer(upPan)
+            scroll?.panGestureRecognizer.require(toFail: upPan)
             // Drive Telegram's cube every frame from the pager scroll offset.
             let link = CADisplayLink(target: self, selector: #selector(applyCube))
             link.add(to: .main, forMode: .common)
@@ -188,6 +194,13 @@ struct StoryPager: UIViewControllerRepresentable {
             default: break
             }
         }
+        @objc func handleSwipeUp(_ g: UIPanGestureRecognizer) {
+            guard let pager else { return }
+            let t = g.translation(in: pager.view)
+            let v = g.velocity(in: pager.view)
+            if g.state == .ended, t.y < -90 || v.y < -600 { parent.onSwipeUp() }
+        }
+
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith o: UIGestureRecognizer) -> Bool { false }
     }
 }

@@ -406,7 +406,8 @@ struct StoryViewer: View {
             onUserChanged: { uid in currentBucketUid = uid; markSeen(authorUid: uid); loadBarViewers() },
             onItemSeen: { id in currentStoryId = id; StoryPrefs.markStorySeen(id); markSeenItem(id); loadBarViewers() },
             onDrag: { d in dragDown = d },   // fade my overlays out as the card is pulled down
-            onMore: { showStoryMenu = true } // "…" lives in the library header now, perfectly aligned with X
+            onMore: { showStoryMenu = true }, // "…" lives in the library header now, perfectly aligned with X
+            onSwipeUp: { if currentIsMine { showViewers = true } }  // Telegram: swipe up opens your viewers
         )
         .ignoresSafeArea()
         // My own story: Telegram owner bar (Views + reactions + delete) instead of a reply bar.

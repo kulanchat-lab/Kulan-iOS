@@ -24,6 +24,7 @@ public struct StoryView: View {
     let onItemSeen: ((String) -> Void)?      // fires each individual story id as it becomes visible
     let onDrag: ((CGFloat) -> Void)?         // swipe-down amount (so the host can hide its overlays)
     let onMore: (() -> Void)?                // tap "…" in the header → host shows its actions sheet
+    let onSwipeUp: (() -> Void)?            // up-swipe → host opens the views sheet (Telegram)
 
 
     /// Stories and isPresented required, selectedIndex is optional default: 0
@@ -41,7 +42,8 @@ public struct StoryView: View {
         onUserChanged: ((String) -> Void)? = nil,
         onItemSeen: ((String) -> Void)? = nil,
         onDrag: ((CGFloat) -> Void)? = nil,
-        onMore: (() -> Void)? = nil
+        onMore: (() -> Void)? = nil,
+        onSwipeUp: (() -> Void)? = nil
     ) {
         self.stories = stories
         self.selectedIndex = selectedIndex
@@ -52,6 +54,7 @@ public struct StoryView: View {
         self.onItemSeen = onItemSeen
         self.onDrag = onDrag
         self.onMore = onMore
+        self.onSwipeUp = onSwipeUp
     }
     
     public var body: some View {
@@ -68,7 +71,8 @@ public struct StoryView: View {
                 onMore: onMore,
                 onDragChanged: { dy in onDrag?(dy) },   // fade the host overlays as the card slides
                 onCommit: { isPresented = false },      // card already animated off in UIKit; remove the cover
-                onCancel: { onDrag?(0) }                // sprang back; restore overlays
+                onCancel: { onDrag?(0) },               // sprang back; restore overlays
+                onSwipeUp: { onSwipeUp?() }             // up-swipe → host opens the views sheet
             )
             .ignoresSafeArea()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
