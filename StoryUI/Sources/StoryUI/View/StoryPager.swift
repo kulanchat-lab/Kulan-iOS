@@ -72,6 +72,10 @@ struct StoryPager: UIViewControllerRepresentable {
         let parent: StoryPager
         weak var pager: UIPageViewController?
         weak var internalScroll: UIScrollView?
+        // Stationary blurred backdrop revealed BEHIND the card during swipe-down (instead of black). It does
+        // not move with the drag — only the card (internalScroll) translates — so the gap shows the blur.
+        private let dismissBackdrop = UIImageView()
+        private let dismissBlur = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterialDark))
         private var didInstallPan = false
         fileprivate var cubeLink: CADisplayLink?   // fileprivate so dismantleUIViewController can invalidate it
 
@@ -141,6 +145,18 @@ struct StoryPager: UIViewControllerRepresentable {
             didInstallPan = true
             let scroll = pager.view.subviews.compactMap { $0 as? UIScrollView }.first
             internalScroll = scroll
+            // Stationary blurred backdrop behind the pages: hidden at rest, shown only during a dismiss drag
+            // so the area the card uncovers (above it) is a blurred copy of the story, not black.
+            dismissBackdrop.contentMode = .scaleAspectFill
+            dismissBackdrop.clipsToBounds = true
+            dismissBackdrop.frame = pager.view.bounds
+            dismissBackdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            dismissBackdrop.isHidden = true
+            dismissBlur.frame = pager.view.bounds
+            dismissBlur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            dismissBlur.isHidden = true
+            pager.view.insertSubview(dismissBackdrop, at: 0)
+            pager.view.insertSubview(dismissBlur, aboveSubview: dismissBackdrop)
             let pan = DirectionalPanGestureRecognizer(direction: .down, target: self, action: #selector(handleDismiss(_:)))
             pan.delegate = self
             pager.view.addGestureRecognizer(pan)
@@ -188,38 +204,53 @@ struct StoryPager: UIViewControllerRepresentable {
         }
 
         @objc func handleDismiss(_ g: UIPanGestureRecognizer) {
-            guard let pager else { return }
-            let v = pager.view!
-            let t = g.translation(in: v)
+            guard let pager, let card = internalScroll else { return }
+            let t = g.translation(in: pager.view)
             switch g.state {
             case .began:
+                // Snapshot the current card, show it (blurred) as the stationary backdrop the drag uncovers.
+                dismissBackdrop.image = snapshot(card)
+                dismissBackdrop.isHidden = false
+                dismissBlur.isHidden = false
                 NotificationCenter.default.post(name: .pauseStory, object: nil)   // freeze for the whole drag
             case .changed:
                 let ty = max(0, t.y)
-                let frac = min(1, ty / v.bounds.height)
+                let frac = min(1, ty / card.bounds.height)
                 let scale = 1.0 - 0.4 * frac            // Telegram: card scales 1.0 -> 0.6 as you pull
-                v.layer.cornerCurve = .continuous       // Apple squircle
-                v.layer.cornerRadius = min(40, ty * 0.3) // grows from 0 as you pull down
-                v.layer.masksToBounds = true
-                v.transform = CGAffineTransform(translationX: 0, y: ty).scaledBy(x: scale, y: scale)
+                card.layer.cornerCurve = .continuous    // Apple squircle
+                card.layer.cornerRadius = min(40, ty * 0.3) // grows from 0 as you pull down
+                card.layer.masksToBounds = true
+                // Move ONLY the card; the backdrop stays put, so the area above it shows the blur, not black.
+                card.transform = CGAffineTransform(translationX: 0, y: ty).scaledBy(x: scale, y: scale)
                 parent.onDragChanged(ty)                // fade the host overlays
             case .ended, .cancelled:
-                let ty = t.y, vy = g.velocity(in: v).y
+                let ty = t.y, vy = g.velocity(in: pager.view).y
                 // Telegram commit: translation.y > 200 OR (translation.y > 5 AND velocity.y > 200)
                 if ty > 200 || (ty > 5 && vy > 200) {
                     UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseIn) {
-                        v.transform = CGAffineTransform(translationX: 0, y: v.bounds.height).scaledBy(x: 0.6, y: 0.6)
+                        card.transform = CGAffineTransform(translationX: 0, y: card.bounds.height).scaledBy(x: 0.6, y: 0.6)
                     } completion: { _ in self.parent.onCommit() }
                 } else {
                     NotificationCenter.default.post(name: .resumeStory, object: nil)   // sprang back -> resume
                     UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.85,
                                    initialSpringVelocity: 0.3, options: []) {
-                        v.transform = .identity
-                        v.layer.cornerRadius = 0   // back to square (the media keeps its own rounding)
-                    } completion: { _ in self.parent.onCancel() }
+                        card.transform = .identity
+                        card.layer.cornerRadius = 0   // back to square (the media keeps its own rounding)
+                    } completion: { _ in
+                        self.dismissBackdrop.isHidden = true
+                        self.dismissBlur.isHidden = true
+                        self.parent.onCancel()
+                    }
                 }
             default: break
             }
+        }
+
+        // One-time snapshot of the live card, used as the stationary backdrop during the dismiss drag.
+        private func snapshot(_ view: UIView) -> UIImage? {
+            guard view.bounds.width > 1, view.bounds.height > 1 else { return nil }
+            let r = UIGraphicsImageRenderer(bounds: view.bounds)
+            return r.image { _ in view.drawHierarchy(in: view.bounds, afterScreenUpdates: false) }
         }
         @objc func handleSwipeUp(_ g: UIPanGestureRecognizer) {
             guard let pager else { return }
