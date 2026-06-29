@@ -55,9 +55,10 @@ struct StoryDetailView: View {
         
         GeometryReader { proxy in
             let index = getCurrentIndex()
-            let story = model.stories[index]
             ZStack {
-                if model.stories.count > index {
+                // Empty bucket (all items expired/removed) -> render nothing instead of indexing [-1] (crash).
+                if index < model.stories.count {
+                    let story = model.stories[index]
                     VStack(spacing: 8) {
                         getStoryView(with: index, story: story)
                             .overlay(
@@ -69,8 +70,8 @@ struct StoryDetailView: View {
                             )
                         messageView(with: index)
                     }
+                    getEmojiView(story: story)
                 }
-                getEmojiView(story: story)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .overlay(
@@ -193,7 +194,7 @@ private extension StoryDetailView {
         let image = model.user.image
         VStack {
             HStack(spacing: Constant.progressBarSpacing) {
-                ForEach(model.stories.indices) { index in
+                ForEach(model.stories.indices, id: \.self) { index in
                     ProgressBarView(
                         timerProgress: timerProgress,
                         index: index
@@ -263,6 +264,10 @@ private extension StoryDetailView {
         timerProgress = 0
         isAdvancing = false
         isPaused = false   // safety: never carry a stuck pause across a user switch (R1 freeze fix)
+        // Clear every pause latch too, or a new bucket can start permanently frozen (stuck-state bug).
+        isTimerRunning = false
+        isAnimationStarted = false
+        isFolding = false
     }
     
     func getPreviousStory() {
@@ -351,6 +356,8 @@ private extension StoryDetailView {
         guard !isTapDisabled else { return }
         if (timerProgress + 1) > CGFloat(model.stories.count) {
             //next user
+            guard !isAdvancing else { return }   // don't double-advance if the auto-timer is crossing over too
+            isAdvancing = true
             updateStory()
         } else {
             //next Story
@@ -363,6 +370,8 @@ private extension StoryDetailView {
         configureTapScreen()
         guard !isTapDisabled else { return }
         if (timerProgress - 1) < 0 {
+            guard !isAdvancing else { return }
+            isAdvancing = true
             updateStory(direction: .previous)
         } else {
             timerProgress = CGFloat(Int(timerProgress - 1))
@@ -401,7 +410,7 @@ private extension StoryDetailView {
     }
     
     func getCurrentIndex() -> Int {
-        return min(Int(timerProgress), model.stories.count - 1)
+        return max(0, min(Int(timerProgress), model.stories.count - 1))   // never -1 on an empty bucket
     }
     
     func getStory(with index: Int) -> Story {
@@ -420,6 +429,8 @@ private extension StoryDetailView {
     }
     
     func playVideo() {
+        // Never resume under a sheet or the reply keyboard, and never index an empty bucket.
+        guard !model.stories.isEmpty, !hostPaused, !keyboardManager.isKeyboardOpen else { return }
         let index = getCurrentIndex()
         let currentUser = viewModel.currentStoryUser == model.id
         let video = model.stories[index].config.mediaType == .video

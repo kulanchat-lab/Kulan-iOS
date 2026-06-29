@@ -50,7 +50,12 @@ final class DirectionalPanGestureRecognizer: UIPanGestureRecognizer {
                 return false
             }()
 
-            guard isSatisfied else { return }
+            guard isSatisfied else {
+                // Clearly off-axis movement: fail NOW instead of lingering in .possible, so a scroll view
+                // that did require(toFail:) us (the cube pager) can begin instantly (no sticky paging).
+                if abs(deltaX) > 0.5 || abs(deltaY) > 0.5 { state = .failed }
+                return
+            }
         }
 
         super.touchesMoved(touches, with: event)

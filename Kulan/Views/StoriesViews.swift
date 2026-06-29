@@ -434,9 +434,11 @@ struct StoryViewer: View {
             if !currentIsMine {
                 Button("Hide Stories") { StoryPrefs.toggleHidden(currentBucketUid); isPresented = false }
             }
-            Button("Save") { saveCurrentImage() }
-            Button("Forward") { Task { if let img = await loadCurrentImage() { forwardImg = StoryImagePayload(image: img) } } }
-            Button("Share") { Task { if let img = await loadCurrentImage() { shareImg = StoryImagePayload(image: img) } } }
+            Button("Save") { saveCurrentImage(currentStory?.mediaUrl) }
+            Button("Forward") { let u = currentStory?.mediaUrl
+                Task { if let img = await loadCurrentImage(u) { forwardImg = StoryImagePayload(image: img) } } }
+            Button("Share") { let u = currentStory?.mediaUrl
+                Task { if let img = await loadCurrentImage(u) { shareImg = StoryImagePayload(image: img) } } }
             Button("Cancel", role: .cancel) {}
         }
         .overlay(alignment: .bottom) {
@@ -450,6 +452,9 @@ struct StoryViewer: View {
             }
         }
         .onChange(of: isPresented) { _, shown in if !shown { onClose() } }
+        // Safety net: never leave a story paused after the viewer goes away (the swipe-down dismiss posts
+        // pauseStory and does not resume on commit; a sheet up at teardown can also skip the resume).
+        .onDisappear { NotificationCenter.default.post(name: .init("resumeStory"), object: nil) }
         // Freeze the running story + progress while any sheet is shown over it; resume on dismiss.
         .onChange(of: sheetUp) { _, up in
             NotificationCenter.default.post(name: up ? .init("pauseStory") : .init("resumeStory"), object: nil)
@@ -466,15 +471,17 @@ struct StoryViewer: View {
     }
 
 
-    private func loadCurrentImage() async -> UIImage? {
-        guard let url = currentStory?.mediaUrl, !url.isEmpty else { return nil }
+    // Pass an explicit url (captured synchronously at button-tap) so a story that advances in the gap
+    // after the "…" dialog closes can't swap the photo out from under Save/Forward/Share.
+    private func loadCurrentImage(_ captured: String? = nil) async -> UIImage? {
+        guard let url = captured ?? currentStory?.mediaUrl, !url.isEmpty else { return nil }
         if let m = DiskImageCache.shared.memoryImage(url) { return m }
         return await DiskImageCache.shared.image(for: url)
     }
 
-    private func saveCurrentImage() {
+    private func saveCurrentImage(_ captured: String? = nil) {
         Task {
-            guard let img = await loadCurrentImage() else { return }
+            guard let img = await loadCurrentImage(captured) else { return }
             let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
             guard status == .authorized || status == .limited else { return }
             try? await PHPhotoLibrary.shared().performChanges {

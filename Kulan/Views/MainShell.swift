@@ -445,6 +445,7 @@ struct ChatsView: View {
     // Per-segment seen flags for the 1:1 peer's stories (empty = no active story → no ring).
     private func storySeen(_ conv: Conversation) -> [Bool] {
         guard !conv.isGroup,
+              !StoryPrefs.isHidden(conv.otherUid(me)),   // hidden author: no ring on the chat-list avatar
               let g = storiesRepo.others.first(where: { $0.authorUid == conv.otherUid(me) })
         else { return [] }
         return StoryPrefs.seenFlags(g.stories)
@@ -730,7 +731,11 @@ struct ChatsView: View {
                 let others = StoriesRepository.shared.others.filter { !StoryPrefs.isHidden($0.authorUid) }
                 let close: () -> Void = {
                     viewerGroup = nil
-                    Task { await StoriesRepository.shared.load(force: true) }   // refresh seen rings
+                    // Defer the reload so the hero shrink animation lands BEFORE the row re-sorts (the
+                    // just-seen bucket moves, which would otherwise make the zoom shrink toward a moving card).
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        Task { await StoriesRepository.shared.load(force: true) }   // refresh seen rings
+                    }
                 }
                 // A friend's story opens the whole ordered list (swipe person to person);
                 // My Story (not in `others`) opens on its own.

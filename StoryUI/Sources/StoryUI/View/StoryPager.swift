@@ -40,6 +40,14 @@ struct StoryPager: UIViewControllerRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
+    // CADisplayLink retains its target (the coordinator), and the run loop retains the link, so deinit
+    // never runs on its own -> leak + a per-frame wakeup that lives forever. Tear it down explicitly when
+    // SwiftUI dismantles the representable (story closed).
+    static func dismantleUIViewController(_ uiViewController: UIPageViewController, coordinator: Coordinator) {
+        coordinator.cubeLink?.invalidate()
+        coordinator.cubeLink = nil
+    }
+
     // Telegram's cube transform (sideAngle = 0): perspective m34 = -1/500, Y-rotation up to 90°, plus the
     // cube-distance depth so the two faces meet at the shared edge, and a face push (+w/2 z) so the centred
     // page sits flat at full size (cancels the -w/2). t in [-1, 1]: 0 = flat centre, ±1 = edge-on.
@@ -149,6 +157,9 @@ struct StoryPager: UIViewControllerRepresentable {
         // by its position relative to screen centre. Centre page = flat; ±1 page = 90° (edge-on, hidden).
         @objc func applyCube() {
             guard let scroll = internalScroll else { return }
+            // Only do per-frame transform work while a horizontal swipe is actually in motion. At rest the
+            // pages are already settled (centred page = identity from the last frame), so skip the churn.
+            guard scroll.isDragging || scroll.isDecelerating || scroll.isTracking else { return }
             let w = scroll.bounds.width
             guard w > 1 else { return }
             for sub in scroll.subviews {
@@ -168,6 +179,8 @@ struct StoryPager: UIViewControllerRepresentable {
             let v = pager.view!
             let t = g.translation(in: v)
             switch g.state {
+            case .began:
+                NotificationCenter.default.post(name: .pauseStory, object: nil)   // freeze for the whole drag
             case .changed:
                 let ty = max(0, t.y)
                 let frac = min(1, ty / v.bounds.height)
@@ -185,6 +198,7 @@ struct StoryPager: UIViewControllerRepresentable {
                         v.transform = CGAffineTransform(translationX: 0, y: v.bounds.height).scaledBy(x: 0.6, y: 0.6)
                     } completion: { _ in self.parent.onCommit() }
                 } else {
+                    NotificationCenter.default.post(name: .resumeStory, object: nil)   // sprang back -> resume
                     UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.85,
                                    initialSpringVelocity: 0.3, options: []) {
                         v.transform = .identity
