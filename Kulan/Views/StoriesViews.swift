@@ -13,9 +13,11 @@ struct StoryRingView: View {
         let n = max(1, seen.count)
         let gap: CGFloat = n > 1 ? 0.045 : 0          // gap between segments (fraction of the circle)
         let seg: CGFloat = 1.0 / CGFloat(n)
-        let gradient = AnyShapeStyle(AngularGradient(colors: [Color(hex: 0xF7971E), Color(hex: 0xDD2476),
-                                                             Color(hex: 0x7F00FF), Color(hex: 0xF7971E)], center: .center))
-        let grey = AnyShapeStyle(Color(white: 0.62))  // viewed: clearly visible grey (was too faint)
+        // Unviewed: green→blue gradient (Telegram/WhatsApp style). Viewed: a real medium grey (the old
+        // 0.62 read as white on the dark card).
+        let gradient = AnyShapeStyle(LinearGradient(colors: [Color(hex: 0x34C759), Color(hex: 0x0A84FF)],
+                                                    startPoint: .topLeading, endPoint: .bottomTrailing))
+        let grey = AnyShapeStyle(Color(white: 0.46))
         ZStack {
             ForEach(0..<n, id: \.self) { i in
                 let isSeen = i < seen.count ? seen[i] : false
