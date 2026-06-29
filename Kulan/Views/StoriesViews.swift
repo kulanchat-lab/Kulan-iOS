@@ -425,22 +425,31 @@ struct StoryViewer: View {
         }
         .sheet(item: $shareImg) { p in ActivityView(items: [p.image]) }
         .sheet(item: $forwardImg) { p in StoryForwardSheet(image: p.image, onSent: { flashSentToast() }) }
-        .confirmationDialog("Delete this story?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { Task { await deleteCurrent() } }
-            Button("Cancel", role: .cancel) {}
-        }
-        // "…" actions (triggered from the header ellipsis). My own story: delete lives in the owner bar.
-        .confirmationDialog("", isPresented: $showStoryMenu, titleVisibility: .hidden) {
-            if !currentIsMine {
-                Button("Hide Stories") { StoryPrefs.toggleHidden(currentBucketUid); isPresented = false }
+        // Native-style bottom action sheets. (confirmationDialog rendered CENTERED over the cover's clear
+        // presentation background; this anchors to the bottom with a material group + a separate Cancel.)
+        .overlay {
+            if showStoryMenu {
+                BottomActionSheet(onCancel: { showStoryMenu = false }) {
+                    if !currentIsMine {
+                        sheetButton("Hide Stories") { showStoryMenu = false; StoryPrefs.toggleHidden(currentBucketUid); isPresented = false }
+                        Divider()
+                    }
+                    sheetButton("Save") { let u = currentStory?.mediaUrl; showStoryMenu = false; saveCurrentImage(u) }
+                    Divider()
+                    sheetButton("Forward") { let u = currentStory?.mediaUrl; showStoryMenu = false
+                        Task { if let img = await loadCurrentImage(u) { forwardImg = StoryImagePayload(image: img) } } }
+                    Divider()
+                    sheetButton("Share") { let u = currentStory?.mediaUrl; showStoryMenu = false
+                        Task { if let img = await loadCurrentImage(u) { shareImg = StoryImagePayload(image: img) } } }
+                }
+            } else if confirmDelete {
+                BottomActionSheet(onCancel: { confirmDelete = false }) {
+                    sheetButton("Delete", destructive: true) { confirmDelete = false; Task { await deleteCurrent() } }
+                }
             }
-            Button("Save") { saveCurrentImage(currentStory?.mediaUrl) }
-            Button("Forward") { let u = currentStory?.mediaUrl
-                Task { if let img = await loadCurrentImage(u) { forwardImg = StoryImagePayload(image: img) } } }
-            Button("Share") { let u = currentStory?.mediaUrl
-                Task { if let img = await loadCurrentImage(u) { shareImg = StoryImagePayload(image: img) } } }
-            Button("Cancel", role: .cancel) {}
         }
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: showStoryMenu)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: confirmDelete)
         .overlay(alignment: .bottom) {
             if sentToast {
                 Text(toastText)
@@ -473,6 +482,16 @@ struct StoryViewer: View {
 
     // Pass an explicit url (captured synchronously at button-tap) so a story that advances in the gap
     // after the "…" dialog closes can't swap the photo out from under Save/Forward/Share.
+    @ViewBuilder private func sheetButton(_ title: String, destructive: Bool = false, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.body.weight(destructive ? .semibold : .regular))
+                .foregroundStyle(destructive ? Color.red : Color.primary)
+                .frame(maxWidth: .infinity).frame(height: 56)
+                .contentShape(Rectangle())
+        }
+    }
+
     private func loadCurrentImage(_ captured: String? = nil) async -> UIImage? {
         guard let url = captured ?? currentStory?.mediaUrl, !url.isEmpty else { return nil }
         if let m = DiskImageCache.shared.memoryImage(url) { return m }
@@ -629,6 +648,36 @@ struct SeenBySheet: View {
 
 // Telegram-style story viewers sheet: horizontal cards of my stories (with view/❤️ counts),
 // All-Viewers/Contacts segmented control, search, and a viewer list (avatar, name, time, heart).
+// Native-style bottom action sheet: dim scrim + a material action group + a separate Cancel pill,
+// anchored to the bottom (replaces confirmationDialog, which rendered centered over the clear cover).
+struct BottomActionSheet<Content: View>: View {
+    let onCancel: () -> Void
+    @ViewBuilder let content: Content
+    init(onCancel: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+        self.onCancel = onCancel
+        self.content = content()
+    }
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.32).ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onCancel)
+            VStack(spacing: 8) {
+                VStack(spacing: 0) { content }
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                Button(action: onCancel) {
+                    Text("Cancel").font(.body.weight(.semibold)).foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity).frame(height: 56).contentShape(Rectangle())
+                }
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+}
+
 struct StoryViewersSheet: View {
     let stories: [Story]
     let selectedId: String
