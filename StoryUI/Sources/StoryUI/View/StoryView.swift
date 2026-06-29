@@ -25,7 +25,6 @@ public struct StoryView: View {
     let onDrag: ((CGFloat) -> Void)?         // swipe-down amount (so the host can hide its overlays)
 
     @State private var drag: CGSize = .zero   // swipe-down-to-dismiss
-    @State private var verticalLock: Bool? = nil   // first move locks: true = dismiss, false = cube
 
     /// Stories and isPresented required, selectedIndex is optional default: 0
     /// - Parameters:
@@ -59,61 +58,35 @@ public struct StoryView: View {
             // Tuned to feel like WhatsApp/IG: backdrop fades (not the card), real shrink, fast corner
             // ramp, finger-follow on both axes.
             let down: CGFloat = max(0, drag.height)
-            // full width slide, no shrink. corners round as you pull. chats list shows behind (cover is clear).
+            // full width slide down, corners round as you pull, chats list shows behind (cover is clear).
             let corner: CGFloat = min(44, down * 0.5)
-            ZStack {
-                TabView(selection: $viewModel.currentStoryUser) {
-                    ForEach(viewModel.stories) { model in
-                        StoryDetailView(
-                            viewModel: viewModel,
-                            model: model,
-                            isPresented: $isPresented,
-                            userClosure: userClosure,
-                            onProfile: onProfile,
-                            onItemSeen: onItemSeen,
-                            isDismissing: down > 0
-                        )
+            // UIKit pager owns left/right (cube). The down dismiss pan lives on the pager's scroll with
+            // require(toFail:), so cube and dismiss can never run together (Signal's mechanism).
+            StoryPager(
+                viewModel: viewModel,
+                isPresented: $isPresented,
+                userClosure: userClosure,
+                onProfile: onProfile,
+                onItemSeen: onItemSeen,
+                onDragChanged: { dy in drag = CGSize(width: 0, height: dy); onDrag?(dy) },
+                onDragEnded: { ty, vy in
+                    if ty > 130 || vy > 500 {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+                            drag.height = UIScreen.main.bounds.height
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { isPresented = false }
+                    } else {
+                        withAnimation(.spring(response: 0.34, dampingFraction: 0.66)) { drag = .zero }
+                        onDrag?(0)
                     }
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .disabled(verticalLock == true)             // gesture locked vertical -> cube off
-                .background(Color.black)                    // solid card slides as one unit
-                .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-                .offset(y: down)                            // straight down, full width
-            }
+            )
+            .background(Color.black)
+            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+            .offset(y: down)
             .ignoresSafeArea()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // Swipe DOWN anywhere to dismiss; release past 100pt pops, otherwise springs back.
-            // simultaneousGesture + vertical-dominance check so horizontal paging still works.
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 8)
-                    .onChanged { v in
-                        // first real move locks the axis so cube and dismiss never run together
-                        if verticalLock == nil {
-                            verticalLock = abs(v.translation.height) > abs(v.translation.width)
-                        }
-                        if verticalLock == true, v.translation.height > 0 {
-                            drag = CGSize(width: 0, height: v.translation.height)   // y only, no drift
-                            onDrag?(drag.height)
-                        }
-                    }
-                    .onEnded { v in
-                        let wasVertical = verticalLock == true
-                        verticalLock = nil
-                        guard wasVertical else { return }   // horizontal = cube, nothing to settle
-                        let flick: CGFloat = v.predictedEndTranslation.height
-                        if v.translation.height > 130 || flick > 500 {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
-                                drag.height = UIScreen.main.bounds.height
-                            }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { isPresented = false }
-                        } else {
-                            withAnimation(.spring(response: 0.34, dampingFraction: 0.66)) { drag = .zero }
-                            onDrag?(0)
-                        }
-                    }
-            )
-            .onChange(of: viewModel.currentStoryUser) { new in onUserChanged?(new) }   // mark each viewed bucket (iOS14 single-arg onChange — pkg min is iOS14)
+            .onChange(of: viewModel.currentStoryUser) { new in onUserChanged?(new) }   // mark each viewed bucket
             .onAppear { startStory() }
             .onDisappear { stopVideo() }
         }
