@@ -705,10 +705,13 @@ struct StoryViewersSheet: View {
             } else {
                 List(viewers) { v in viewerRow(v) }
                     .listStyle(.plain)
+                    .scrollDismissesKeyboard(.interactively)   // drag the list to dismiss the search keyboard
             }
         }
-        .presentationDetents([.large])
+        // Telegram-style bottom sheet: drag between half and full height, drag down to dismiss.
+        .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .presentationContentInteraction(.scrolls)   // scrolling the list doesn't fight the sheet drag
         .onChange(of: scrolledID) { _, v in if let v { selected = v } }   // centered card drives the viewer list
         .task { await loadAll() }
     }
