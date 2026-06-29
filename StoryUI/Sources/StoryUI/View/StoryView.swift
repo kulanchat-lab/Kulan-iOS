@@ -24,7 +24,6 @@ public struct StoryView: View {
     let onItemSeen: ((String) -> Void)?      // fires each individual story id as it becomes visible
     let onDrag: ((CGFloat) -> Void)?         // swipe-down amount (so the host can hide its overlays)
 
-    @State private var drag: CGSize = .zero   // swipe-down-to-dismiss
 
     /// Stories and isPresented required, selectedIndex is optional default: 0
     /// - Parameters:
@@ -54,36 +53,19 @@ public struct StoryView: View {
     
     public var body: some View {
         if isPresented {
-            // Explicit CGFloat math — avoids Release WMO's "ambiguous operator '/'" on Int literals.
-            // Tuned to feel like WhatsApp/IG: backdrop fades (not the card), real shrink, fast corner
-            // ramp, finger-follow on both axes.
-            let down: CGFloat = max(0, drag.height)
-            // full width slide down, corners round as you pull, chats list shows behind (cover is clear).
-            let corner: CGFloat = min(44, down * 0.5)
-            // UIKit pager owns left/right (cube). The down dismiss pan lives on the pager's scroll with
-            // require(toFail:), so cube and dismiss can never run together (Signal's mechanism).
+            // UIKit pager owns left/right (flat slide) AND the swipe-down dismiss. The card moves in pure
+            // UIKit (the pan sets the view transform directly = native smooth), so no SwiftUI offset here.
+            // The down pan uses require(toFail:) on the pager scroll, so slide and dismiss never overlap.
             StoryPager(
                 viewModel: viewModel,
                 isPresented: $isPresented,
                 userClosure: userClosure,
                 onProfile: onProfile,
                 onItemSeen: onItemSeen,
-                onDragChanged: { dy in drag = CGSize(width: 0, height: dy); onDrag?(dy) },
-                onDragEnded: { ty, vy in
-                    if ty > 130 || vy > 500 {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
-                            drag.height = UIScreen.main.bounds.height
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { isPresented = false }
-                    } else {
-                        withAnimation(.spring(response: 0.34, dampingFraction: 0.66)) { drag = .zero }
-                        onDrag?(0)
-                    }
-                }
+                onDragChanged: { dy in onDrag?(dy) },   // fade the host overlays as the card slides
+                onCommit: { isPresented = false },      // card already animated off in UIKit; remove the cover
+                onCancel: { onDrag?(0) }                // sprang back; restore overlays
             )
-            .background(Color.black)
-            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-            .offset(y: down)
             .ignoresSafeArea()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onChange(of: viewModel.currentStoryUser) { new in onUserChanged?(new) }   // mark each viewed bucket

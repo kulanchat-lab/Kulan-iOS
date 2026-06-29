@@ -15,14 +15,15 @@ struct StoryPager: UIViewControllerRepresentable {
     let userClosure: UserCompletionHandler?
     let onProfile: ((StoryUIUser) -> Void)?
     let onItemSeen: ((String) -> Void)?
-    let onDragChanged: (CGFloat) -> Void
-    let onDragEnded: (CGFloat, CGFloat) -> Void   // translation.y, velocity.y
+    let onDragChanged: (CGFloat) -> Void   // overlay fade only; the card itself moves in UIKit (smooth)
+    let onCommit: () -> Void               // pulled past threshold -> dismiss
+    let onCancel: () -> Void               // released short -> overlays restore
 
     func makeUIViewController(context: Context) -> UIPageViewController {
         let pager = UIPageViewController(transitionStyle: .scroll, navigationOrientation: .horizontal)
         pager.dataSource = context.coordinator
         pager.delegate = context.coordinator
-        pager.view.backgroundColor = .clear
+        pager.view.backgroundColor = .black   // solid card; slides as one unit during dismiss
         context.coordinator.pager = pager
         if let first = context.coordinator.makePage(for: viewModel.currentStoryUser) {
             pager.setViewControllers([first], direction: .forward, animated: false)
@@ -113,12 +114,29 @@ struct StoryPager: UIViewControllerRepresentable {
 
         @objc func handleDismiss(_ g: UIPanGestureRecognizer) {
             guard let pager else { return }
-            let t = g.translation(in: pager.view)
+            let v = pager.view!
+            let t = g.translation(in: v)
             switch g.state {
             case .changed:
-                parent.onDragChanged(max(0, t.y))
+                let ty = max(0, t.y)
+                v.transform = CGAffineTransform(translationX: 0, y: ty)   // native, frame-synced
+                let corner = min(44, ty * 0.5)
+                v.layer.cornerRadius = corner
+                v.layer.masksToBounds = corner > 0
+                parent.onDragChanged(ty)   // fade the host overlays
             case .ended, .cancelled:
-                parent.onDragEnded(t.y, g.velocity(in: pager.view).y)
+                let ty = t.y, vy = g.velocity(in: v).y
+                if ty > 120 || vy > 600 {
+                    UIView.animate(withDuration: 0.22, delay: 0, options: .curveEaseIn) {
+                        v.transform = CGAffineTransform(translationX: 0, y: v.bounds.height)
+                    } completion: { _ in self.parent.onCommit() }
+                } else {
+                    UIView.animate(withDuration: 0.34, delay: 0, usingSpringWithDamping: 0.82,
+                                   initialSpringVelocity: 0.4, options: [.curveEaseOut]) {
+                        v.transform = .identity
+                        v.layer.cornerRadius = 0
+                    } completion: { _ in self.parent.onCancel() }
+                }
             default: break
             }
         }
