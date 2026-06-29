@@ -95,9 +95,7 @@ struct ZoomableImageScrollView: UIViewRepresentable {
     func makeUIView(context: Context) -> UIScrollView {
         let scroll = UIScrollView()
         scroll.delegate = context.coordinator
-        scroll.minimumZoomScale = 1
-        scroll.maximumZoomScale = 4
-        scroll.bouncesZoom = true
+        scroll.bouncesZoom = true            // min/max set in layout from the image's fit scale
         scroll.showsVerticalScrollIndicator = false
         scroll.showsHorizontalScrollIndicator = false
         scroll.backgroundColor = .clear
@@ -107,6 +105,10 @@ struct ZoomableImageScrollView: UIViewRepresentable {
         let iv = UIImageView(image: image)
         iv.contentMode = .scaleAspectFit
         iv.isUserInteractionEnabled = true
+        iv.layer.minificationFilter = .trilinear      // smoother scaled rendering (Signal)
+        iv.layer.magnificationFilter = .trilinear
+        iv.layer.allowsEdgeAntialiasing = true
+        iv.clipsToBounds = true
         scroll.addSubview(iv)
         context.coordinator.scrollView = scroll
         context.coordinator.imageView = iv
@@ -144,9 +146,15 @@ struct ZoomableImageScrollView: UIViewRepresentable {
 
         func layoutImageIfNeeded() {
             guard !didLayout, let scroll = scrollView, let iv = imageView, scroll.bounds.width > 0 else { return }
+            let imgSize = iv.image?.size ?? scroll.bounds.size
+            guard imgSize.width > 0, imgSize.height > 0 else { return }
             didLayout = true
-            iv.frame = CGRect(origin: .zero, size: scroll.bounds.size)   // aspectFit handles the letterbox
-            scroll.contentSize = scroll.bounds.size
+            iv.frame = CGRect(origin: .zero, size: imgSize)   // true pixels; fit comes from minimumZoomScale
+            scroll.contentSize = imgSize
+            let fit = min(scroll.bounds.width / imgSize.width, scroll.bounds.height / imgSize.height)
+            scroll.minimumZoomScale = fit
+            scroll.maximumZoomScale = fit * 8                 // up to 8x fit (Signal)
+            scroll.zoomScale = fit
             center(scroll)
         }
 
@@ -167,13 +175,15 @@ struct ZoomableImageScrollView: UIViewRepresentable {
         }
 
         @objc func onDoubleTap(_ g: UITapGestureRecognizer) {
-            guard let scroll = scrollView else { return }
-            if scroll.zoomScale > scroll.minimumZoomScale {
-                scroll.setZoomScale(scroll.minimumZoomScale, animated: true)
+            guard let scroll = scrollView, let iv = imageView else { return }
+            if scroll.zoomScale > scroll.minimumZoomScale + 0.01 {
+                scroll.setZoomScale(scroll.minimumZoomScale, animated: true)   // toggle back to fit
             } else {
-                let p = g.location(in: imageView)
-                let side = scroll.bounds.width / 2.5
-                scroll.zoom(to: CGRect(x: p.x - side / 2, y: p.y - side / 2, width: side, height: side), animated: true)
+                let target = scroll.minimumZoomScale * 3      // ~3x fit, centered on the tap
+                let p = g.location(in: iv)
+                let w = scroll.bounds.width / target
+                let h = scroll.bounds.height / target
+                scroll.zoom(to: CGRect(x: p.x - w / 2, y: p.y - h / 2, width: w, height: h), animated: true)
             }
         }
 
@@ -191,8 +201,10 @@ struct ZoomableImageScrollView: UIViewRepresentable {
             let t = g.translation(in: scroll)
             switch g.state {
             case .changed:
-                scroll.transform = CGAffineTransform(translationX: t.x * 0.4, y: max(0, t.y))
-                parent.onDim(1 - min(1, abs(t.y) / 400) * 0.7)
+                let ty: CGFloat = max(0, t.y)
+                scroll.transform = CGAffineTransform(translationX: t.x * CGFloat(0.4), y: ty)
+                let progress: Double = min(1.0, Double(ty) / 400.0)
+                parent.onDim(1.0 - progress * 0.7)
             case .ended, .cancelled:
                 if t.y > 120 {
                     parent.onDismiss()
