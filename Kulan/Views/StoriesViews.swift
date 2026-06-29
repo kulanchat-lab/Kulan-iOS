@@ -616,10 +616,14 @@ struct StoryViewer: View {
             }
             .buttonStyle(.plain)
         }
-        // More top breathing room + a gradient that reaches SOLID black at the controls, so "N Views"/trash
-        // sit on a clean black bar instead of touching the photo.
-        .padding(.horizontal, 18).padding(.top, 30).padding(.bottom, 22)
-        .background(LinearGradient(colors: [.clear, .black, .black], startPoint: .top, endPoint: .bottom))
+        // Telegram: a DISTINCT solid black bar (not a soft shadow). Only a thin blend at the very top edge,
+        // then fully solid black under the avatars/Views/trash.
+        .padding(.horizontal, 18).padding(.top, 20).padding(.bottom, 22)
+        .background(LinearGradient(stops: [
+            .init(color: .clear, location: 0.0),
+            .init(color: .black, location: 0.22),
+            .init(color: .black, location: 1.0)
+        ], startPoint: .top, endPoint: .bottom))
     }
 
     private func loadBarViewers() {
