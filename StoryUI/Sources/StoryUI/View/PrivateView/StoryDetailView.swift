@@ -39,6 +39,7 @@ struct StoryDetailView: View {
     @State private var showEmoji: Bool = true
     @State private var isPaused: Bool = false   // hold-to-pause
     @State private var isAdvancing: Bool = false   // guard the segment-end double-advance
+    @State private var isFolding: Bool = false   // true while this page is mid-cube-fold (pause timer)
 
     private var messageViewPosition: CGFloat {
         return -keyboardManager.currentHeight
@@ -82,6 +83,12 @@ struct StoryDetailView: View {
                 anchor: proxy.frame(in: .global).minX > 0 ? .leading : .trailing,
                 perspective: 2.5
             )
+            // report how far this page is from centre so the timer can pause mid-fold
+            .preference(key: StoryFoldKey.self, value: proxy.frame(in: .global).minX)
+        }
+        .onPreferenceChange(StoryFoldKey.self) { minX in
+            let folding = abs(minX) > 2     // off-centre = mid-fold (or off-screen): freeze the timer
+            if folding != isFolding { isFolding = folding }
         }
         .onChange(of: viewModel.currentStoryUser) { newValue in
             NotificationCenter.default.post(name: .stopVideo, object: nil)
@@ -238,8 +245,10 @@ private extension StoryDetailView {
     }
     
     func getAngle(proxy: GeometryProxy) -> Angle {
-        // no cube / 3d. signal uses a flat page slide; the cube made it feel worse.
-        return .zero
+        // cube fold based on horizontal position. paused mid-fold by the timer-pause control.
+        let rotation: CGFloat = 45
+        let progress = proxy.frame(in: .global).minX / proxy.size.width
+        return Angle(degrees: rotation * progress)
     }
     
     func resetProgress() {
@@ -300,7 +309,7 @@ private extension StoryDetailView {
         }
         // Pause sources: emoji-fly animation (isTimerRunning), hold-to-pause (isPaused),
         // and composing a reply (keyboard open) — any of them freezes the segment + progress.
-        guard !isTimerRunning, !isPaused, !keyboardManager.isKeyboardOpen else { return }
+        guard !isTimerRunning, !isPaused, !isFolding, !keyboardManager.isKeyboardOpen else { return }
         
         let index = getCurrentIndex()
         let story = getStory(with: index)
@@ -438,4 +447,10 @@ private extension StoryDetailView {
             playVideo()
         }
     }
+}
+
+// reports a page's horizontal offset from centre so the timer can pause mid-fold.
+struct StoryFoldKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
