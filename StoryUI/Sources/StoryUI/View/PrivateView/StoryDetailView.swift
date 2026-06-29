@@ -62,6 +62,10 @@ struct StoryDetailView: View {
                     let story = model.stories[index]
                     VStack(spacing: 8) {
                         getStoryView(with: index, story: story)
+                            // Full-bleed: fill the WHOLE card top-to-bottom (no centered rounded card, which
+                            // left a black strip above the progress bars). The aspect-fit photo + blurred
+                            // backdrop now cover the entire screen, like WhatsApp.
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .overlay(
                                 tapStory()
                                     .offset(
@@ -69,9 +73,6 @@ struct StoryDetailView: View {
                                         ? -Constant.MessageView.height : .zero
                                     )
                             )
-                            // Apple-style continuous rounded corners on the media itself (header sits
-                            // above it, reply bar below it on black) — like Telegram's story card.
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                             // Telegram-style caption: overlaid on the media (never baked into the photo,
                             // which clipped it), bottom-left over a soft gradient, tap to expand.
                             // (iOS 14 overlay form — the library deploys to iOS 14, no trailing-closure overlay.)
