@@ -433,13 +433,7 @@ struct TextOverlayView: View {
         storyStyledText(overlay, maxWidth: canvasSize.width * 0.9)
             .scaleEffect(liveScale)
             .rotationEffect(liveRot)
-            .overlay {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-                        .foregroundStyle(.white.opacity(0.9)).padding(-6)
-                }
-            }
+            // (No dashed selection border — removed per request; the text just shows plainly while editing.)
             .position(liveCenter)
             .allowsHitTesting(interactive)
             .highPriorityGesture(TapGesture().onEnded { onTap() })
