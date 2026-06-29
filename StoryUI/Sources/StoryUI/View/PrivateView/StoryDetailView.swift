@@ -74,7 +74,8 @@ struct StoryDetailView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                             // Telegram-style caption: overlaid on the media (never baked into the photo,
                             // which clipped it), bottom-left over a soft gradient, tap to expand.
-                            .overlay(alignment: .bottom) { captionView(story.caption) }
+                            // (iOS 14 overlay form — the library deploys to iOS 14, no trailing-closure overlay.)
+                            .overlay(captionView(story.caption), alignment: .bottom)
                         messageView(with: index)
                     }
                     getEmojiView(story: story)
