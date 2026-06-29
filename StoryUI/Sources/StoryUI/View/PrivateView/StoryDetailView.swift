@@ -245,10 +245,8 @@ private extension StoryDetailView {
     }
     
     func getAngle(proxy: GeometryProxy) -> Angle {
-        // cube fold based on horizontal position. paused mid-fold by the timer-pause control.
-        let rotation: CGFloat = 45
-        let progress = proxy.frame(in: .global).minX / proxy.size.width
-        return Angle(degrees: rotation * progress)
+        // no 3D cube. flat slide left/right (UIPageViewController handles paging), like Signal/Instagram.
+        return .zero
     }
     
     func resetProgress() {
