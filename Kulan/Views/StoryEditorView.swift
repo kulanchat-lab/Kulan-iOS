@@ -25,7 +25,7 @@ struct StoryEditorView: View {
     @GestureState private var gZoom: CGFloat = 1
     @State private var photoOffset: CGSize = .zero
     @GestureState private var gPan: CGSize = .zero
-    private var liveZoom: CGFloat { min(6, max(0.6, photoZoom * gZoom)) }   // rubber during gesture; clamped to [1,4] on release
+    private var liveZoom: CGFloat { min(4.3, max(0.95, photoZoom * gZoom)) }   // tiny rubber only; never visibly shrinks below fit. clamped to [1,4] on release
     private var livePan: CGSize { CGSize(width: photoOffset.width + gPan.width, height: photoOffset.height + gPan.height) }
     @State private var posting = false
     @State private var postError = false
@@ -209,11 +209,10 @@ struct StoryEditorView: View {
             // dismissing the keyboard (it used to hide with the toolbar → no way to send).
             HStack(spacing: 10) {
                 HStack(spacing: 10) {
-                    Image(systemName: "plus.square.on.square").foregroundStyle(.white)
                     TextField("", text: $caption, prompt: Text("Add a caption…").foregroundColor(Color(.systemGray3)))
                         .foregroundStyle(.white).focused($captionFocused)
                 }
-                .padding(.horizontal, 16).frame(height: 46)
+                .padding(.horizontal, 18).frame(height: 46)
                 .background(Color(white: 0.13), in: Capsule())
 
                 if captionFocused { sendButton }
@@ -221,7 +220,7 @@ struct StoryEditorView: View {
 
             // Tool row hides while typing a caption (IG/WA: only the caption field stays, above the keyboard).
             if !captionFocused {
-                HStack(spacing: 0) {
+                HStack(spacing: 14) {
                     tool("textformat", active: false) { addTextOverlay() }   // Aa — add text on the photo
                     tool("crop", active: croppedSource != nil) { showCrop = true }
                     tool(isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle", active: isDrawing) { isDrawing.toggle() }
