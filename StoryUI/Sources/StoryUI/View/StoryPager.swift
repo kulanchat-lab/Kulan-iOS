@@ -70,7 +70,7 @@ struct StoryPager: UIViewControllerRepresentable {
         weak var pager: UIPageViewController?
         weak var internalScroll: UIScrollView?
         private var didInstallPan = false
-        private var cubeLink: CADisplayLink?
+        fileprivate var cubeLink: CADisplayLink?   // fileprivate so dismantleUIViewController can invalidate it
 
         init(_ parent: StoryPager) { self.parent = parent }
         deinit { cubeLink?.invalidate() }
