@@ -340,6 +340,7 @@ struct StoryViewer: View {
     @State private var barViewers: [StoryViewerInfo] = []
     @State private var showViewers = false
     @State private var confirmDelete = false
+    @State private var showStoryMenu = false   // "…" header tap → actions sheet
     @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
     @State private var forwardImg: StoryImagePayload?   // … → Forward (chat picker)
     @State private var toastText = "Sent"               // reused for "Sent" (reply) and "Saved"
@@ -402,15 +403,10 @@ struct StoryViewer: View {
             },
             onUserChanged: { uid in currentBucketUid = uid; markSeen(authorUid: uid); loadBarViewers() },
             onItemSeen: { id in currentStoryId = id; StoryPrefs.markStorySeen(id); markSeenItem(id); loadBarViewers() },
-            onDrag: { d in dragDown = d }   // fade my overlays out as the card is pulled down
+            onDrag: { d in dragDown = d },   // fade my overlays out as the card is pulled down
+            onMore: { showStoryMenu = true } // "…" lives in the library header now, perfectly aligned with X
         )
         .ignoresSafeArea()
-        // "…" more menu, left of the library's X (Telegram). Hidden while swiping down so it doesn't
-        // float free of the card. Position is approximate — tune on device if not aligned with the X.
-        .overlay(alignment: .topTrailing) {
-            moreButton.padding(.top, 56).padding(.trailing, 64)
-                .opacity(dragDown > 6 ? 0 : 1).animation(.easeOut(duration: 0.15), value: dragDown > 6)
-        }
         // My own story: Telegram owner bar (Views + reactions + delete) instead of a reply bar.
         .overlay(alignment: .bottom) {
             if currentIsMine { ownerBar.opacity(dragDown > 6 ? 0 : 1).animation(.easeOut(duration: 0.15), value: dragDown > 6) }
@@ -422,6 +418,16 @@ struct StoryViewer: View {
         .sheet(item: $forwardImg) { p in StoryForwardSheet(image: p.image, onSent: { flashSentToast() }) }
         .confirmationDialog("Delete this story?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { Task { await deleteCurrent() } }
+            Button("Cancel", role: .cancel) {}
+        }
+        // "…" actions (triggered from the header ellipsis). My own story: delete lives in the owner bar.
+        .confirmationDialog("", isPresented: $showStoryMenu, titleVisibility: .hidden) {
+            if !currentIsMine {
+                Button("Hide Stories") { StoryPrefs.toggleHidden(currentBucketUid); isPresented = false }
+            }
+            Button("Save") { saveCurrentImage() }
+            Button("Forward") { Task { if let img = await loadCurrentImage() { forwardImg = StoryImagePayload(image: img) } } }
+            Button("Share") { Task { if let img = await loadCurrentImage() { shareImg = StoryImagePayload(image: img) } } }
             Button("Cancel", role: .cancel) {}
         }
         .overlay(alignment: .bottom) {
@@ -446,26 +452,6 @@ struct StoryViewer: View {
         }
     }
 
-    // "…" more menu: actions differ for my story vs someone else's.
-    private var moreButton: some View {
-        Menu {
-            // My own story: delete lives in the owner bar (views + delete), so "⋯" is just Save/Forward/Share.
-            if !currentIsMine {
-                Button { StoryPrefs.toggleHidden(currentBucketUid); isPresented = false } label: {
-                    Label("Hide Stories", systemImage: "archivebox")
-                }
-            }
-            Button { saveCurrentImage() } label: { Label("Save", systemImage: "square.and.arrow.down") }
-            Button { Task { if let img = await loadCurrentImage() { forwardImg = StoryImagePayload(image: img) } } }
-                label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
-            Button { Task { if let img = await loadCurrentImage() { shareImg = StoryImagePayload(image: img) } } }
-                label: { Label("Share", systemImage: "square.and.arrow.up") }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
-                .frame(width: 34, height: 34).background(.white.opacity(0.18), in: Circle())
-        }
-    }
 
     private func loadCurrentImage() async -> UIImage? {
         guard let url = currentStory?.mediaUrl, !url.isEmpty else { return nil }

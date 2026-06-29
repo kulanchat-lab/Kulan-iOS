@@ -13,6 +13,7 @@ struct UserView: View {
     var name: String
     var date: String
     var onProfile: (() -> Void)?   // tap the avatar+name block → that user's profile
+    var onMore: (() -> Void)?      // tap "…" → host shows its actions (Save/Forward/Share/Hide)
 
     @Binding var isPresented: Bool
 
@@ -34,6 +35,16 @@ struct UserView: View {
             .onTapGesture { onProfile?() }
 
             Spacer()
+
+            // "…" sits directly left of the X, same row, so they auto-align (no guessed padding).
+            if let onMore {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onMore() }
+            }
 
             // 18pt glyph (was 24, looked oversized) in a 44×44 invisible touch target.
             Image(systemName: "xmark")

@@ -23,6 +23,7 @@ public struct StoryView: View {
     let onUserChanged: ((String) -> Void)?   // fires the current bucket id on open + each page change
     let onItemSeen: ((String) -> Void)?      // fires each individual story id as it becomes visible
     let onDrag: ((CGFloat) -> Void)?         // swipe-down amount (so the host can hide its overlays)
+    let onMore: (() -> Void)?                // tap "…" in the header → host shows its actions sheet
 
 
     /// Stories and isPresented required, selectedIndex is optional default: 0
@@ -39,7 +40,8 @@ public struct StoryView: View {
         onProfile: ((StoryUIUser) -> Void)? = nil,
         onUserChanged: ((String) -> Void)? = nil,
         onItemSeen: ((String) -> Void)? = nil,
-        onDrag: ((CGFloat) -> Void)? = nil
+        onDrag: ((CGFloat) -> Void)? = nil,
+        onMore: (() -> Void)? = nil
     ) {
         self.stories = stories
         self.selectedIndex = selectedIndex
@@ -49,6 +51,7 @@ public struct StoryView: View {
         self.onUserChanged = onUserChanged
         self.onItemSeen = onItemSeen
         self.onDrag = onDrag
+        self.onMore = onMore
     }
     
     public var body: some View {
@@ -62,6 +65,7 @@ public struct StoryView: View {
                 userClosure: userClosure,
                 onProfile: onProfile,
                 onItemSeen: onItemSeen,
+                onMore: onMore,
                 onDragChanged: { dy in onDrag?(dy) },   // fade the host overlays as the card slides
                 onCommit: { isPresented = false },      // card already animated off in UIKit; remove the cover
                 onCancel: { onDrag?(0) }                // sprang back; restore overlays

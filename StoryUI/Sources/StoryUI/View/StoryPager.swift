@@ -15,6 +15,7 @@ struct StoryPager: UIViewControllerRepresentable {
     let userClosure: UserCompletionHandler?
     let onProfile: ((StoryUIUser) -> Void)?
     let onItemSeen: ((String) -> Void)?
+    let onMore: (() -> Void)?              // tap "…" in the header
     let onDragChanged: (CGFloat) -> Void   // overlay fade only; the card itself moves in UIKit (smooth)
     let onCommit: () -> Void               // pulled past threshold -> dismiss
     let onCancel: () -> Void               // released short -> overlays restore
@@ -58,7 +59,8 @@ struct StoryPager: UIViewControllerRepresentable {
                 isPresented: parent.$isPresented,
                 userClosure: parent.userClosure,
                 onProfile: parent.onProfile,
-                onItemSeen: parent.onItemSeen
+                onItemSeen: parent.onItemSeen,
+                onMore: parent.onMore
             )
             let vc = StoryPageHostVC(rootView: AnyView(root))
             vc.bucketID = id

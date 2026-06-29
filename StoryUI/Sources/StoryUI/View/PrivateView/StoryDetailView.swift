@@ -23,6 +23,7 @@ struct StoryDetailView: View {
     let userClosure: UserCompletionHandler?
     var onProfile: ((StoryUIUser) -> Void)?
     var onItemSeen: ((String) -> Void)?
+    var onMore: (() -> Void)?   // tap "…" in the header → host shows its actions sheet
     var isDismissing: Bool = false   // true while swiping down to close → cube fold off (no skew)
     @State private var lastSeenItem: String = ""
 
@@ -198,6 +199,7 @@ private extension StoryDetailView {
                 name: name,
                 date: date,
                 onProfile: { onProfile?(model.user) },
+                onMore: onMore,
                 isPresented: $isPresented
             )
         }
