@@ -660,16 +660,21 @@ struct UploadingStoryViewer: View {
     var meName: String
     var mePhoto: String?
     var onClose: () -> Void
-    var onFinished: () -> Void          // upload succeeded → open the real story viewer
+    var onFinished: () -> Void          // kept for API compat; NO LONGER used to re-navigate (caused the flash)
     @State private var stories = StoriesService.shared
+    @State private var completed = false   // upload finished → swap the bar IN-PLACE (no dismiss/re-nav)
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             if let img = stories.uploadingImage {
+                // Blurred fill backdrop (WhatsApp/IG) so non-9:16 photos don't sit on black bars.
+                Image(uiImage: img).resizable().scaledToFill()
+                    .ignoresSafeArea().blur(radius: 32).clipped()
+                    .overlay(Color.black.opacity(0.25).ignoresSafeArea())
+                // Foreground at true aspect ratio (never cropped).
                 Image(uiImage: img).resizable().scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .overlay(   // top scrim so the header stays readable on bright photos
                         LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
                             .frame(height: 130).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -691,27 +696,50 @@ struct UploadingStoryViewer: View {
                 }
                 .padding(.horizontal, 16).padding(.top, 8)
                 Spacer()
-                // Bottom upload status bar: X (close) · spinner · "Uploading…" · trash (cancel).
-                HStack(spacing: 14) {
-                    Button { onClose() } label: {
-                        Image(systemName: "xmark").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
-                    }
-                    Spinner(size: 20, color: .white)
-                    Text("Uploading…").font(.subheadline).foregroundStyle(.white)
-                    Spacer()
-                    Button { stories.cancelUpload(); onClose() } label: {
-                        Image(systemName: "trash").font(.system(size: 18)).foregroundStyle(.white)
+                // Bottom bar: while uploading → spinner + "Uploading…"; once done → Views + trash, swapped
+                // IN-PLACE on the SAME screen (the old code dismissed + re-opened, which was the black flash).
+                Group {
+                    if completed {
+                        HStack(spacing: 12) {
+                            Image(systemName: "eye").font(.subheadline).foregroundStyle(.white)
+                            Text("0 Views").font(.subheadline.weight(.medium)).foregroundStyle(.white)
+                            Spacer()
+                            Button { deletePosted() } label: {
+                                Image(systemName: "trash").font(.system(size: 18)).foregroundStyle(.white)
+                            }
+                        }
+                    } else {
+                        HStack(spacing: 14) {
+                            Button { onClose() } label: {
+                                Image(systemName: "xmark").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                            }
+                            Spinner(size: 20, color: .white)
+                            Text("Uploading…").font(.subheadline).foregroundStyle(.white)
+                            Spacer()
+                            Button { stories.cancelUpload(); onClose() } label: {
+                                Image(systemName: "trash").font(.system(size: 18)).foregroundStyle(.white)
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 20).padding(.vertical, 16)
                 .background(Color.black)
+                .animation(.easeInOut(duration: 0.25), value: completed)
             }
         }
         .onChange(of: stories.uploading) { _, up in
-            guard !up else { return }   // upload finished
-            if stories.uploadError == nil { onFinished() } else { onClose() }
+            guard !up else { return }                       // upload finished
+            if stories.uploadError == nil { withAnimation { completed = true } }  // stay put; swap the bar
+            else { onClose() }                              // failed → close
         }
-        .onAppear { if !stories.uploading { onFinished() } }   // finished before we even opened
+        .onAppear { if !stories.uploading && stories.uploadError == nil { completed = true } }
+    }
+
+    private func deletePosted() {
+        if let id = StoriesRepository.shared.mine?.stories.last?.id {
+            Task { await StoriesService.shared.deleteStory(id); await StoriesRepository.shared.load(force: true) }
+        }
+        onClose()
     }
 }
 
