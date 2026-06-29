@@ -435,11 +435,6 @@ struct StoryViewer: View {
             showMore: true, // "…" is a native dropdown menu in the header; its buttons post notifications
             onSwipeUp: { if currentIsMine { showViewers = true } }  // Telegram: swipe up opens your viewers
         )
-        // When the views sheet opens, the story scales down toward the top (its bottom translates UP, out of
-        // the way) so the clean sheet can slide up from the bottom — coordinated by the same spring.
-        .scaleEffect(showViewers ? 0.62 : 1, anchor: .top)
-        .offset(y: showViewers ? 52 : 0)   // keep the header clear of the notch while it's scaled
-        .animation(.spring(response: 0.42, dampingFraction: 0.88), value: showViewers)
         .ignoresSafeArea()
         // My own story: Telegram owner bar (Views + reactions + delete) instead of a reply bar.
         .overlay(alignment: .bottom) {
@@ -777,6 +772,7 @@ struct StoryViewersSheet: View {
     let selectedId: String
     @Environment(\.dismiss) private var dismiss
     @State private var selected: String = ""
+    @State private var scrolledID: String?      // carousel-centered card → drives which story's viewers show
     @State private var byStory: [String: [StoryViewerInfo]] = [:]
     @State private var segment = 0          // 0 = All Viewers, 1 = Contacts
     @State private var search = ""
@@ -800,32 +796,88 @@ struct StoryViewersSheet: View {
         // PINNED, then the viewer list. Scrolling the carousel up reveals the full list. Full height +
         // opaque background so the live story underneath never shows through — that double-image was the
         // "owner appears twice" bug, NOT the carousel itself.
-        // STRICT: the sheet contains ONLY the tabs, Search, and the viewer list — NO story cards/thumbnails
-        // (the story stays in the viewer above and slides up). A clean dark sheet, dedicated to views.
-        VStack(spacing: 0) {
-            listControls   // All Viewers / Contacts tabs + Search
-            if loading {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if viewers.isEmpty {
-                ContentUnavailableView("No views yet", systemImage: "eye",
-                                       description: Text("When people view this story, they'll show up here."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
+        // Telegram (image_9): top is a horizontal carousel of ALL my posted stories (centered card large,
+        // others flank smaller, with view/❤️ counts) → PINNED All Viewers/Contacts + Search → viewer list.
+        // Full-height, opaque black so the live story underneath never shows (no duplicate).
+        ScrollView {
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                storyCarousel
+                Section {
+                    if loading {
+                        ProgressView().padding(.top, 40).frame(maxWidth: .infinity)
+                    } else if viewers.isEmpty {
+                        ContentUnavailableView("No views yet", systemImage: "eye",
+                                               description: Text("When people view this story, they'll show up here."))
+                            .padding(.top, 30)
+                    } else {
                         ForEach(viewers) { v in
                             viewerRow(v)
                             Divider().overlay(Color.white.opacity(0.08)).padding(.leading, 72)
                         }
                     }
-                }
-                .scrollDismissesKeyboard(.interactively)
+                } header: { listControls }
             }
         }
-        .presentationDetents([.medium, .large])     // .medium = bottom half; the story shows + slides up above
-        .presentationDragIndicator(.visible)
+        .scrollDismissesKeyboard(.interactively)
+        .overlay(alignment: .topTrailing) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.white)
+                    .frame(width: 38, height: 38).background(.black.opacity(0.4), in: Circle())
+            }
+            .padding(.trailing, 14).padding(.top, 10)
+        }
+        .presentationDetents([.large])
         .presentationBackground(.black)
+        .onChange(of: scrolledID) { _, v in if let v { selected = v } }   // centered card → its viewers
         .task { await loadAll() }
+    }
+
+    // Horizontal carousel of ALL my posted stories; centred card large, neighbours peek + shrink (image_9).
+    private var storyCarousel: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(stories, id: \.id) { s in storyCard(s) }
+            }
+            .scrollTargetLayout()
+            .padding(.horizontal, max(16, (UIScreen.main.bounds.width - 170) / 2))   // center the focused card
+            .padding(.vertical, 14)
+        }
+        .scrollTargetBehavior(.viewAligned)
+        .scrollPosition(id: $scrolledID)
+        .frame(height: 320)
+    }
+
+    private func storyCard(_ s: Story) -> some View {
+        let vs = byStory[s.id] ?? []
+        let reacts = vs.filter { !($0.reaction ?? "").isEmpty }.count
+        let w: CGFloat = 170, h: CGFloat = 292
+        return GeometryReader { geo in
+            let screenMid = UIScreen.main.bounds.width / 2
+            let dist = abs(geo.frame(in: .global).midX - screenMid)
+            let scale = max(0.82, 1 - dist / 700)
+            StoryImage(url: s.mediaUrl)
+                .frame(width: w, height: h)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(alignment: .bottom) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "eye.fill").font(.caption2)
+                        Text("\(vs.count)").font(.caption2.weight(.semibold))
+                        if reacts > 0 {
+                            Image(systemName: "heart.fill").font(.caption2).foregroundStyle(.red)
+                            Text("\(reacts)").font(.caption2.weight(.semibold))
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(.black.opacity(0.45), in: Capsule())
+                    .padding(.bottom, 10)
+                }
+                .scaleEffect(scale)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: w, height: h)
+        .id(s.id)
+        .onTapGesture { withAnimation(.spring(response: 0.42, dampingFraction: 0.68)) { scrolledID = s.id } }
     }
 
     // Pinned controls: All Viewers / Contacts + Search. Opaque bg so rows don't show through when pinned.
@@ -901,6 +953,7 @@ struct StoryViewersSheet: View {
 
     private func loadAll() async {
         selected = selectedId.isEmpty ? (stories.last?.id ?? "") : selectedId
+        scrolledID = selected   // open the carousel centered on the story you swiped up from
         await withTaskGroup(of: (String, [StoryViewerInfo]).self) { group in
             for s in stories { group.addTask { (s.id, await StoriesService.shared.fetchViewers(storyId: s.id)) } }
             for await (id, v) in group { byStory[id] = v }
