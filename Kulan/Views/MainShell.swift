@@ -416,6 +416,7 @@ struct ChatsView: View {
     @State private var showCompose = false
     @State private var viewerGroup: StoryGroup?
     @State private var viewerAnonymous = false
+    @State private var showUploadViewer = false   // live viewer for the still-uploading story
     @State private var profileGroup: StoryGroup?
     @Namespace private var storyNS   // zoom transition: story card ⇄ full-screen viewer
 
@@ -648,7 +649,8 @@ struct ChatsView: View {
                                  onOpen: { g in viewerAnonymous = false; viewerGroup = g },
                                  onMessage: { g in openStoryChat(g) },
                                  onProfile: { g in profileGroup = g },
-                                 onOpenAnon: { g in viewerAnonymous = true; viewerGroup = g })
+                                 onOpenAnon: { g in viewerAnonymous = true; viewerGroup = g },
+                                 onOpenUploading: { showUploadViewer = true })
                       List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row
                       ForEach(visible) { conv in
                         // Full-row Button instead of a NavigationLink: a NavigationLink in a
@@ -759,6 +761,19 @@ struct ChatsView: View {
                 // Telegram hero: the viewer grows out of the tapped story card on open and shrinks back
                 // into it on close (matchedTransitionSource on the cards + this zoom transition).
                 .navigationTransition(.zoom(sourceID: g.id, in: storyNS))
+            }
+            // Live viewer for the still-uploading story: shows the local image + upload bar; when the
+            // upload finishes it hands off to the real story viewer automatically.
+            .fullScreenCover(isPresented: $showUploadViewer) {
+                UploadingStoryViewer(
+                    meName: profile.me?.name ?? "You", mePhoto: profile.me?.photoUrl,
+                    onClose: { showUploadViewer = false },
+                    onFinished: {
+                        showUploadViewer = false
+                        if let mine = StoriesRepository.shared.mine {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { viewerGroup = mine }
+                        }
+                    })
             }
             .sheet(item: $profileGroup) { g in
                 NavigationStack {

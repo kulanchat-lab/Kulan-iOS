@@ -110,6 +110,7 @@ struct StoriesRow: View {
     var onMessage: (StoryGroup) -> Void = { _ in }
     var onProfile: (StoryGroup) -> Void = { _ in }
     var onOpenAnon: (StoryGroup) -> Void = { _ in }
+    var onOpenUploading: () -> Void = {}   // tap the still-uploading card → live upload viewer
     @State private var prefsTick = 0   // re-render after hide/notify toggles
     @State private var hideTarget: StoryGroup?   // "Hide Stories?" confirmation target
 
@@ -165,6 +166,8 @@ struct StoriesRow: View {
         ZStack {
             if stories.uploading {
                 uploadingCard.transition(.opacity)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onOpenUploading() }   // tappable even while uploading → live viewer
             } else {
                 card(cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
                      name: "My Story", avatar: mePhoto,
@@ -624,6 +627,68 @@ struct StoryViewer: View {
         } else {
             onClose()
         }
+    }
+}
+
+// Live viewer for a story that's STILL uploading: renders the local image full-screen with an "Uploading…"
+// status bar (X · spinner · label · trash). Listens to the upload state; when it finishes successfully it
+// hands off to the real story viewer automatically.
+struct UploadingStoryViewer: View {
+    var meName: String
+    var mePhoto: String?
+    var onClose: () -> Void
+    var onFinished: () -> Void          // upload succeeded → open the real story viewer
+    @State private var stories = StoriesService.shared
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let img = stories.uploadingImage {
+                Image(uiImage: img).resizable().scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(   // top scrim so the header stays readable on bright photos
+                        LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 130).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                            .allowsHitTesting(false),
+                        alignment: .top)
+            }
+            VStack {
+                HStack(spacing: 10) {
+                    AvatarView(name: meName, photoUrl: mePhoto, size: 32)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Your story").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                        Text("just now").font(.caption).foregroundStyle(.white.opacity(0.7))
+                    }
+                    Spacer()
+                    Button { onClose() } label: {
+                        Image(systemName: "xmark").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                            .frame(width: 40, height: 40).contentShape(Rectangle())
+                    }
+                }
+                .padding(.horizontal, 16).padding(.top, 8)
+                Spacer()
+                // Bottom upload status bar: X (close) · spinner · "Uploading…" · trash (cancel).
+                HStack(spacing: 14) {
+                    Button { onClose() } label: {
+                        Image(systemName: "xmark").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                    }
+                    Spinner(size: 20, color: .white)
+                    Text("Uploading…").font(.subheadline).foregroundStyle(.white)
+                    Spacer()
+                    Button { stories.cancelUpload(); onClose() } label: {
+                        Image(systemName: "trash").font(.system(size: 18)).foregroundStyle(.white)
+                    }
+                }
+                .padding(.horizontal, 20).padding(.vertical, 16)
+                .background(Color.black)
+            }
+        }
+        .onChange(of: stories.uploading) { _, up in
+            guard !up else { return }   // upload finished
+            if stories.uploadError == nil { onFinished() } else { onClose() }
+        }
+        .onAppear { if !stories.uploading { onFinished() } }   // finished before we even opened
     }
 }
 
