@@ -880,11 +880,12 @@ struct ArchivedChatsView: View {
                             ZStack(alignment: .bottomLeading) {
                                 StoryImage(url: g.stories.last?.mediaUrl ?? "")
                                     .frame(width: storyCardW, height: storyCardW * 1.46)
-                                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                                AvatarView(name: g.name, photoUrl: g.photoUrl, size: 30)
+                                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))   // match home cards
+                                AvatarView(name: g.name, photoUrl: g.photoUrl, size: 32)
                                     .overlay(StoryRingView(seen: StoryPrefs.seenFlags(g.stories), lineWidth: 2)
-                                        .frame(width: 35, height: 35))
-                                    .padding(7)
+                                        .frame(width: 37, height: 37))
+                                    .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
+                                    .padding(8)
                             }
                             Text(g.name.isEmpty ? "User" : g.name)
                                 .font(.system(size: 12)).lineLimit(1).frame(width: storyCardW)
