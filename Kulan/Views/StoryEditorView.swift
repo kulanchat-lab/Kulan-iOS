@@ -520,8 +520,15 @@ struct TextEditorOverlay: View {
                 HStack {
                     Button("Cancel") { onCancel() }.foregroundStyle(.white)
                     Spacer()
-                    Button { draft.alignment = nextAlign(draft.alignment) } label: { Image(systemName: alignIcon(draft.alignment)).foregroundStyle(.white) }
-                    Button { draft.background = nextBg(draft.background) } label: { Image(systemName: "a.square").foregroundStyle(.white).opacity(draft.background == .plain ? 0.5 : 1) }
+                    Button { draft.alignment = nextAlign(draft.alignment) } label: {
+                        Image(systemName: alignIcon(draft.alignment)).font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                            .frame(width: 44, height: 44).background(.white.opacity(0.16), in: Circle()).contentShape(Circle())
+                    }
+                    Button { draft.background = nextBg(draft.background) } label: {
+                        Image(systemName: "a.square").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .background(.white.opacity(draft.background == .plain ? 0.16 : 0.34), in: Circle()).contentShape(Circle())
+                    }
                     Spacer()
                     Button("Done") { onDone() }.foregroundStyle(.white).fontWeight(.semibold)
                 }
@@ -542,6 +549,8 @@ struct TextEditorOverlay: View {
                         }
                     }
                     .frame(maxWidth: 320)
+                    .contentShape(Rectangle())          // tap anywhere on the text block, not just the glyphs
+                    .onTapGesture { focused = true }
                 Spacer()
                 VStack(spacing: 14) {
                     HStack(spacing: 14) {
