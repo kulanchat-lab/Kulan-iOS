@@ -38,6 +38,10 @@ struct StoryEditorView: View {
     @State private var postError = false
     @State private var pendingShare: StoryShareData?
     @FocusState private var captionFocused: Bool
+    // Adaptive control contrast: dark icons over a light photo region, light over dark (so buttons are
+    // never invisible on a white background). Sampled per-region (top = X, bottom = tools).
+    @State private var topIconDark = false
+    @State private var bottomIconDark = false
 
     // Text-on-photo overlays
     @State private var overlays: [TextOverlay] = []
@@ -57,6 +61,7 @@ struct StoryEditorView: View {
     private func recomputeEdited() {
         // Filter applies on top of the (interactively) cropped source.
         editedCache = Self.apply(Self.filters[filterIndex].ci, to: croppedSource ?? source)
+        updateIconContrast()   // re-sample brightness so the controls stay readable on this photo
     }
 
     // The photo's aspect-fit size inside the frame (Signal "always-cover" clamp basis).
@@ -162,7 +167,8 @@ struct StoryEditorView: View {
                 VStack {
                     HStack {
                         Button { dismiss() } label: {
-                            Image(systemName: "xmark").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                            Image(systemName: "xmark").font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(topIconDark ? .black : .white)   // adaptive: dark over a light photo
                                 .frame(width: 48, height: 48).liquidGlass(Circle())   // real Apple glass
                         }
                         Spacer()
@@ -265,7 +271,8 @@ struct StoryEditorView: View {
                         .padding(.horizontal, 5).frame(height: 22)
                         .overlay(RoundedRectangle(cornerRadius: 5).stroke(active ? Color.green : Color.white, lineWidth: 1.5))
                 } else {
-                    Image(systemName: icon).font(.system(size: 20, weight: .medium)).foregroundStyle(active ? .green : .white)
+                    Image(systemName: icon).font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(active ? .green : (bottomIconDark ? .black : .white))   // adaptive over a light photo
                 }
             }
             .frame(width: 44, height: 44)
@@ -348,6 +355,31 @@ struct StoryEditorView: View {
         filter.setValue(ci, forKey: kCIInputImageKey)
         guard let out = filter.outputImage, let cg = ciContext.createCGImage(out, from: out.extent) else { return image }
         return UIImage(cgImage: cg, scale: image.scale, orientation: image.imageOrientation)
+    }
+
+    // Sample the edited photo's top + bottom bands so the controls flip dark over a light region.
+    private func updateIconContrast() {
+        let img = edited
+        topIconDark = Self.regionIsLight(img, top: true)
+        bottomIconDark = Self.regionIsLight(img, top: false)
+    }
+    private static func regionIsLight(_ image: UIImage, top: Bool) -> Bool {
+        guard let cg = image.cgImage else { return false }
+        let w = cg.width, h = cg.height
+        let band = max(1, h / 4)
+        let rect = top ? CGRect(x: 0, y: 0, width: w, height: band)
+                       : CGRect(x: 0, y: h - band, width: w, height: band)
+        guard let crop = cg.cropping(to: rect) else { return false }
+        let ci = CIImage(cgImage: crop)
+        guard let f = CIFilter(name: "CIAreaAverage",
+                               parameters: [kCIInputImageKey: ci, kCIInputExtentKey: CIVector(cgRect: ci.extent)]),
+              let out = f.outputImage else { return false }
+        var px = [UInt8](repeating: 0, count: 4)
+        ciContext.render(out, toBitmap: &px, rowBytes: 4,
+                         bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                         format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+        let lum = 0.299 * Double(px[0]) + 0.587 * Double(px[1]) + 0.114 * Double(px[2])
+        return lum > 150   // light region → dark icons
     }
 }
 
