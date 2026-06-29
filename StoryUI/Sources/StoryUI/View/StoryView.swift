@@ -57,17 +57,10 @@ public struct StoryView: View {
             // Explicit CGFloat math — avoids Release WMO's "ambiguous operator '/'" on Int literals.
             // Tuned to feel like WhatsApp/IG: backdrop fades (not the card), real shrink, fast corner
             // ramp, finger-follow on both axes.
-            let screenH: CGFloat = UIScreen.main.bounds.height
             let down: CGFloat = max(0, drag.height)
-            let progress: CGFloat = min(1, down / (screenH * 0.5))
-            let bgOpacity: Double = Double(1 - 0.85 * progress)   // black backdrop dims
-            let cardScale: CGFloat = 1 - 0.18 * progress          // visible shrink (floor ~0.82)
-            let cardOpacity: Double = Double(1 - 0.05 * progress) // card stays ~opaque (no ghosting)
-            // Telegram/IG: the story card is ALWAYS rounded (not just during swipe). Grows as you pull.
-            let restCorner: CGFloat = 32
-            let corner: CGFloat = down > 0 ? min(42, max(restCorner, down * 0.7)) : restCorner
+            // full width slide, no shrink. corners round as you pull. chats list shows behind (cover is clear).
+            let corner: CGFloat = min(44, down * 0.5)
             ZStack {
-                Color.black.ignoresSafeArea().opacity(bgOpacity)
                 TabView(selection: $viewModel.currentStoryUser) {
                     ForEach(viewModel.stories) { model in
                         StoryDetailView(
@@ -82,12 +75,12 @@ public struct StoryView: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                .scaleEffect(cardScale, anchor: .center)    // shrink as you pull down
+                .disabled(down > 0)                         // lock cube while dragging down
+                .background(Color.black)                    // solid card slides as one unit
                 .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-                .offset(y: down)       // close goes STRAIGHT DOWN (Telegram) — no sideways drift
-                .opacity(cardOpacity)
+                .offset(y: down)                            // straight down, full width
             }
-            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .ignoresSafeArea()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // Swipe DOWN anywhere to dismiss; release past 100pt pops, otherwise springs back.
             // simultaneousGesture + vertical-dominance check so horizontal paging still works.

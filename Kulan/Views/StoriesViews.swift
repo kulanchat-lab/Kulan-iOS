@@ -435,6 +435,7 @@ struct StoryViewer: View {
             }
         }
         .onChange(of: isPresented) { _, shown in if !shown { onClose() } }
+        .presentationBackground(.clear)   // see-through cover so the Chats list shows behind during swipe-down
     }
 
     private func flashSentToast(_ text: String = "Sent") {
