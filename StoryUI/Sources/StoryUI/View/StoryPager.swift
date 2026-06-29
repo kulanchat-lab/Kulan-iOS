@@ -26,6 +26,10 @@ struct StoryPager: UIViewControllerRepresentable {
         pager.dataSource = context.coordinator
         pager.delegate = context.coordinator
         pager.view.backgroundColor = .black   // solid card; slides as one unit during dismiss
+        // Telegram: the story is a rounded card on black (12pt continuous corners) at rest.
+        pager.view.layer.cornerRadius = 12
+        pager.view.layer.cornerCurve = .continuous
+        pager.view.layer.masksToBounds = true
         context.coordinator.pager = pager
         if let first = context.coordinator.makePage(for: viewModel.currentStoryUser) {
             pager.setViewControllers([first], direction: .forward, animated: false)
@@ -202,7 +206,7 @@ struct StoryPager: UIViewControllerRepresentable {
                     UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.85,
                                    initialSpringVelocity: 0.3, options: []) {
                         v.transform = .identity
-                        v.layer.cornerRadius = 0
+                        v.layer.cornerRadius = 12   // back to the resting rounded-card corner
                     } completion: { _ in self.parent.onCancel() }
                 }
             default: break
