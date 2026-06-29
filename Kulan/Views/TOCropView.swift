@@ -17,8 +17,6 @@ struct TOCropView: UIViewControllerRepresentable {
         vc.resetAspectRatioEnabled = true
         vc.aspectRatioLockEnabled = false
         vc.toolbarPosition = .bottom
-        vc.doneButtonTitle = "Done"
-        vc.cancelButtonTitle = "Cancel"
 
         // Real Apple liquid glass behind the crop toolbar (the library ships a solid dark bar).
         if #available(iOS 26.0, *) {
@@ -35,10 +33,24 @@ struct TOCropView: UIViewControllerRepresentable {
                 glass.bottomAnchor.constraint(equalTo: tb.bottomAnchor),
             ])
         }
+        styleButtons(vc)
         return vc
     }
 
-    func updateUIViewController(_ vc: CropViewController, context: Context) {}
+    // Cancel → X glyph, Done → ✅ checkmark (per request). Re-applied in updateUIViewController so the
+    // library's own layout pass doesn't reset them back to text.
+    private func styleButtons(_ vc: CropViewController) {
+        let tb = vc.toolbar
+        let cfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+        tb.cancelTextButton.setTitle(nil, for: .normal)
+        tb.cancelTextButton.setImage(UIImage(systemName: "xmark", withConfiguration: cfg), for: .normal)
+        tb.cancelTextButton.tintColor = .white
+        tb.doneTextButton.setTitle(nil, for: .normal)
+        tb.doneTextButton.setImage(UIImage(systemName: "checkmark", withConfiguration: cfg), for: .normal)
+        tb.doneTextButton.tintColor = .systemGreen
+    }
+
+    func updateUIViewController(_ vc: CropViewController, context: Context) { styleButtons(vc) }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
