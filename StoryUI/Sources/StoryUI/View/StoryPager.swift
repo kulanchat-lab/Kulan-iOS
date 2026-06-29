@@ -150,10 +150,9 @@ struct StoryPager: UIViewControllerRepresentable {
             upPan.delegate = self
             pager.view.addGestureRecognizer(upPan)
             scroll?.panGestureRecognizer.require(toFail: upPan)
-            // Drive Telegram's cube every frame from the pager scroll offset.
-            let link = CADisplayLink(target: self, selector: #selector(applyCube))
-            link.add(to: .main, forMode: .common)
-            cubeLink = link
+            // NO UIKit cube display-link: the cube is now the StoryUI library's SwiftUI rotation3DEffect
+            // (getAngle in StoryDetailView). The old CADisplayLink applyCube fought it and caused the
+            // shake/black, so it's disabled — the pager just provides the horizontal slide.
         }
 
         // Telegram's cube: rotate each page around the shared vertical edge with perspective depth, driven

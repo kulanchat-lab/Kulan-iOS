@@ -290,8 +290,11 @@ private extension StoryDetailView {
     }
     
     func getAngle(proxy: GeometryProxy) -> Angle {
-        // no 3D cube. flat slide left/right (UIPageViewController handles paging), like Signal/Instagram.
-        return .zero
+        // StoryUI library's cube (tiskender2/StoryUI): angle = 45° × (minX / width). Combined with the
+        // pager's horizontal slide + the .leading/.trailing anchor + perspective 2.5, this IS the cube —
+        // pure SwiftUI, no UIKit transform feedback (so no shake/black).
+        let progress = proxy.frame(in: .global).minX / proxy.size.width
+        return Angle(degrees: 45 * progress)
     }
     
     func resetProgress() {
