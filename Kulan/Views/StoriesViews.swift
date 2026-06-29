@@ -700,11 +700,11 @@ struct StoryViewersSheet: View {
     let selectedId: String
     @Environment(\.dismiss) private var dismiss
     @State private var selected: String = ""
+    @State private var scrolledID: String?      // carousel-centered card → drives which story's viewers show
     @State private var byStory: [String: [StoryViewerInfo]] = [:]
     @State private var segment = 0          // 0 = All Viewers, 1 = Contacts
     @State private var search = ""
     @State private var loading = true
-    @State private var reactionsFirst = false   // Telegram sort: Recent (default) vs Reactions first
 
     private var me: String { AuthService.shared.uid ?? "" }
     private var contactUids: Set<String> {
@@ -715,89 +715,132 @@ struct StoryViewersSheet: View {
         if segment == 1 { v = v.filter { contactUids.contains($0.id) } }
         let q = search.trimmingCharacters(in: .whitespaces)
         if !q.isEmpty { v = v.filter { $0.name.localizedCaseInsensitiveContains(q) } }
-        if reactionsFirst {
-            v.sort { a, b in
-                let ar = !(a.reaction ?? "").isEmpty, br = !(b.reaction ?? "").isEmpty
-                if ar != br { return ar }            // people who reacted bubble to the top
-                return a.viewedAt > b.viewedAt
-            }
-        } else {
-            v.sort { $0.viewedAt > $1.viewedAt }     // most recent viewer first
-        }
+        v.sort { $0.viewedAt > $1.viewedAt }     // most recent viewer first
         return v
     }
 
     var body: some View {
-        // Sheet content is ONLY: header (count + sort + close), Search, Seen list. No story carousel —
-        // the story stays in the viewer ABOVE this sheet (the .medium detent leaves it visible). Showing
-        // the story here again was the "owner image appears twice" bug.
-        VStack(spacing: 0) {
-            HStack {
-                Text(viewerCountTitle).font(.headline)
-                Spacer()
-                Menu {
-                    Button { reactionsFirst = false } label: {
-                        Label("Recent", systemImage: reactionsFirst ? "clock" : "checkmark")
+        // ONE scrolling surface (Telegram): carousel of your story cards on top, then the tabs + search
+        // PINNED, then the viewer list. Scrolling the carousel up reveals the full list. Full height +
+        // opaque background so the live story underneath never shows through — that double-image was the
+        // "owner appears twice" bug, NOT the carousel itself.
+        ScrollView {
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                storyCarousel
+                Section {
+                    if loading {
+                        ProgressView().padding(.top, 40).frame(maxWidth: .infinity)
+                    } else if viewers.isEmpty {
+                        ContentUnavailableView("No views yet", systemImage: "eye",
+                                               description: Text("When people view this story, they'll show up here."))
+                            .padding(.top, 30)
+                    } else {
+                        ForEach(viewers) { v in
+                            viewerRow(v)
+                            Divider().overlay(Color.white.opacity(0.08)).padding(.leading, 72)
+                        }
                     }
-                    Button { reactionsFirst = true } label: {
-                        Label("Reactions first", systemImage: reactionsFirst ? "checkmark" : "heart")
-                    }
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .font(.body.weight(.semibold)).foregroundStyle(.secondary)
-                }
-                .padding(.trailing, 6)
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 10)
-
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search", text: $search)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(Color(.secondarySystemBackground), in: Capsule())
-            .padding(.horizontal, 16).padding(.bottom, 8)
-
-            if loading {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if viewers.isEmpty {
-                ContentUnavailableView("No views yet", systemImage: "eye",
-                                       description: Text("When people view this story, they'll show up here."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(viewers) { v in viewerRow(v) }
-                    .listStyle(.plain)
-                    .scrollDismissesKeyboard(.interactively)   // drag the list to dismiss the search keyboard
+                } header: { listControls }
             }
         }
-        // Bottom sheet: half height (story stays visible above) up to full; drag down to dismiss.
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-        .presentationContentInteraction(.scrolls)   // scrolling the list doesn't fight the sheet drag
+        .scrollDismissesKeyboard(.interactively)
+        .overlay(alignment: .topTrailing) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.white)
+                    .frame(width: 38, height: 38).background(.black.opacity(0.4), in: Circle())
+            }
+            .padding(.trailing, 14).padding(.top, 10)
+        }
+        .presentationDetents([.large])
+        .presentationBackground(.black)             // opaque: the live story behind never shows through
+        .onChange(of: scrolledID) { _, v in if let v { selected = v } }   // centered card → its viewers
         .task { await loadAll() }
     }
 
-    private var viewerCountTitle: String {
-        let n = (byStory[selected] ?? []).count
-        return n == 0 ? "Viewers" : (n == 1 ? "1 viewer" : "\(n) viewers")
+    // Horizontal carousel of the owner's story cards; centred card is large, neighbours peek + shrink.
+    private var storyCarousel: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(stories, id: \.id) { s in storyCard(s) }
+            }
+            .scrollTargetLayout()
+            .padding(.horizontal, max(16, (UIScreen.main.bounds.width - 170) / 2))   // center the focused card
+            .padding(.vertical, 14)
+        }
+        .scrollTargetBehavior(.viewAligned)
+        .scrollPosition(id: $scrolledID)
+        .frame(height: 320)
+    }
+
+    // Pinned controls: All Viewers / Contacts + Search. Opaque bg so rows don't show through when pinned.
+    private var listControls: some View {
+        VStack(spacing: 10) {
+            Picker("", selection: $segment) {
+                Text("All Viewers").tag(0)
+                Text("Contacts").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.6))
+                TextField("", text: $search, prompt: Text("Search").foregroundColor(.white.opacity(0.5)))
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(Color.white.opacity(0.12), in: Capsule())
+            .padding(.horizontal, 16)
+        }
+        .padding(.top, 8).padding(.bottom, 10)
+        .background(Color.black)
+    }
+
+    private func storyCard(_ s: Story) -> some View {
+        let vs = byStory[s.id] ?? []
+        let reacts = vs.filter { !($0.reaction ?? "").isEmpty }.count
+        let w: CGFloat = 170, h: CGFloat = 292
+        return GeometryReader { geo in
+            let screenMid = UIScreen.main.bounds.width / 2
+            let dist = abs(geo.frame(in: .global).midX - screenMid)
+            let scale = max(0.82, 1 - dist / 700)
+            StoryImage(url: s.mediaUrl)
+                .frame(width: w, height: h)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(alignment: .bottom) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "eye.fill").font(.caption2)
+                        Text("\(vs.count)").font(.caption2.weight(.semibold))
+                        if reacts > 0 {
+                            Image(systemName: "heart.fill").font(.caption2).foregroundStyle(.red)
+                            Text("\(reacts)").font(.caption2.weight(.semibold))
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(.black.opacity(0.45), in: Capsule())
+                    .padding(.bottom, 10)
+                }
+                .scaleEffect(scale)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: w, height: h)
+        .id(s.id)
+        .onTapGesture { withAnimation(.spring(response: 0.42, dampingFraction: 0.68)) { scrolledID = s.id } }
     }
 
     private func viewerRow(_ v: StoryViewerInfo) -> some View {
         HStack(spacing: 12) {
             AvatarView(name: v.name, photoUrl: v.photoUrl, size: 44)
             VStack(alignment: .leading, spacing: 2) {
-                Text(v.name).font(.body)
-                Text(dateFmt(v.viewedAt)).font(.caption).foregroundStyle(.secondary)
+                Text(v.name).font(.body).foregroundStyle(.white)
+                Text(dateFmt(v.viewedAt)).font(.caption).foregroundStyle(.white.opacity(0.6))
             }
             Spacer()
             if let r = v.reaction, !r.isEmpty {
                 Text(r).font(.title3)   // show the actual reaction they left, not a generic heart
             }
         }
-        .listRowSeparator(.hidden)
+        .padding(.horizontal, 16).padding(.vertical, 8)
     }
 
     private func dateFmt(_ d: Date) -> String {
@@ -808,6 +851,7 @@ struct StoryViewersSheet: View {
 
     private func loadAll() async {
         selected = selectedId.isEmpty ? (stories.last?.id ?? "") : selectedId
+        scrolledID = selected   // open centered on the story you swiped up from
         await withTaskGroup(of: (String, [StoryViewerInfo]).self) { group in
             for s in stories { group.addTask { (s.id, await StoriesService.shared.fetchViewers(storyId: s.id)) } }
             for await (id, v) in group { byStory[id] = v }
