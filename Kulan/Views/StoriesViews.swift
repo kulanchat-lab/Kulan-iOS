@@ -349,6 +349,8 @@ struct StoryViewer: View {
     private var currentIsMine: Bool { groups.first { $0.authorUid == currentBucketUid }?.isMine ?? false }
     private var myStories: [Story] { groups.first { $0.isMine }?.stories ?? [] }
     private var currentStory: Story? { groups.flatMap(\.stories).first { $0.id == currentStoryId } }
+    // Any sheet shown over the story → pause it (viewers list, share, forward, "…" menu, delete confirm).
+    private var sheetUp: Bool { showViewers || shareImg != nil || forwardImg != nil || showStoryMenu || confirmDelete }
 
     init(group: StoryGroup, anonymous: Bool = false, onClose: @escaping () -> Void,
          onProfile: @escaping (StoryGroup) -> Void = { _ in }) {
@@ -441,6 +443,10 @@ struct StoryViewer: View {
             }
         }
         .onChange(of: isPresented) { _, shown in if !shown { onClose() } }
+        // Freeze the running story + progress while any sheet is shown over it; resume on dismiss.
+        .onChange(of: sheetUp) { _, up in
+            NotificationCenter.default.post(name: up ? .init("pauseStory") : .init("resumeStory"), object: nil)
+        }
         .presentationBackground(.clear)   // see-through cover so the Chats list shows behind during swipe-down
     }
 

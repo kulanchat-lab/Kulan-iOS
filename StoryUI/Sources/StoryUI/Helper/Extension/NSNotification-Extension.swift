@@ -12,4 +12,7 @@ extension NSNotification.Name {
     static let restartVideo = Notification.Name("restartVideo")
     static let replaceCurrentItem = Notification.Name("replaceCurrentItem")
     static let stopAndRestartVideo = Notification.Name("stopAndRestartVideo")
+    // Host (app) can freeze/resume the running story+progress while it shows a sheet over the viewer.
+    static let pauseStory = Notification.Name("pauseStory")
+    static let resumeStory = Notification.Name("resumeStory")
 }

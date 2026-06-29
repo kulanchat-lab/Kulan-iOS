@@ -39,6 +39,7 @@ struct StoryDetailView: View {
     @State private var isTapDisabled: Bool = false
     @State private var showEmoji: Bool = true
     @State private var isPaused: Bool = false   // hold-to-pause
+    @State private var hostPaused: Bool = false // app froze it while showing a sheet (e.g. viewers list)
     @State private var isAdvancing: Bool = false   // guard the segment-end double-advance
     @State private var isFolding: Bool = false   // true while this page is mid-cube-fold (pause timer)
 
@@ -111,6 +112,13 @@ struct StoryDetailView: View {
             // naturally suspends with the run loop, this coordinates video too).
             if phase == .active { isPaused = false; playVideo() }
             else { isPaused = true; pauseVideo() }
+        }
+        // Host shows/hides a sheet over the viewer (viewers list, share, menu) → freeze/resume.
+        .onReceive(NotificationCenter.default.publisher(for: .pauseStory)) { _ in
+            hostPaused = true; pauseVideo()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .resumeStory)) { _ in
+            hostPaused = false; if !keyboardManager.isKeyboardOpen { playVideo() }
         }
     }
 }
@@ -309,7 +317,7 @@ private extension StoryDetailView {
         }
         // Pause sources: emoji-fly animation (isTimerRunning), hold-to-pause (isPaused),
         // and composing a reply (keyboard open) — any of them freezes the segment + progress.
-        guard !isTimerRunning, !isPaused, !isFolding, !isDismissing, !keyboardManager.isKeyboardOpen else { return }
+        guard !isTimerRunning, !isPaused, !hostPaused, !isFolding, !isDismissing, !keyboardManager.isKeyboardOpen else { return }
         
         let index = getCurrentIndex()
         let story = getStory(with: index)
