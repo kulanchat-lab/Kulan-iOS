@@ -27,6 +27,13 @@ struct StoryEditorView: View {
     @GestureState private var gPan: CGSize = .zero
     private var liveZoom: CGFloat { min(4.3, max(0.95, photoZoom * gZoom)) }   // tiny rubber only; never visibly shrinks below fit. clamped to [1,4] on release
     private var livePan: CGSize { CGSize(width: photoOffset.width + gPan.width, height: photoOffset.height + gPan.height) }
+    // Real device safe-area top from the window (the editor's GeometryReader under-reports it because the
+    // status bar is hidden). Used to place the close button 12pt below the Dynamic Island / notch.
+    private var windowSafeTop: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.top }
+            .first ?? 47
+    }
     @State private var posting = false
     @State private var postError = false
     @State private var pendingShare: StoryShareData?
@@ -163,9 +170,8 @@ struct StoryEditorView: View {
                             Button("Done") { isDrawing = false }.foregroundStyle(.white).fontWeight(.semibold)
                         }
                     }
-                    // Sit clearly below the Dynamic Island / notch (native close-button position). max()
-                    // guards the case where the geometry under-reports the top inset (X jammed at the edge).
-                    .padding(.horizontal, 16).padding(.top, max(geo.safeAreaInsets.top, 47) + 8)
+                    // HIG: inside the safe area, 16pt leading, 12pt below the Dynamic Island / notch.
+                    .padding(.horizontal, 16).padding(.top, windowSafeTop + 12)
                     Spacer()
                 }
                 .opacity(draggingID == nil && editingID == nil ? 1 : 0)
