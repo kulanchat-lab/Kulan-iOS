@@ -418,8 +418,6 @@ struct ChatsView: View {
     @State private var viewerAnonymous = false
     @State private var profileGroup: StoryGroup?
     @Namespace private var storyNS   // zoom transition: story card ⇄ full-screen viewer
-    @State private var storyHeaderY: CGFloat = 0     // stories-row overlay offset (tracks the list scroll)
-    @State private var storyRowH: CGFloat = 168      // measured stories-row height (reserves list space)
 
     private func storyCid(_ other: String) -> String {
         [AuthService.shared.uid ?? "", other].sorted().joined(separator: "_")
@@ -641,17 +639,17 @@ struct ChatsView: View {
                     ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.bubble.right",
                                            description: Text("Tap the compose button to start one."))
                 } else {
-                    // Stories row stays an OVERLAY outside the List (so EACH card keeps its own long-press;
-                    // inside a List the whole row lifts as one cell). A hidden sentinel first row reserves
-                    // its height and reports the scroll offset, so the overlay scrolls away with the chats.
-                    List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row
-                      Color.clear
-                        .frame(height: storyRowH)
-                        .listRowInsets(EdgeInsets()).listRowSeparator(.hidden).moveDisabled(true)
-                        .background(GeometryReader { g in
-                            Color.clear.preference(key: StoryHeaderOffsetKey.self,
-                                                   value: g.frame(in: .named("chatList")).minY)
-                        })
+                    VStack(spacing: 0) {
+                      // Stories row PINNED above the List (outside it) so EACH card long-presses on
+                      // its own. Inside a List, the whole row lifts as one cell (the bug). (Build 147.)
+                      StoriesRow(meName: profile.me?.name ?? "You", mePhoto: profile.me?.photoUrl,
+                                 storyNS: storyNS,
+                                 onCompose: { showCompose = true },
+                                 onOpen: { g in viewerAnonymous = false; viewerGroup = g },
+                                 onMessage: { g in openStoryChat(g) },
+                                 onProfile: { g in profileGroup = g },
+                                 onOpenAnon: { g in viewerAnonymous = true; viewerGroup = g })
+                      List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row
                       ForEach(visible) { conv in
                         // Full-row Button instead of a NavigationLink: a NavigationLink in a
                         // List always draws the trailing disclosure chevron (the arrow). A
@@ -714,23 +712,7 @@ struct ChatsView: View {
                     // membership only, so it won't animate unrelated content changes.
                     .animation(.spring(response: 0.38, dampingFraction: 0.86), value: visible.map(\.id))
                     .environment(\.editMode, .constant(selecting ? .active : .inactive))
-                    .coordinateSpace(name: "chatList")
-                    .onPreferenceChange(StoryHeaderOffsetKey.self) { storyHeaderY = $0 }
-                    .overlay(alignment: .top) {
-                        StoriesRow(meName: profile.me?.name ?? "You", mePhoto: profile.me?.photoUrl,
-                                   storyNS: storyNS,
-                                   onCompose: { showCompose = true },
-                                   onOpen: { g in viewerAnonymous = false; viewerGroup = g },
-                                   onMessage: { g in openStoryChat(g) },
-                                   onProfile: { g in profileGroup = g },
-                                   onOpenAnon: { g in viewerAnonymous = true; viewerGroup = g })
-                            .background(Color(.systemBackground))   // opaque so chats don't show through
-                            .background(GeometryReader { g in
-                                Color.clear.preference(key: StoryRowHeightKey.self, value: g.size.height)
-                            })
-                            .offset(y: storyHeaderY)   // tracks the sentinel -> scrolls away with the list
-                    }
-                    .onPreferenceChange(StoryRowHeightKey.self) { if $0 > 1 { storyRowH = $0 } }
+                    }   // VStack (pinned stories row + list) — build 147 layout
                 }
             }
             .navigationTitle("Chats")

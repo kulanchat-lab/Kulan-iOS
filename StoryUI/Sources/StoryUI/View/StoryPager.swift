@@ -167,7 +167,12 @@ struct StoryPager: UIViewControllerRepresentable {
             guard w > 1 else { return }
             for sub in scroll.subviews {
                 guard abs(sub.bounds.width - w) < 1.0 else { continue }   // page-sized views only
-                let relX = sub.frame.minX - scroll.contentOffset.x        // page's screen-x (0 = centred, ±w = neighbour)
+                // Read the UNTRANSFORMED position (layer.position is the layout anchor, unaffected by our
+                // transform), NOT sub.frame.minX — once a 3D transform is set, `frame` becomes the transformed
+                // bounding box, so reading it back fed our own rotation into the next frame's math. That
+                // feedback loop was the SHAKE, and its drift pushed pages off-screen → the BLACK flash.
+                let pageMinX = sub.layer.position.x - sub.bounds.width / 2
+                let relX = pageMinX - scroll.contentOffset.x              // page's screen-x (0 = centred, ±w = neighbour)
                 let t = relX / w
                 sub.layer.isDoubleSided = false                            // hide the back face
                 if abs(t) < 0.001 {
