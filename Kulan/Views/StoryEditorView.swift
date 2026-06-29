@@ -163,7 +163,9 @@ struct StoryEditorView: View {
                             Button("Done") { isDrawing = false }.foregroundStyle(.white).fontWeight(.semibold)
                         }
                     }
-                    .padding(.horizontal, 16).padding(.top, geo.safeAreaInsets.top + 6)
+                    // Sit clearly below the Dynamic Island / notch (native close-button position). max()
+                    // guards the case where the geometry under-reports the top inset (X jammed at the edge).
+                    .padding(.horizontal, 16).padding(.top, max(geo.safeAreaInsets.top, 47) + 8)
                     Spacer()
                 }
                 .opacity(draggingID == nil && editingID == nil ? 1 : 0)
