@@ -208,6 +208,7 @@ struct StoryEditorView: View {
                 HStack(spacing: 10) {
                     TextField("", text: $caption, prompt: Text("Add a caption…").foregroundColor(Color(.systemGray3)))
                         .foregroundStyle(.white).focused($captionFocused)
+                        .onChange(of: caption) { _, v in if v.count > 50 { caption = String(v.prefix(50)) } }   // cap at 50 chars
                 }
                 .padding(.horizontal, 18).frame(height: 46)
                 .background(Color(white: 0.13), in: Capsule())
