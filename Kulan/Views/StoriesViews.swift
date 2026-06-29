@@ -347,6 +347,7 @@ struct StoryViewer: View {
     var anonymous: Bool
     var onClose: () -> Void
     var onProfile: (StoryGroup) -> Void = { _ in }   // tap the story header → that user's profile
+    var onDeletedRemaining: (StoryGroup) -> Void = { _ in }   // deleted an item but more of mine remain → re-feed
     @State private var isPresented = true
     @State private var sentToast = false   // "Sent" confirmation after a reply (WhatsApp-style)
     // Owner controls (my own story): Views/reactions/delete bar instead of the reply bar.
@@ -367,16 +368,20 @@ struct StoryViewer: View {
     private var sheetUp: Bool { showViewers || shareImg != nil || forwardImg != nil || confirmDelete }
 
     init(group: StoryGroup, anonymous: Bool = false, onClose: @escaping () -> Void,
-         onProfile: @escaping (StoryGroup) -> Void = { _ in }) {
-        self.init(groups: [group], startIndex: 0, anonymous: anonymous, onClose: onClose, onProfile: onProfile)
+         onProfile: @escaping (StoryGroup) -> Void = { _ in },
+         onDeletedRemaining: @escaping (StoryGroup) -> Void = { _ in }) {
+        self.init(groups: [group], startIndex: 0, anonymous: anonymous, onClose: onClose, onProfile: onProfile,
+                  onDeletedRemaining: onDeletedRemaining)
     }
     init(groups: [StoryGroup], startIndex: Int = 0, anonymous: Bool = false, onClose: @escaping () -> Void,
-         onProfile: @escaping (StoryGroup) -> Void = { _ in }) {
+         onProfile: @escaping (StoryGroup) -> Void = { _ in },
+         onDeletedRemaining: @escaping (StoryGroup) -> Void = { _ in }) {
         self.groups = groups
         self.startIndex = startIndex
         self.anonymous = anonymous
         self.onClose = onClose
         self.onProfile = onProfile
+        self.onDeletedRemaining = onDeletedRemaining
     }
 
     private var models: [StoryUIModel] {
@@ -612,7 +617,13 @@ struct StoryViewer: View {
         guard !currentStoryId.isEmpty else { return }
         await StoriesService.shared.deleteStory(currentStoryId)
         await StoriesRepository.shared.load(force: true)
-        onClose()
+        // Don't kick back to chats while I still have other stories — re-feed the viewer the remaining ones
+        // (the StoryUI library can't drop one item mid-view, so the host re-presents on the updated bucket).
+        if let mine = StoriesRepository.shared.mine, !mine.stories.isEmpty {
+            onDeletedRemaining(mine)
+        } else {
+            onClose()
+        }
     }
 }
 

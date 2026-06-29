@@ -745,7 +745,15 @@ struct ChatsView: View {
                                     onProfile: { grp in profileGroup = grp })
                     } else {
                         StoryViewer(group: g, anonymous: viewerAnonymous, onClose: close,
-                                    onProfile: { grp in profileGroup = grp })
+                                    onProfile: { grp in profileGroup = grp },
+                                    onDeletedRemaining: { fresh in
+                                        // A story was deleted but I still have others — re-feed the viewer the
+                                        // remaining bucket instead of closing (animations off = instant swap,
+                                        // no slide-down/up bounce to the chat list).
+                                        var t = Transaction(); t.disablesAnimations = true
+                                        withTransaction(t) { viewerGroup = nil }
+                                        DispatchQueue.main.async { withTransaction(t) { viewerGroup = fresh } }
+                                    })
                     }
                 }
                 // Telegram hero: the viewer grows out of the tapped story card on open and shrinks back

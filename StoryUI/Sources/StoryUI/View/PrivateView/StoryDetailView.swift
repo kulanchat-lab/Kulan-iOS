@@ -76,6 +76,10 @@ struct StoryDetailView: View {
                             // which clipped it), bottom-left over a soft gradient, tap to expand.
                             // (iOS 14 overlay form — the library deploys to iOS 14, no trailing-closure overlay.)
                             .overlay(captionView(story.caption), alignment: .bottom)
+                            // Top dark scrim (mirror of the bottom caption gradient) so the username, avatar
+                            // and close button stay readable on white/bright photos. Black at the very top
+                            // fading to clear; behind the header, no touches.
+                            .overlay(topScrim, alignment: .top)
                         messageView(with: index)
                     }
                     getEmojiView(story: story)
@@ -235,7 +239,16 @@ private extension StoryDetailView {
         .animation(messageViewPosition == 0 ? .none : .easeOut, value: messageViewPosition)
         .offset(y: messageViewPosition)
     }
-    
+
+    // Top dark scrim: black (50%) at the very top fading to clear, so the header (username, avatar, X)
+    // stays readable on white/bright stories. Mirrors the bottom caption gradient.
+    var topScrim: some View {
+        LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+            .frame(height: 130)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .allowsHitTesting(false)
+    }
+
     // Telegram StoryContentCaptionComponent: 16pt regular white text with a soft shadow, left-aligned,
     // 16pt side padding, sitting over a 128pt black gradient (0 → 80%). Collapsed to 3 lines; tap to expand.
     @ViewBuilder
