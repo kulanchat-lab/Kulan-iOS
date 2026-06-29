@@ -199,9 +199,10 @@ struct StoriesRow: View {
                 .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.black.opacity(0.25)))
 
                 ZStack {
-                    Spinner(size: 26, color: .white)
+                    AvatarView(name: meName, photoUrl: mePhoto, size: 32)   // my profile avatar in the center
+                    Spinner(size: 44, color: .white)                        // loading ring spinning AROUND it
                 }
-                .padding(8)
+                .padding(7)
             }
             Text("Uploading…").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).frame(width: cardW)
         }
