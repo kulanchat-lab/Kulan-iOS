@@ -20,13 +20,10 @@ struct StoryEditorView: View {
     @State private var showCrop = false
     @State private var editedCache: UIImage?         // filtered+cropped; recomputed only on tool change
     @State private var canvasSize: CGSize = .zero
-    // Pinch-zoom + pan the photo directly on the canvas (baked WYSIWYG into the post).
+    // Pinch-zoom + pan the photo directly on the canvas (baked WYSIWYG into the post). Driven by UIKit
+    // recognizers (PinchPanGestureView) using Telegram's accumulate-and-reset pattern — see below.
     @State private var photoZoom: CGFloat = 1
-    @GestureState private var gZoom: CGFloat = 1
     @State private var photoOffset: CGSize = .zero
-    @GestureState private var gPan: CGSize = .zero
-    private var liveZoom: CGFloat { min(4.3, max(0.95, photoZoom * gZoom)) }   // tiny rubber only; never visibly shrinks below fit. clamped to [1,4] on release
-    private var livePan: CGSize { CGSize(width: photoOffset.width + gPan.width, height: photoOffset.height + gPan.height) }
     // Real device safe-area top from the window (the editor's GeometryReader under-reports it because the
     // status bar is hidden). Used to place the close button 12pt below the Dynamic Island / notch.
     private var windowSafeTop: CGFloat {
@@ -88,34 +85,22 @@ struct StoryEditorView: View {
                 // Photo: aspect-fit on BLACK (Signal/WhatsApp lobby — NO blurred self-background).
                 Image(uiImage: edited)
                     .resizable().scaledToFit()
-                    .scaleEffect(liveZoom)
-                    .offset(livePan)
+                    .scaleEffect(photoZoom)
+                    .offset(photoOffset)
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
-                    .contentShape(Rectangle())
-                    .onTapGesture { captionFocused = false; selectedID = nil }   // dismiss keyboard + deselect
-                    .gesture(   // pinch to zoom IN (min = fit), pan within bounds; springs back on release.
-                        // Exclusive (not simultaneous): a 2-finger pinch wins, so the drag's centroid drift
-                        // never fires gPan mid-pinch — that drift was the "shaking" during zoom.
-                        ExclusiveGesture(
-                            MagnificationGesture().updating($gZoom) { v, s, _ in s = v }
-                                .onEnded { v in
-                                    let z = min(4, max(1, photoZoom * v))   // never below fit, never past 4×
-                                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                                        photoZoom = z
-                                        photoOffset = clampedOffset(photoOffset, zoom: z, in: geo.size)
-                                    }
-                                },
-                            DragGesture().updating($gPan) { v, s, _ in s = v.translation }
-                                .onEnded { v in
-                                    let o = CGSize(width: photoOffset.width + v.translation.width,
-                                                   height: photoOffset.height + v.translation.height)
-                                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                                        photoOffset = clampedOffset(o, zoom: photoZoom, in: geo.size)   // can't drift off
-                                    }
-                                }
-                        )
-                    )
+                    // Telegram DrawingMediaEntityView zoom/pan: UIKit pinch + pan recognizers that recognize
+                    // SIMULTANEOUSLY and accumulate (scale *= recognizer.scale; translation += delta) then
+                    // reset the recognizer to identity each frame — no centroid drift, no jitter, no shake.
+                    .overlay {
+                        if !isDrawing && editingID == nil {
+                            PinchPanGestureView(
+                                scale: $photoZoom, offset: $photoOffset, maxScale: 4, minScale: 1,
+                                onTap: { captionFocused = false; selectedID = nil },
+                                clamp: { off, z in clampedOffset(off, zoom: z, in: geo.size) }
+                            )
+                        }
+                    }
 
                 // Text overlays — above the photo, below the drawing canvas + controls.
                 ForEach($overlays) { $o in
@@ -577,6 +562,72 @@ struct StoryPressStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.88 : 1)
             .opacity(configuration.isPressed ? 0.85 : 1)
             .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+// Telegram DrawingMediaEntityView zoom/pan, adapted: UIKit pinch + pan + tap recognizers that recognize
+// SIMULTANEOUSLY. Each .changed callback accumulates the delta into the bound scale/offset and then resets
+// the recognizer to identity (scale = 1, translation = .zero) — the exact pattern that makes Telegram's
+// zoom smooth with no centroid drift / jitter. On release it springs to the clamped value.
+struct PinchPanGestureView: UIViewRepresentable {
+    @Binding var scale: CGFloat
+    @Binding var offset: CGSize
+    var maxScale: CGFloat = 4
+    var minScale: CGFloat = 1
+    var onTap: () -> Void = {}
+    var clamp: (CGSize, CGFloat) -> CGSize = { o, _ in o }
+
+    func makeUIView(context: Context) -> UIView {
+        let v = UIView()
+        v.backgroundColor = .clear
+        let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
+        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
+        pan.maximumNumberOfTouches = 2   // 2-finger pan rides along with the pinch (Telegram)
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        for g in [pinch, pan, tap] as [UIGestureRecognizer] { g.delegate = context.coordinator; v.addGestureRecognizer(g) }
+        return v
+    }
+    func updateUIView(_ v: UIView, context: Context) { context.coordinator.parent = self }
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var parent: PinchPanGestureView
+        init(_ p: PinchPanGestureView) { parent = p }
+
+        @objc func handlePinch(_ g: UIPinchGestureRecognizer) {
+            switch g.state {
+            case .changed:
+                var s = parent.scale * g.scale                 // accumulate, then reset (no double-apply)
+                s = min(parent.maxScale * 1.12, max(parent.minScale * 0.92, s))   // soft rubber past limits
+                parent.scale = s
+                g.scale = 1.0
+            case .ended, .cancelled:
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                    parent.scale = min(parent.maxScale, max(parent.minScale, parent.scale))
+                    parent.offset = parent.clamp(parent.offset, parent.scale)
+                }
+            default: break
+            }
+        }
+        @objc func handlePan(_ g: UIPanGestureRecognizer) {
+            switch g.state {
+            case .changed:
+                let t = g.translation(in: g.view)
+                parent.offset = CGSize(width: parent.offset.width + t.x, height: parent.offset.height + t.y)
+                g.setTranslation(.zero, in: g.view)            // accumulate, then reset
+            case .ended, .cancelled:
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                    parent.offset = parent.clamp(parent.offset, parent.scale)
+                }
+            default: break
+            }
+        }
+        @objc func handleTap(_ g: UITapGestureRecognizer) { parent.onTap() }
+
+        // Pinch + pan run together (Telegram); the tap fails if a drag/pinch starts.
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith o: UIGestureRecognizer) -> Bool {
+            !(g is UITapGestureRecognizer || o is UITapGestureRecognizer)
+        }
     }
 }
 
