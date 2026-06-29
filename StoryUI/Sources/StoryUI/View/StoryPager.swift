@@ -167,12 +167,18 @@ struct StoryPager: UIViewControllerRepresentable {
             guard w > 1 else { return }
             for sub in scroll.subviews {
                 guard abs(sub.bounds.width - w) < 1.0 else { continue }   // page-sized views only
-                let t = (sub.frame.minX - scroll.contentOffset.x) / w     // 0 = centred
+                let relX = sub.frame.minX - scroll.contentOffset.x        // page's screen-x (0 = centred, ±w = neighbour)
+                let t = relX / w
                 sub.layer.isDoubleSided = false                            // hide the back face
                 if abs(t) < 0.001 {
                     sub.layer.transform = CATransform3DIdentity            // resting page is pixel-perfect
                 } else if abs(t) <= 1.0 {
-                    sub.layer.transform = StoryPager.cubeTransform(t, width: w)
+                    // Undo the scroll's flat slide FIRST, then rotate — so the cube anchors to the screen
+                    // edge instead of stacking rotation on top of the slide. Telegram drives the cube from
+                    // the pan alone with no scroll translation underneath (confirmed from StoryContainerScreen);
+                    // this makes our UIPageViewController scroll behave the same way visually.
+                    let undoSlide = CATransform3DMakeTranslation(-relX, 0, 0)
+                    sub.layer.transform = CATransform3DConcat(StoryPager.cubeTransform(t, width: w), undoSlide)
                 }
             }
         }
