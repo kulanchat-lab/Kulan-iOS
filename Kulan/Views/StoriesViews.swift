@@ -364,6 +364,7 @@ struct StoryViewer: View {
     @State private var confirmDelete = false
     @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
     @State private var forwardImg: StoryImagePayload?   // … → Forward (chat picker)
+    @State private var profileSheet: StoryGroup?        // tap the header → profile sheet OVER the story (paused)
     @State private var toastText = "Sent"               // reused for "Sent" (reply) and "Saved"
     @State private var dragDown: CGFloat = 0            // swipe-down amount → fade my overlays with the card
     private var me: String { AuthService.shared.uid ?? "" }
@@ -371,7 +372,7 @@ struct StoryViewer: View {
     private var myStories: [Story] { groups.first { $0.isMine }?.stories ?? [] }
     private var currentStory: Story? { groups.flatMap(\.stories).first { $0.id == currentStoryId } }
     // Any sheet shown over the story → pause it (viewers list, share, forward, "…" menu, delete confirm).
-    private var sheetUp: Bool { showViewers || shareImg != nil || forwardImg != nil || confirmDelete }
+    private var sheetUp: Bool { showViewers || shareImg != nil || forwardImg != nil || confirmDelete || profileSheet != nil }
 
     init(group: StoryGroup, anonymous: Bool = false, onClose: @escaping () -> Void,
          onProfile: @escaping (StoryGroup) -> Void = { _ in },
@@ -427,7 +428,8 @@ struct StoryViewer: View {
                 handle(storyId: story.id, message: message, emoji: emoji, isLiked: isLiked)
             },
             onProfile: { user in
-                if let g = groups.first(where: { $0.authorUid == user.id }) { onClose(); onProfile(g) }
+                // Open the profile OVER the story (paused) — do NOT close the viewer.
+                if let g = groups.first(where: { $0.authorUid == user.id }) { profileSheet = g }
             },
             onUserChanged: { uid in currentBucketUid = uid; markSeen(authorUid: uid); loadBarViewers() },
             onItemSeen: { id in currentStoryId = id; StoryPrefs.markStorySeen(id); markSeenItem(id); loadBarViewers() },
@@ -445,6 +447,14 @@ struct StoryViewer: View {
         }
         .sheet(item: $shareImg) { p in ActivityView(items: [p.image]) }
         .sheet(item: $forwardImg) { p in StoryForwardSheet(image: p.image, onSent: { flashSentToast() }) }
+        .sheet(item: $profileSheet) { g in
+            NavigationStack {
+                ContactInfoView(cid: [me, g.authorUid].sorted().joined(separator: "_"),
+                                name: g.name, photoUrl: g.photoUrl)
+            }
+            .presentationDetents([.medium, .large])   // small profile sheet over the paused story
+            .presentationDragIndicator(.visible)
+        }
         // Native-style bottom action sheets. (confirmationDialog rendered CENTERED over the cover's clear
         // presentation background; this anchors to the bottom with a material group + a separate Cancel.)
         // Delete stays a bottom action sheet; the "…" is now a native dropdown menu in the header.
