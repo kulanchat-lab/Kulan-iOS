@@ -25,6 +25,7 @@ public struct StoryView: View {
     let onDrag: ((CGFloat) -> Void)?         // swipe-down amount (so the host can hide its overlays)
 
     @State private var drag: CGSize = .zero   // swipe-down-to-dismiss
+    @State private var verticalLock: Bool? = nil   // first move locks: true = dismiss, false = cube
 
     /// Stories and isPresented required, selectedIndex is optional default: 0
     /// - Parameters:
@@ -75,23 +76,33 @@ public struct StoryView: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
+                .disabled(verticalLock == true)             // gesture locked vertical -> cube off
                 .background(Color.black)                    // solid card slides as one unit
                 .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
                 .offset(y: down)                            // straight down, full width
             }
             .ignoresSafeArea()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // UIKit dismiss (Signal mechanism): a direction-locked DOWN pan on the pager's own scroll
-            // view, with scroll.panGestureRecognizer.require(toFail:) so cube (sideways) and dismiss
-            // (down) are mutually exclusive at recognition time. No SwiftUI gesture fighting the TabView.
-            .background(
-                CubeDismissPan(
-                    onChanged: { dy in
-                        drag = CGSize(width: 0, height: max(0, dy))
-                        onDrag?(drag.height)
-                    },
-                    onEnded: { ty, vy in
-                        if ty > 130 || vy > 500 {
+            // Swipe DOWN anywhere to dismiss; release past 100pt pops, otherwise springs back.
+            // simultaneousGesture + vertical-dominance check so horizontal paging still works.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 8)
+                    .onChanged { v in
+                        // first real move locks the axis so cube and dismiss never run together
+                        if verticalLock == nil {
+                            verticalLock = abs(v.translation.height) > abs(v.translation.width)
+                        }
+                        if verticalLock == true, v.translation.height > 0 {
+                            drag = CGSize(width: 0, height: v.translation.height)   // y only, no drift
+                            onDrag?(drag.height)
+                        }
+                    }
+                    .onEnded { v in
+                        let wasVertical = verticalLock == true
+                        verticalLock = nil
+                        guard wasVertical else { return }   // horizontal = cube, nothing to settle
+                        let flick: CGFloat = v.predictedEndTranslation.height
+                        if v.translation.height > 130 || flick > 500 {
                             withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
                                 drag.height = UIScreen.main.bounds.height
                             }
@@ -101,7 +112,6 @@ public struct StoryView: View {
                             onDrag?(0)
                         }
                     }
-                )
             )
             .onChange(of: viewModel.currentStoryUser) { new in onUserChanged?(new) }   // mark each viewed bucket (iOS14 single-arg onChange — pkg min is iOS14)
             .onAppear { startStory() }
@@ -127,69 +137,5 @@ public struct StoryView: View {
     private func stopVideo() {
         NotificationCenter.default.post(name: .stopVideo, object: nil)
         NotificationCenter.default.removeObserver(self)
-    }
-}
-
-// Finds the TabView's own paging UIScrollView and attaches a direction-locked DOWN pan to it, then
-// scroll.panGestureRecognizer.require(toFail:) that pan (Signal's StoryInteractiveTransitionCoordinator
-// mechanism). Result: a downward drag dismisses, a sideways drag folds the cube, never both.
-struct CubeDismissPan: UIViewRepresentable {
-    let onChanged: (CGFloat) -> Void
-    let onEnded: (CGFloat, CGFloat) -> Void   // translation.y, velocity.y
-
-    func makeUIView(context: Context) -> UIView {
-        let v = UIView()
-        v.backgroundColor = .clear
-        v.isUserInteractionEnabled = false
-        DispatchQueue.main.async { context.coordinator.attach(from: v) }
-        return v
-    }
-    func updateUIView(_ uiView: UIView, context: Context) {
-        if context.coordinator.pan == nil { DispatchQueue.main.async { context.coordinator.attach(from: uiView) } }
-    }
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        let parent: CubeDismissPan
-        weak var pan: DirectionalPanGestureRecognizer?
-        weak var scroll: UIScrollView?
-        init(_ parent: CubeDismissPan) { self.parent = parent }
-
-        func attach(from probe: UIView) {
-            guard pan == nil else { return }
-            // climb up from the probe; the first ancestor whose subtree has a scroll view is the
-            // pager's host (the chat-list scroll lives in a higher/other hierarchy).
-            var ancestor: UIView? = probe.superview
-            var hops = 0
-            var found: UIScrollView?
-            while let a = ancestor, hops < 8 {
-                if let s = Self.findScroll(in: a) { found = s; break }
-                ancestor = a.superview; hops += 1
-            }
-            guard let sv = found else { return }
-            scroll = sv
-            let g = DirectionalPanGestureRecognizer(direction: .down, target: self, action: #selector(handle(_:)))
-            g.delegate = self
-            sv.addGestureRecognizer(g)
-            sv.panGestureRecognizer.require(toFail: g)
-            pan = g
-        }
-
-        static func findScroll(in v: UIView) -> UIScrollView? {
-            if let s = v as? UIScrollView { return s }
-            for sub in v.subviews { if let s = findScroll(in: sub) { return s } }
-            return nil
-        }
-
-        @objc func handle(_ g: UIPanGestureRecognizer) {
-            guard let v = g.view else { return }
-            let t = g.translation(in: v)
-            switch g.state {
-            case .changed: parent.onChanged(max(0, t.y))
-            case .ended, .cancelled: parent.onEnded(t.y, g.velocity(in: v).y)
-            default: break
-            }
-        }
-        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith o: UIGestureRecognizer) -> Bool { false }
     }
 }
