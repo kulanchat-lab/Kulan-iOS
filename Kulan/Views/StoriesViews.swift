@@ -206,9 +206,9 @@ struct StoriesRow: View {
 
                 ZStack {
                     AvatarView(name: meName, photoUrl: mePhoto, size: 32)   // my profile avatar in the center
-                    Spinner(size: 44, color: .white)                        // loading ring spinning AROUND it
+                    Spinner(size: 37, color: .white)                        // ring hugs the avatar like the story rings (37)
                 }
-                .padding(7)
+                .padding(8)
             }
             Text("Uploading…").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).frame(width: cardW)
         }
