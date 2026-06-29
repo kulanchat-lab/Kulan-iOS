@@ -14,6 +14,7 @@ struct UserView: View {
     var date: String
     var onProfile: (() -> Void)?   // tap the avatar+name block → that user's profile
     var showMore: Bool = false     // show the "…" dropdown menu; its buttons post notifications the host runs
+    var isMine: Bool = false       // my own story → last item is Delete, not Hide Stories
 
     @Binding var isPresented: Bool
 
@@ -45,8 +46,13 @@ struct UserView: View {
                         label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
                     Button { NotificationCenter.default.post(name: .init("storyActionShare"), object: nil) }
                         label: { Label("Share", systemImage: "square.and.arrow.up") }
-                    Button { NotificationCenter.default.post(name: .init("storyActionHide"), object: nil) }
-                        label: { Label("Hide Stories", systemImage: "archivebox") }
+                    if isMine {
+                        Button(role: .destructive) { NotificationCenter.default.post(name: .init("storyActionDelete"), object: nil) }
+                            label: { Label("Delete", systemImage: "trash") }
+                    } else {
+                        Button { NotificationCenter.default.post(name: .init("storyActionHide"), object: nil) }
+                            label: { Label("Hide Stories", systemImage: "archivebox") }
+                    }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 18, weight: .semibold))

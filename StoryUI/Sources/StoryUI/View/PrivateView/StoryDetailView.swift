@@ -222,6 +222,7 @@ private extension StoryDetailView {
                 date: date,
                 onProfile: { onProfile?(model.user) },
                 showMore: showMore,
+                isMine: model.user.isMine,
                 isPresented: $isPresented
             )
         }

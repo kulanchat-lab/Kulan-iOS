@@ -395,7 +395,7 @@ struct StoryViewer: View {
         groups.map { g in
             StoryUIModel(
                 id: g.authorUid,
-                user: StoryUIUser(id: g.authorUid, name: g.name, image: g.photoUrl ?? ""),
+                user: StoryUIUser(id: g.authorUid, name: g.name, image: g.photoUrl ?? "", isMine: g.isMine),
                 stories: g.stories.map { s in
                     StoryUI.Story(
                         id: s.id,
@@ -485,6 +485,9 @@ struct StoryViewer: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .init("storyActionHide"))) { _ in
             if !currentIsMine { StoryPrefs.toggleHidden(currentBucketUid); isPresented = false }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .init("storyActionDelete"))) { _ in
+            if currentIsMine { confirmDelete = true }   // "…" → Delete on my own story
         }
         .overlay(alignment: .bottom) {
             if sentToast {
