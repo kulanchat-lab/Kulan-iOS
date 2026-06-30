@@ -465,9 +465,10 @@ struct StoryViewer: View {
 
     var body: some View {
       ZStack {
-        // LAYER 1: black canvas, opaque ONLY while the viewers sheet is open (clear otherwise → swipe-down
-        // dismiss still shows the Chats list behind, no black strip).
-        Color.black.ignoresSafeArea().opacity(Double(sheetProgress))
+        // LAYER 1: black backdrop. Opaque while the viewers sheet is open AND while swiping down to dismiss
+        // (so the reveal behind the card is dark, not the bright light-mode Chats list).
+        Color.black.ignoresSafeArea()
+            .opacity(max(Double(sheetProgress), min(1.0, Double(dragDown) / 110)))
 
         // LAYER 2: ACTIVE STORY. My own story = a rounded story CARD above a SOLID BLACK footer bar (Views +
         // trash), per image_6. Friends = full-bleed (the reply bar lives inside the library).

@@ -83,6 +83,10 @@ struct StoryDetailView: View {
                         .overlay(captionView(story.caption, plain: story.config.storyType == .plain()), alignment: .bottom)
                         // Top dark scrim so the username/avatar/close stay readable on white/bright photos.
                         .overlay(topScrim, alignment: .top)
+                        // Composing a reply (keyboard up): shrink the photo toward the top so it stays fully
+                        // visible ABOVE the keyboard + reply bar (Instagram/WhatsApp); restores on dismiss.
+                        .scaleEffect(keyboardManager.isKeyboardOpen ? 0.6 : 1, anchor: .top)
+                        .animation(.easeOut(duration: keyboardManager.animationDuration), value: keyboardManager.isKeyboardOpen)
                     // Always-on bottom scrim for reply-bar stories WITHOUT a caption, so the white reply pill /
                     // heart / send stay readable on bright photos (the caption gradient only exists with a caption).
                     if story.config.storyType != .plain() && story.caption.isEmpty {
