@@ -442,13 +442,8 @@ struct StoryViewer: View {
         }
     }
 
-    var body: some View {
-      ZStack {
-        // LAYER 1: black canvas, opaque ONLY while the viewers sheet is open (clear otherwise → swipe-down
-        // dismiss still shows the Chats list behind, no black strip).
-        Color.black.ignoresSafeArea().opacity(Double(sheetProgress))
-
-        // LAYER 2: ACTIVE STORY — full-screen; scales/rounds/lifts with sheetProgress (never inside the sheet).
+    // The library story view (same instance for my own + friends' stories).
+    private var storyCore: some View {
         StoryView(
             stories: models,
             selectedIndex: startIndex,
@@ -466,21 +461,33 @@ struct StoryViewer: View {
             showMore: true, // "…" is a native dropdown menu in the header; its buttons post notifications
             onSwipeUp: { if currentIsMine { showViewers = true } }  // Telegram: swipe up opens your viewers
         )
-        .ignoresSafeArea()
-        // My own story: Telegram owner bar (Views + reactions + delete) instead of a reply bar.
-        .overlay(alignment: .bottom) {
+    }
+
+    var body: some View {
+      ZStack {
+        // LAYER 1: black canvas, opaque ONLY while the viewers sheet is open (clear otherwise → swipe-down
+        // dismiss still shows the Chats list behind, no black strip).
+        Color.black.ignoresSafeArea().opacity(Double(sheetProgress))
+
+        // LAYER 2: ACTIVE STORY. My own story = a rounded story CARD above a SOLID BLACK footer bar (Views +
+        // trash), per image_6. Friends = full-bleed (the reply bar lives inside the library).
+        Group {
             if currentIsMine {
-                ownerBar
-                    .opacity(dragDown > 6 ? 0 : 1).animation(.easeOut(duration: 0.15), value: dragDown > 6)
-                    .contentShape(Rectangle())
-                    // Reliable swipe-up to open viewers: this owner bar is a SwiftUI overlay ON TOP of the
-                    // story, so its gesture fires even when the library's UIKit swipe-up doesn't. Taps on
-                    // Views/trash still work (minimumDistance gate).
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 16).onEnded { v in
-                            if v.translation.height < -30 { showViewers = true }
-                        }
-                    )
+                VStack(spacing: 0) {
+                    storyCore
+                        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 24, bottomTrailingRadius: 24, style: .continuous))
+                    ownerBar
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(
+                            DragGesture(minimumDistance: 16).onEnded { v in
+                                if v.translation.height < -30 { showViewers = true }
+                            }
+                        )
+                }
+                .background(Color.black)
+                .ignoresSafeArea()
+            } else {
+                storyCore.ignoresSafeArea()
             }
         }
         // LAYER 2 transforms (your numbers): scale 100% -> 92%, corner 0 -> 28, lift up 40, all from sheetProgress.
@@ -714,15 +721,11 @@ struct StoryViewer: View {
             }
             .buttonStyle(.plain)
         }
-        // Smooth, gradual shadow: a tall gradient that eases clear -> black so it blends softly into the photo
-        // (no hard edge), with the controls on the solid part at the bottom.
-        .padding(.horizontal, 18).padding(.top, 64).padding(.bottom, max(22, bottomInset + 10))
-        .background(LinearGradient(stops: [
-            .init(color: .clear,                 location: 0.0),
-            .init(color: .black.opacity(0.35),   location: 0.45),
-            .init(color: .black.opacity(0.85),   location: 0.78),
-            .init(color: .black,                 location: 1.0)
-        ], startPoint: .top, endPoint: .bottom))
+        // Solid black footer bar (image_6): sits BELOW the rounded story card, fills to the screen bottom
+        // (controls lifted above the home indicator). Not a gradient over the photo anymore.
+        .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, max(16, bottomInset + 6))
+        .frame(maxWidth: .infinity)
+        .background(Color.black)
     }
 
     private func loadBarViewers() {
