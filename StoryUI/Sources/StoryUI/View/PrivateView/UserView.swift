@@ -14,6 +14,7 @@ struct UserView: View {
     var date: String
     var onProfile: (() -> Void)?   // tap the avatar+name block → that user's profile
     var showMore: Bool = false     // show the "…" dropdown menu; its buttons post notifications the host runs
+    var isMyStory: Bool = false    // my own story → Delete (red) instead of Hide Stories; no Forward
 
     @Binding var isPresented: Bool
 
@@ -42,12 +43,27 @@ struct UserView: View {
                 Menu {
                     Button { NotificationCenter.default.post(name: .init("storyActionSave"), object: nil) }
                         label: { Label("Save", systemImage: "square.and.arrow.down") }
-                    Button { NotificationCenter.default.post(name: .init("storyActionForward"), object: nil) }
-                        label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
+                    // Forward only makes sense on someone else's story.
+                    if !isMyStory {
+                        Button { NotificationCenter.default.post(name: .init("storyActionForward"), object: nil) }
+                            label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
+                    }
                     Button { NotificationCenter.default.post(name: .init("storyActionShare"), object: nil) }
                         label: { Label("Share", systemImage: "square.and.arrow.up") }
-                    Button { NotificationCenter.default.post(name: .init("storyActionHide"), object: nil) }
-                        label: { Label("Hide Stories", systemImage: "eye.slash") }
+                    // My own story → red Delete; anyone else's → Hide Stories. (Button(role:) is iOS 15+, so
+                    // guard it for the library's iOS 14 deployment target; the app runs newer so it shows red.)
+                    if isMyStory {
+                        if #available(iOS 15.0, *) {
+                            Button(role: .destructive) { NotificationCenter.default.post(name: .init("storyActionDelete"), object: nil) }
+                                label: { Label("Delete Story", systemImage: "trash") }
+                        } else {
+                            Button { NotificationCenter.default.post(name: .init("storyActionDelete"), object: nil) }
+                                label: { Label("Delete Story", systemImage: "trash") }
+                        }
+                    } else {
+                        Button { NotificationCenter.default.post(name: .init("storyActionHide"), object: nil) }
+                            label: { Label("Hide Stories", systemImage: "eye.slash") }
+                    }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 15, weight: .semibold))

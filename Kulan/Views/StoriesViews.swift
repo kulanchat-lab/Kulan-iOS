@@ -414,6 +414,7 @@ struct StoryViewer: View {
             StoryUIModel(
                 id: g.authorUid,
                 user: StoryUIUser(id: g.authorUid, name: g.name, image: g.photoUrl ?? ""),
+                isMine: g.isMine,   // drives the "…" menu: my story shows Delete, others show Hide Stories
                 stories: g.stories.map { s in
                     StoryUI.Story(
                         id: s.id,
@@ -527,6 +528,10 @@ struct StoryViewer: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .init("storyActionHide"))) { _ in
             if !currentIsMine { StoryPrefs.toggleHidden(currentBucketUid); isPresented = false }
+        }
+        // "…" → Delete Story (only shown on my own story) → same confirm + seamless delete as the trash button.
+        .onReceive(NotificationCenter.default.publisher(for: .init("storyActionDelete"))) { _ in
+            if currentIsMine { confirmDelete = true }
         }
         .overlay(alignment: .bottom) {
             if sentToast {
