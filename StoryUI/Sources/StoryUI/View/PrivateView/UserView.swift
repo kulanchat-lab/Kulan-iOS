@@ -38,8 +38,17 @@ struct UserView: View {
 
             // "…" sits directly left of the X, same row, so they auto-align (no guessed padding).
             if showMore {
-                // Tap "…" → host opens a BOTTOM SHEET with the actions (not a dropdown).
-                Button { NotificationCenter.default.post(name: .init("storyActionMenu"), object: nil) } label: {
+                // Tap "…" → DROPDOWN popover anchored under the button (native iOS Menu).
+                Menu {
+                    Button { NotificationCenter.default.post(name: .init("storyActionSave"), object: nil) }
+                        label: { Label("Save", systemImage: "square.and.arrow.down") }
+                    Button { NotificationCenter.default.post(name: .init("storyActionForward"), object: nil) }
+                        label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
+                    Button { NotificationCenter.default.post(name: .init("storyActionShare"), object: nil) }
+                        label: { Label("Share", systemImage: "square.and.arrow.up") }
+                    Button(role: .destructive) { NotificationCenter.default.post(name: .init("storyActionHide"), object: nil) }
+                        label: { Label("Hide Stories", systemImage: "eye.slash") }
+                } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(.white)

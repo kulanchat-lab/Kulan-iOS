@@ -362,7 +362,6 @@ struct StoryViewer: View {
     @State private var barViewers: [StoryViewerInfo] = []
     @State private var showViewers = false
     @State private var confirmDelete = false
-    @State private var showStoryMenu = false   // "…" → bottom action sheet (Save/Forward/Share/Hide)
     @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
     @State private var forwardImg: StoryImagePayload?   // … → Forward (chat picker)
     @State private var profileSheet: StoryGroup?        // tap the header → profile sheet OVER the story (paused)
@@ -373,7 +372,7 @@ struct StoryViewer: View {
     private var myStories: [Story] { groups.first { $0.isMine }?.stories ?? [] }
     private var currentStory: Story? { groups.flatMap(\.stories).first { $0.id == currentStoryId } }
     // Any sheet shown over the story → pause it (viewers list, share, forward, "…" menu, delete confirm).
-    private var sheetUp: Bool { showViewers || shareImg != nil || forwardImg != nil || confirmDelete || profileSheet != nil || showStoryMenu }
+    private var sheetUp: Bool { showViewers || shareImg != nil || forwardImg != nil || confirmDelete || profileSheet != nil }
 
     init(group: StoryGroup, anonymous: Bool = false, onClose: @escaping () -> Void,
          onProfile: @escaping (StoryGroup) -> Void = { _ in },
@@ -481,20 +480,6 @@ struct StoryViewer: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .init("storyActionHide"))) { _ in
             if !currentIsMine { StoryPrefs.toggleHidden(currentBucketUid); isPresented = false }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .init("storyActionMenu"))) { _ in
-            showStoryMenu = true   // "…" tapped → open the bottom action sheet
-        }
-        .sheet(isPresented: $showStoryMenu) {
-            StoryActionMenuSheet(currentIsMine: currentIsMine) { action in
-                showStoryMenu = false
-                // Run the action AFTER the sheet dismisses (so Forward/Share can present their own sheet cleanly).
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    NotificationCenter.default.post(name: .init(action), object: nil)
-                }
-            }
-            .presentationDetents([.height(currentIsMine ? 232 : 300)])
-            .presentationDragIndicator(.visible)
         }
         .overlay(alignment: .bottom) {
             if sentToast {
@@ -652,46 +637,6 @@ struct StoryViewer: View {
         } else {
             onClose()
         }
-    }
-}
-
-// Bottom action sheet for the story "…" menu (Save / Forward / Share / Hide). Dark, native sheet that
-// slides up from the bottom; each row hands its action back to the host to run after dismiss.
-struct StoryActionMenuSheet: View {
-    var currentIsMine: Bool
-    var onAction: (String) -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            row("Save", "square.and.arrow.down", "storyActionSave")
-            divider
-            row("Forward", "arrowshape.turn.up.right", "storyActionForward")
-            divider
-            row("Share", "square.and.arrow.up", "storyActionShare")
-            if !currentIsMine {
-                divider
-                row("Hide Stories", "archivebox", "storyActionHide")
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.top, 14)
-        .preferredColorScheme(.dark)   // matches the dark story context
-    }
-
-    private var divider: some View { Divider().overlay(Color.white.opacity(0.08)).padding(.leading, 60) }
-
-    private func row(_ title: String, _ icon: String, _ action: String) -> some View {
-        Button { onAction(action) } label: {
-            HStack(spacing: 16) {
-                Image(systemName: icon).font(.system(size: 18)).frame(width: 26)
-                Text(title).font(.body)
-                Spacer()
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 22).padding(.vertical, 16)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }
 
