@@ -471,7 +471,8 @@ struct StoryViewer: View {
         // LAYER 1: black backdrop. Opaque while the viewers sheet is open, and goes dark the INSTANT a
         // swipe-down begins (so the top strip never flashes the bright light-mode Chats list — build-161 feel).
         Color.black.ignoresSafeArea()
-            .opacity(max(Double(sheetProgress), dragDown > 2 ? 1.0 : 0.0))
+            // Reaches solid black by ~60% open so the carousel/sheet never shows the dimmed Chats list through.
+            .opacity(max(min(1.0, Double(sheetProgress) / 0.6), dragDown > 2 ? 1.0 : 0.0))
             .animation(.easeOut(duration: 0.18), value: dragDown > 2)
 
         // LAYER 2: ACTIVE STORY — FULL-bleed photo (build 160: full-screen image, no card/footer that shortened
