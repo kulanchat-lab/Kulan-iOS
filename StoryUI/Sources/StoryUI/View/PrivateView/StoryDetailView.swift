@@ -259,24 +259,30 @@ private extension StoryDetailView {
     @ViewBuilder
     func captionView(_ text: String) -> some View {
         if !text.isEmpty {
-            ZStack(alignment: .bottomLeading) {
+            ZStack(alignment: .bottom) {
                 LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 210)   // taller so it backs both the caption AND the floating reply bar
+                    .frame(height: 210)   // backs both the caption AND the floating reply bar
                     .allowsHitTesting(false)
-                Text(text)
-                    .font(.system(size: 16))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.25), radius: 4)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(captionExpanded ? nil : 3)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, Constant.MessageView.height + winInsets.bottom + 28)   // sit ABOVE the reply bar
-                    .contentShape(Rectangle())
-                    .onTapGesture {   // tap expands/collapses; consumes the tap so it doesn't advance the story
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { captionExpanded.toggle() }
-                    }
+                VStack(spacing: 10) {
+                    Text(text)
+                        .font(.system(size: 16))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.25), radius: 4)
+                        .multilineTextAlignment(.center)            // WhatsApp: caption centered
+                        .lineLimit(captionExpanded ? nil : 3)
+                        .padding(.horizontal, 24)
+                        .contentShape(Rectangle())
+                        .onTapGesture {   // tap expands/collapses; consumes the tap so it doesn't advance the story
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { captionExpanded.toggle() }
+                        }
+                    Rectangle()                                     // thin divider line under the caption (WhatsApp)
+                        .fill(Color.white.opacity(0.25))
+                        .frame(height: 0.5)
+                        .padding(.horizontal, 16)
+                }
+                .padding(.bottom, Constant.MessageView.height + winInsets.bottom + 16)   // sit ABOVE the reply bar
             }
-            .frame(maxWidth: .infinity, alignment: .bottomLeading)
+            .frame(maxWidth: .infinity, alignment: .bottom)
         }
     }
 
