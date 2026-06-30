@@ -51,7 +51,15 @@ struct StoryDetailView: View {
     private var emojiViewPosition: CGFloat {
         return (messageViewPosition * 1.5)
     }
-    
+
+    // Real device safe-area insets (the host no longer applies them — see StoryPageHostVC). Used to keep the
+    // progress bars below the notch and the reply bar above the home indicator while the PHOTO fills under both.
+    private var winInsets: UIEdgeInsets {
+        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }.first { $0.isKeyWindow }?.safeAreaInsets
+            ?? UIEdgeInsets(top: 47, left: 0, bottom: 34, right: 0)
+    }
+
     var body: some View {
         
         GeometryReader { proxy in
@@ -215,7 +223,8 @@ private extension StoryDetailView {
                 }
             }
             .padding(.horizontal)
-            .padding(.vertical, 8)
+            .padding(.top, winInsets.top + 8)   // keep the progress bars below the notch (host no longer insets)
+            .padding(.bottom, 8)
             UserView(
                 image: image,
                 name: name,
@@ -237,6 +246,7 @@ private extension StoryDetailView {
             userClosure: userClosure
         )
         .padding()
+        .padding(.bottom, winInsets.bottom)   // keep the reply bar above the home indicator (host no longer insets)
         .animation(messageViewPosition == 0 ? .none : .easeOut, value: messageViewPosition)
         .offset(y: messageViewPosition)
     }

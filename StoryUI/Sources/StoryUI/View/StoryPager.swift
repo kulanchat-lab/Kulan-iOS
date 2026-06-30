@@ -273,6 +273,10 @@ final class StoryPageHostVC: UIHostingController<AnyView> {
     override init(rootView: AnyView) {
         super.init(rootView: rootView)
         view.backgroundColor = .clear
+        // The story photo must fill edge-to-edge UNDER the status bar (WhatsApp). A UIHostingController insets
+        // its SwiftUI content by the safe area by default — THAT was the black strip at the top. Turn it off;
+        // the progress bars + reply bar re-add their own safe-area padding inside StoryDetailView.
+        if #available(iOS 16.4, *) { safeAreaRegions = [] }
     }
     @MainActor required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
