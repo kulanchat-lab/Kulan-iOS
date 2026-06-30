@@ -377,6 +377,9 @@ struct StoryViewer: View {
     @State private var barViewers: [StoryViewerInfo] = []
     @State private var showViewers = false
     @State private var sheetProgress: CGFloat = 0       // 0 = closed, 1 = open. Drives the story scale/corner/lift.
+    // Pull-up carousel of ALL my posted stories (centre = active, neighbours peek). Driven by sheetProgress.
+    @State private var carouselCenteredId: String? = nil       // centred card → big count + which viewers show
+    @State private var byStory: [String: [StoryViewerInfo]] = [:]   // per-story viewers → view/like counts
     @State private var confirmDelete = false
     @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
     @State private var forwardImg: StoryImagePayload?   // … → Forward (chat picker)
@@ -507,10 +510,17 @@ struct StoryViewer: View {
         .allowsHitTesting(sheetProgress < 0.5)
         .clipShape(RoundedRectangle(cornerRadius: 24 * sheetProgress, style: .continuous))
         .scaleEffect(1 - 0.6 * sheetProgress, anchor: .top)
+        .opacity(1 - Double(sheetProgress))   // live full-screen story fades out as the carousel fades in
+
+        // LAYER 2.5: PULL-UP CAROUSEL of ALL my posted stories (clean images + view/like counts), replacing
+        // the single scaled story once the sheet rises. Telegram StoryItemSetContainerComponent behaviour.
+        if currentIsMine && sheetProgress > 0.01 {
+            pulledUpCarousel
+        }
 
         // LAYER 3: VIEWERS BOTTOM SHEET — handle + tabs + search + list ONLY. No carousel, no story media.
         if showViewers {
-            StoryViewersBottomSheet(activeStoryId: currentStoryId,
+            StoryViewersBottomSheet(activeStoryId: carouselCenteredId ?? currentStoryId,
                                     progress: $sheetProgress,
                                     onClose: { closeViewers() })
         }
@@ -612,7 +622,11 @@ struct StoryViewer: View {
         }
         // Opening the viewers springs sheetProgress 0 -> 1 (story scales/rounds/lifts as the sheet rises).
         .onChange(of: showViewers) { _, open in
-            if open { withAnimation(.spring(response: 0.44, dampingFraction: 0.86)) { sheetProgress = 1 } }
+            if open {
+                carouselCenteredId = currentStoryId            // centre on the story you swiped up from
+                loadByStory()                                  // per-card view/like counts
+                withAnimation(.spring(response: 0.44, dampingFraction: 0.86)) { sheetProgress = 1 }
+            }
         }
         .presentationBackground(.clear)   // see-through cover so the Chats list shows behind during swipe-down
     }
@@ -749,6 +763,88 @@ struct StoryViewer: View {
         Task {
             let v = await StoriesService.shared.fetchViewers(storyId: id)
             if id == currentStoryId { barViewers = v }
+        }
+    }
+
+    // MARK: Pull-up carousel (Telegram StoryItemSetContainerComponent math)
+
+    // Horizontal row of ALL my posted stories: centre card large, neighbours peek + shrink to ~0.70
+    // (Telegram sideVisibleItemWidth/centralVisibleItemWidth). Clean image only — no caption, no blur.
+    private var pulledUpCarousel: some View {
+        let cardW: CGFloat = 188
+        let centered = byStory[carouselCenteredId ?? ""] ?? []
+        let centeredLikes = centered.filter { !($0.reaction ?? "").isEmpty }.count
+        return VStack(spacing: 14) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {                               // Telegram itemSpacing = 12
+                    ForEach(myStories, id: \.id) { s in carouselCard(s) }
+                }
+                .scrollTargetLayout()
+                .padding(.horizontal, max(16, (UIScreen.main.bounds.width - cardW) / 2))   // centre the focused card
+            }
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: $carouselCenteredId)
+            .frame(height: 320)
+            carouselCount(views: centered.count, likes: centeredLikes, big: true)   // centred story count, big
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 64)                                          // clear the close-X / safe area
+        .opacity(Double(sheetProgress))                            // fade in as the sheet rises
+        .scaleEffect(0.92 + 0.08 * sheetProgress, anchor: .top)
+        .allowsHitTesting(sheetProgress > 0.5)
+    }
+
+    private func carouselCard(_ s: Story) -> some View {
+        let vs = byStory[s.id] ?? []
+        let likes = vs.filter { !($0.reaction ?? "").isEmpty }.count
+        let w: CGFloat = 188, h: CGFloat = 320
+        let sideScale: CGFloat = 0.70                              // (central - 54) / central ≈ 0.70
+        return StoryImage(url: s.mediaUrl)                         // clean image — no caption, no blur
+            .frame(width: w, height: h)
+            .overlay(alignment: .bottom) {
+                carouselCount(views: vs.count, likes: likes, big: false)   // small count on side cards only
+                    .padding(.bottom, 12)
+                    .scrollTransition(.interactive) { c, phase in c.opacity(phase.isIdentity ? 0 : 1) }
+            }
+            .scrollTransition(.interactive) { content, phase in
+                content
+                    // Corner-radius compensation (Telegram cornerRadius * 1/scale): clip BEFORE scaling so the
+                    // VISUAL radius stays 24 on the shrunk side cards.
+                    .clipShape(RoundedRectangle(cornerRadius: phase.isIdentity ? 24 : 24 / sideScale, style: .continuous))
+                    .scaleEffect(phase.isIdentity ? 1.0 : sideScale)
+                    .opacity(phase.isIdentity ? 1.0 : 0.92)
+            }
+            .id(s.id)
+            .onTapGesture { withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) { carouselCenteredId = s.id } }
+    }
+
+    private func carouselCount(views: Int, likes: Int, big: Bool) -> some View {
+        HStack(spacing: big ? 7 : 5) {
+            Image(systemName: "eye.fill")
+            Text(compactCount(views))
+            if likes > 0 {
+                Image(systemName: "heart.fill").foregroundStyle(.red).padding(.leading, 4)
+                Text(compactCount(likes))
+            }
+        }
+        .font(big ? .subheadline.weight(.bold) : .caption2.weight(.semibold))
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.5), radius: 3)
+    }
+
+    private func compactCount(_ n: Int) -> String {
+        if n >= 1000 { return String(format: "%.1fK", Double(n) / 1000).replacingOccurrences(of: ".0K", with: "K") }
+        return "\(n)"
+    }
+
+    // Load viewers for EVERY one of my stories (for the per-card counts) and centre on the active item.
+    private func loadByStory() {
+        if carouselCenteredId == nil || (carouselCenteredId ?? "").isEmpty { carouselCenteredId = currentStoryId }
+        Task {
+            await withTaskGroup(of: (String, [StoryViewerInfo]).self) { group in
+                for s in myStories { group.addTask { (s.id, await StoriesService.shared.fetchViewers(storyId: s.id)) } }
+                for await (id, v) in group { await MainActor.run { byStory[id] = v } }
+            }
         }
     }
 
