@@ -849,52 +849,73 @@ struct StoryViewersSheet: View {
         .task { await loadAll() }
     }
 
-    // Horizontal carousel of ALL my posted stories; centred card large, neighbours peek + shrink (image_9).
+    // Horizontal carousel: centred card LARGE, neighbours peek + shrink. Native scroll = continuous
+    // finger-follow + snap-to-centre + no bounce. The centred story's count shows BIG below (reference #595).
     private var storyCarousel: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(stories, id: \.id) { s in storyCard(s) }
+        let active = byStory[selected] ?? []
+        let activeReacts = active.filter { !($0.reaction ?? "").isEmpty }.count
+        return VStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(stories, id: \.id) { s in storyCard(s) }
+                }
+                .scrollTargetLayout()
+                .padding(.horizontal, max(16, (UIScreen.main.bounds.width - 184) / 2))   // centre the focused card
+                .padding(.top, 10)
             }
-            .scrollTargetLayout()
-            .padding(.horizontal, max(16, (UIScreen.main.bounds.width - 170) / 2))   // center the focused card
-            .padding(.vertical, 14)
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: $scrolledID)
+            .frame(height: 300)
+            // The active (centre) card's count, big + centred under the carousel.
+            countRow(views: active.count, likes: activeReacts, big: true)
+                .padding(.bottom, 6)
         }
-        .scrollTargetBehavior(.viewAligned)
-        .scrollPosition(id: $scrolledID)
-        .frame(height: 320)
     }
 
     private func storyCard(_ s: Story) -> some View {
         let vs = byStory[s.id] ?? []
         let reacts = vs.filter { !($0.reaction ?? "").isEmpty }.count
-        let w: CGFloat = 170, h: CGFloat = 292
+        let w: CGFloat = 184, h: CGFloat = 300
+        let isCentre = s.id == (scrolledID ?? selected)
         return GeometryReader { geo in
             let screenMid = UIScreen.main.bounds.width / 2
             let dist = abs(geo.frame(in: .global).midX - screenMid)
-            let scale = max(0.82, 1 - dist / 700)
+            let scale = max(0.74, 1 - dist / 520)        // steeper: centre large, sides clearly smaller
             StoryImage(url: s.mediaUrl)
                 .frame(width: w, height: h)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))   // EXACT match to the story cards (24)
                 .overlay(alignment: .bottom) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "eye.fill").font(.caption2)
-                        Text("\(vs.count)").font(.caption2.weight(.semibold))
-                        if reacts > 0 {
-                            Image(systemName: "heart.fill").font(.caption2).foregroundStyle(.red)
-                            Text("\(reacts)").font(.caption2.weight(.semibold))
-                        }
+                    // Side cards show their count at the bottom; the centre card's count is the BIG one below.
+                    if !isCentre {
+                        countRow(views: vs.count, likes: reacts, big: false).padding(.bottom, 10)
                     }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(.black.opacity(0.45), in: Capsule())
-                    .padding(.bottom, 10)
                 }
                 .scaleEffect(scale)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: w, height: h)
         .id(s.id)
-        .onTapGesture { withAnimation(.spring(response: 0.42, dampingFraction: 0.68)) { scrolledID = s.id } }
+        .onTapGesture { withAnimation(.spring(response: 0.42, dampingFraction: 0.74)) { scrolledID = s.id } }
+    }
+
+    // Eye + views + heart + likes, white over a soft shadow (reference). `big` = the centred-card count below.
+    private func countRow(views: Int, likes: Int, big: Bool) -> some View {
+        HStack(spacing: big ? 7 : 5) {
+            Image(systemName: "eye.fill")
+            Text(compactCount(views))
+            if likes > 0 {
+                Image(systemName: "heart.fill").foregroundStyle(.red).padding(.leading, 4)
+                Text(compactCount(likes))
+            }
+        }
+        .font(big ? .subheadline.weight(.bold) : .caption2.weight(.semibold))
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.5), radius: 3)
+    }
+
+    private func compactCount(_ n: Int) -> String {
+        if n >= 1000 { return String(format: "%.1fK", Double(n) / 1000).replacingOccurrences(of: ".0K", with: "K") }
+        return "\(n)"
     }
 
     // Pinned controls: All Viewers / Contacts + Search. Opaque bg so rows don't show through when pinned.
@@ -945,9 +966,19 @@ struct StoryViewersSheet: View {
 
     private func viewerRow(_ v: StoryViewerInfo) -> some View {
         HStack(spacing: 12) {
-            AvatarView(name: v.name, photoUrl: v.photoUrl, size: 44)
+            AvatarView(name: v.name, photoUrl: v.photoUrl, size: 46)
+                .overlay(alignment: .bottomTrailing) {
+                    // Reaction shown as a small badge on the avatar (reference), not a big emoji on the right.
+                    if let r = v.reaction, !r.isEmpty {
+                        Text(r).font(.system(size: 11))
+                            .frame(width: 19, height: 19)
+                            .background(Circle().fill(Color(.systemRed)))
+                            .overlay(Circle().stroke(Color.black, lineWidth: 2))
+                            .offset(x: 3, y: 3)
+                    }
+                }
             VStack(alignment: .leading, spacing: 2) {
-                Text(v.name).font(.body).foregroundStyle(.white)
+                Text(v.name).font(.body.weight(.semibold)).foregroundStyle(.white)
                 HStack(spacing: 5) {
                     doubleCheck                                    // grey read-check, like Telegram
                     Text(dateFmt(v.viewedAt))
@@ -955,11 +986,15 @@ struct StoryViewersSheet: View {
                 .font(.caption).foregroundStyle(.white.opacity(0.5))
             }
             Spacer()
-            if let r = v.reaction, !r.isEmpty {
-                Text(r).font(.title3)   // show the actual reaction they left, not a generic heart
+            Menu {
+                Button { } label: { Label("Send message", systemImage: "message") }
+                Button { } label: { Label("View profile", systemImage: "person.crop.circle") }
+            } label: {
+                Image(systemName: "ellipsis").font(.body).foregroundStyle(.white.opacity(0.55))
+                    .frame(width: 38, height: 38).contentShape(Rectangle())
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 8)
+        .padding(.horizontal, 16).padding(.vertical, 9)
     }
 
     private func dateFmt(_ d: Date) -> String {
