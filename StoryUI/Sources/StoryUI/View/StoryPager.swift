@@ -227,6 +227,9 @@ struct StoryPager: UIViewControllerRepresentable {
                 let ty = t.y, vy = g.velocity(in: pager.view).y
                 // Telegram commit: translation.y > 200 OR (translation.y > 5 AND velocity.y > 200)
                 if ty > 200 || (ty > 5 && vy > 200) {
+                    // Dismiss → STOP playback/timer for good (don't resume). The story was already paused on
+                    // .began; killing the video here means no audio/frame keeps running behind the dismissal.
+                    NotificationCenter.default.post(name: .stopVideo, object: nil)
                     UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseIn) {
                         card.transform = CGAffineTransform(translationX: 0, y: card.bounds.height).scaledBy(x: 0.6, y: 0.6)
                     } completion: { _ in self.parent.onCommit() }
