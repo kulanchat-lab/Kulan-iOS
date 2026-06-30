@@ -17,6 +17,7 @@ struct ContactInfoView: View {
     let name: String
     let photoUrl: String?
     var source: ProfileSource = .chat
+    var isSelf: Bool = false   // your OWN profile (opened from your own story) → no call-yourself buttons
 
     @State private var handle = ""
     @State private var about = ""
@@ -160,11 +161,13 @@ struct ContactInfoView: View {
     // trails (you're already here). Video is an honest "coming soon"; Voice always calls.
     private var quickActions: some View {
         HStack(spacing: 12) {
-            if source == .calls {
-                actionTile("message", "message.fill") { openChat = true }
+            if source == .calls || isSelf {
+                actionTile("message", "message.fill") { openChat = true }   // self → message yourself (My Space later)
             }
-            actionTile("video", "video.fill") { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl, video: true) }
-            actionTile("voice", "phone.fill") { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl) }
+            if !isSelf {   // can't call yourself — hide video/voice on your own profile
+                actionTile("video", "video.fill") { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl, video: true) }
+                actionTile("voice", "phone.fill") { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl) }
+            }
             // Native menu (pops up) instead of a custom action sheet.
             Menu {
                 if muted { Button("Unmute") { muted = false; Task { await ChatService.setMute(cid, until: 0) } } }

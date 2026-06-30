@@ -450,7 +450,7 @@ struct StoryViewer: View {
         .sheet(item: $profileSheet) { g in
             NavigationStack {
                 ContactInfoView(cid: [me, g.authorUid].sorted().joined(separator: "_"),
-                                name: g.name, photoUrl: g.photoUrl)
+                                name: g.name, photoUrl: g.photoUrl, isSelf: g.authorUid == me)
             }
             .presentationDetents([.medium, .large])   // small profile sheet over the paused story
             .presentationDragIndicator(.visible)
