@@ -359,7 +359,11 @@ private extension StoryDetailView {
         // StoryUI library's cube (tiskender2/StoryUI): angle = 45° × (minX / width). Combined with the
         // pager's horizontal slide + the .leading/.trailing anchor + perspective 2.5, this IS the cube —
         // pure SwiftUI, no UIKit transform feedback (so no shake/black).
-        let progress = proxy.frame(in: .global).minX / proxy.size.width
+        let frame = proxy.frame(in: .global)
+        // When the host scales the card down for the viewers sheet, its global frame shrinks below the layout
+        // width — DON'T apply the cube tilt in that state, or the shrunk card looks skewed. Keep it flat.
+        guard frame.width >= proxy.size.width * 0.95 else { return .zero }
+        let progress = frame.minX / proxy.size.width
         return Angle(degrees: 45 * progress)
     }
     
