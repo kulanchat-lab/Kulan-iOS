@@ -38,21 +38,13 @@ struct UserView: View {
 
             // "…" sits directly left of the X, same row, so they auto-align (no guessed padding).
             if showMore {
-                Menu {
-                    Button { NotificationCenter.default.post(name: .init("storyActionSave"), object: nil) }
-                        label: { Label("Save", systemImage: "square.and.arrow.down") }
-                    Button { NotificationCenter.default.post(name: .init("storyActionForward"), object: nil) }
-                        label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
-                    Button { NotificationCenter.default.post(name: .init("storyActionShare"), object: nil) }
-                        label: { Label("Share", systemImage: "square.and.arrow.up") }
-                    Button { NotificationCenter.default.post(name: .init("storyActionHide"), object: nil) }
-                        label: { Label("Hide Stories", systemImage: "archivebox") }
-                } label: {
+                // Tap "…" → host opens a BOTTOM SHEET with the actions (not a dropdown).
+                Button { NotificationCenter.default.post(name: .init("storyActionMenu"), object: nil) } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(.white)
                         .frame(width: 32, height: 32)
-                        .background(Circle().fill(.black.opacity(0.3)))   // subtle circle → clear on any photo (Telegram)
+                        .background(Circle().fill(.black.opacity(0.3)))   // subtle circle → clear on any photo
                         .frame(width: 44, height: 44)                      // keep the 44pt tap target
                         .contentShape(Rectangle())
                 }
