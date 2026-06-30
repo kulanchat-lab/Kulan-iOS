@@ -136,11 +136,17 @@ struct StoriesRow: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: storySpacing) {
                 myCard
-                    .id("my-story")   // STABLE identity so its "Add Story/Posted Stories" menu never binds
-                                      // to a friend card when the row re-sorts (SwiftUI context-menu bug).
+                    // Context menu lives HERE, co-located with the .id, so it can't cross-bind to a friend
+                    // card (when it was one level deeper inside myCard, SwiftUI leaked it onto neighbours).
+                    .contextMenu {
+                        Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
+                        Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
+                            label: { Label("Posted Stories", systemImage: "circle.dashed") }
+                    }
+                    .id("my-story")
                 ForEach(orderedOthers) { g in
-                    // Each friend card is its OWN Equatable view so its long-press survives the row's
-                    // re-renders (inline ForEach context menus only fired on the first card).
+                    // Each friend card is its OWN Equatable view; its FRIEND menu is attached here at the same
+                    // level as the .id (never My Story's Add/Posted menu).
                     StoryFriendCard(cover: g.stories.last?.mediaUrl,
                                     name: g.name.isEmpty ? "User" : g.name,
                                     avatar: g.photoUrl,
@@ -153,7 +159,12 @@ struct StoriesRow: View {
                                     storyNS: storyNS,
                                     groupID: g.id)
                         .equatable()
-                        .id(g.authorUid)   // explicit stable identity → its menu stays bound to this person
+                        .contextMenu {
+                            Button { onMessage(g) } label: { Label("Send Message", systemImage: "message") }
+                            Button { onProfile(g) } label: { Label("Open Profile", systemImage: "person.crop.circle") }
+                            Button(role: .destructive) { hideTarget = g } label: { Label("Hide Stories", systemImage: "archivebox") }
+                        }
+                        .id(g.authorUid)   // id + menu co-located → menu stays bound to this person
                 }
             }
             .padding(.horizontal, storyHPad)
@@ -189,11 +200,6 @@ struct StoriesRow: View {
                      name: "My Story", avatar: mePhoto,
                      seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []), onBadge: onCompose) {
                     if let m = repo.mine { onOpen(m) } else { onCompose() }
-                }
-                .contextMenu {   // My Story menu: Add Story + Posted Stories only (lifts in place — build 147)
-                    Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
-                    Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
-                        label: { Label("Posted Stories", systemImage: "circle.dashed") }
                 }
                 .matchedTransitionSource(id: repo.mine?.id ?? "my-story", in: storyNS)   // hero grow source
                 .transition(.opacity)
@@ -333,11 +339,7 @@ private struct StoryFriendCard: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contextMenu {   // lifts THIS card in place + friend menu (default lift — build 147)
-            Button { onMessage() } label: { Label("Send Message", systemImage: "message") }
-            Button { onProfile() } label: { Label("Open Profile", systemImage: "person.crop.circle") }
-            Button(role: .destructive) { onHide() } label: { Label("Hide Stories", systemImage: "archivebox") }
-        }
+        // Context menu is attached by the parent (co-located with .id) so it never cross-binds with My Story.
         .matchedTransitionSource(id: groupID, in: storyNS)   // hero grow source
     }
 
@@ -580,6 +582,12 @@ struct StoryViewer: View {
         // Freeze the running story + progress while any sheet is shown over it; resume on dismiss.
         .onChange(of: sheetUp) { _, up in
             NotificationCenter.default.post(name: up ? .init("pauseStory") : .init("resumeStory"), object: nil)
+        }
+        // Swipe-down: pause the instant the card starts moving (host-driven off the real drag amount, so it
+        // can't be missed like the library's .began notification can). Resume when it springs back to 0 (cancel).
+        .onChange(of: dragDown) { _, d in
+            if d > 3 { NotificationCenter.default.post(name: .init("pauseStory"), object: nil) }
+            else if d == 0 { NotificationCenter.default.post(name: .init("resumeStory"), object: nil) }
         }
         // Opening the viewers springs sheetProgress 0 -> 1 (story scales/rounds/lifts as the sheet rises).
         .onChange(of: showViewers) { _, open in
