@@ -453,7 +453,19 @@ struct StoryViewer: View {
         .ignoresSafeArea()
         // My own story: Telegram owner bar (Views + reactions + delete) instead of a reply bar.
         .overlay(alignment: .bottom) {
-            if currentIsMine { ownerBar.opacity(dragDown > 6 ? 0 : 1).animation(.easeOut(duration: 0.15), value: dragDown > 6) }
+            if currentIsMine {
+                ownerBar
+                    .opacity(dragDown > 6 ? 0 : 1).animation(.easeOut(duration: 0.15), value: dragDown > 6)
+                    .contentShape(Rectangle())
+                    // Reliable swipe-up to open viewers: this owner bar is a SwiftUI overlay ON TOP of the
+                    // story, so its gesture fires even when the library's UIKit swipe-up doesn't. Taps on
+                    // Views/trash still work (minimumDistance gate).
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 16).onEnded { v in
+                            if v.translation.height < -30 { showViewers = true }
+                        }
+                    )
+            }
         }
         .sheet(isPresented: $showViewers) {
             StoryViewersSheet(stories: myStories, selectedId: currentStoryId)
