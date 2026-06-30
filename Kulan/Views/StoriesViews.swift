@@ -889,26 +889,27 @@ struct StoryViewersSheet: View {
         let vs = byStory[s.id] ?? []
         let reacts = vs.filter { !($0.reaction ?? "").isEmpty }.count
         let w: CGFloat = 184, h: CGFloat = 300
-        let isCentre = s.id == (scrolledID ?? selected)
-        return GeometryReader { geo in
-            let screenMid = UIScreen.main.bounds.width / 2
-            let dist = abs(geo.frame(in: .global).midX - screenMid)
-            let scale = max(0.74, 1 - dist / 520)        // steeper: centre large, sides clearly smaller
-            StoryImage(url: s.mediaUrl)
-                .frame(width: w, height: h)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))   // EXACT match to the story cards (24)
-                .overlay(alignment: .bottom) {
-                    // Side cards show their count at the bottom; the centre card's count is the BIG one below.
-                    if !isCentre {
-                        countRow(views: vs.count, likes: reacts, big: false).padding(.bottom, 10)
+        return StoryImage(url: s.mediaUrl)
+            .frame(width: w, height: h)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))   // EXACT match to the story cards (24)
+            .overlay(alignment: .bottom) {
+                // Side cards show a small count; the CENTRED card hides it (the big count is shown below).
+                countRow(views: vs.count, likes: reacts, big: false)
+                    .padding(.bottom, 10)
+                    .scrollTransition(.interactive(bounces: false)) { c, phase in
+                        c.opacity(phase.isIdentity ? 0 : 1)
                     }
-                }
-                .scaleEffect(scale)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .frame(width: w, height: h)
-        .id(s.id)
-        .onTapGesture { withAnimation(.spring(response: 0.42, dampingFraction: 0.74)) { scrolledID = s.id } }
+            }
+            // Scale driven by the SCROLL itself (not a GeometryReader) — centre card full size, neighbours
+            // shrink, interpolated smoothly during the drag. viewAligned snaps to centre on release, so there's
+            // no glitch / duplicate / stuck-between-positions bug.
+            .scrollTransition(.interactive(bounces: false)) { content, phase in
+                content
+                    .scaleEffect(phase.isIdentity ? 1.0 : 0.76)
+                    .opacity(phase.isIdentity ? 1.0 : 0.9)
+            }
+            .id(s.id)
+            .onTapGesture { withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) { scrolledID = s.id } }
     }
 
     // Eye + views + heart + likes, white over a soft shadow (reference). `big` = the centred-card count below.
