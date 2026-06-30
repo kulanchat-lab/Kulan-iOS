@@ -121,13 +121,24 @@ struct StoriesRow: View {
     }
     private var cardH: CGFloat { cardW * 1.46 }
 
+    // Ordering: UNVIEWED first (original order), then VIEWED — most-recently-viewed first. Re-sorts live
+    // (no reload) the instant a story is opened (markSeenLocally sets lastViewedAt) and the cards animate.
+    private var orderedOthers: [StoryGroup] {
+        let _ = prefsTick   // re-evaluate after hide/seen toggles
+        let visible = repo.others.filter { !StoryPrefs.isHidden($0.authorUid) }
+        let unviewed = visible.filter { $0.hasUnseen }
+        let viewed = visible.filter { !$0.hasUnseen }
+            .sorted { ($0.lastViewedAt ?? .distantPast) > ($1.lastViewedAt ?? .distantPast) }
+        return unviewed + viewed
+    }
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: storySpacing) {
                 myCard
                     .id("my-story")   // STABLE identity so its "Add Story/Posted Stories" menu never binds
                                       // to a friend card when the row re-sorts (SwiftUI context-menu bug).
-                ForEach(repo.others.filter { !StoryPrefs.isHidden($0.authorUid) }) { g in
+                ForEach(orderedOthers) { g in
                     // Each friend card is its OWN Equatable view so its long-press survives the row's
                     // re-renders (inline ForEach context menus only fired on the first card).
                     StoryFriendCard(cover: g.stories.last?.mediaUrl,
@@ -147,6 +158,8 @@ struct StoriesRow: View {
             }
             .padding(.horizontal, storyHPad)
             .padding(.vertical, 10)
+            // Smoothly slide cards to their new spots when a story moves unviewed -> viewed-front (no reload).
+            .animation(.spring(response: 0.42, dampingFraction: 0.82), value: orderedOthers.map(\.id))
         }
         .alert("Couldn't post story", isPresented: Binding(
             get: { stories.uploadError != nil },
