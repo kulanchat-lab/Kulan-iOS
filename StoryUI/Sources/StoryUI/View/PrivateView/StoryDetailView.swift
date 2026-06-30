@@ -261,7 +261,7 @@ private extension StoryDetailView {
         if !text.isEmpty {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 128)
+                    .frame(height: 210)   // taller so it backs both the caption AND the floating reply bar
                     .allowsHitTesting(false)
                 Text(text)
                     .font(.system(size: 16))
@@ -270,7 +270,7 @@ private extension StoryDetailView {
                     .multilineTextAlignment(.leading)
                     .lineLimit(captionExpanded ? nil : 3)
                     .padding(.horizontal, 16)
-                    .padding(.bottom, 14)
+                    .padding(.bottom, Constant.MessageView.height + winInsets.bottom + 28)   // sit ABOVE the reply bar
                     .contentShape(Rectangle())
                     .onTapGesture {   // tap expands/collapses; consumes the tap so it doesn't advance the story
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { captionExpanded.toggle() }
