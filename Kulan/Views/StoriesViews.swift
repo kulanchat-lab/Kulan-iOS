@@ -421,6 +421,7 @@ struct StoryViewer: View {
                         id: s.id,
                         mediaURL: s.mediaUrl,
                         date: timeAgo(s.createdAt),
+                        isSeen: StoryPrefs.isStorySeen(s.id),   // open the viewer at the first UNSEEN item
                         caption: s.caption,
                         config: StoryConfiguration(
                             // My own story shows NO reply bar (owner bar is overlaid instead).

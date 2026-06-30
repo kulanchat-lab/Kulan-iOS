@@ -119,7 +119,15 @@ struct StoryDetailView: View {
         .onChange(of: viewModel.currentStoryUser) { newValue in
             NotificationCenter.default.post(name: .stopVideo, object: nil)
             resetProgress()
+            // WhatsApp/Instagram: when this bucket becomes current, open at the FIRST UNSEEN item (e.g. a new
+            // story D after A/B/C were seen) instead of always restarting at item 0.
+            if newValue == model.id { timerProgress = CGFloat(firstUnseenIndex()) }
             playVideo()
+        }
+        .onAppear {
+            // First open of the viewer (onChange(currentStoryUser) doesn't fire for the initial bucket):
+            // land on the first unseen item too.
+            if viewModel.currentStoryUser == model.id { timerProgress = CGFloat(firstUnseenIndex()) }
         }
         .onReceive(timer) { _ in
             startProgress()
@@ -488,6 +496,11 @@ private extension StoryDetailView {
     func getStoryOrNil(with index: Int) -> Story? {
         guard index >= 0, index < model.stories.count else { return nil }
         return model.stories[index]
+    }
+
+    // First UNSEEN item index (WhatsApp/Instagram open-at-newest). All seen → 0 (replay from the start).
+    func firstUnseenIndex() -> Int {
+        model.stories.firstIndex(where: { !$0.isSeen }) ?? 0
     }
     
     func resetAVPlayer() {
