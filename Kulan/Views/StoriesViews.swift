@@ -536,7 +536,8 @@ struct StoryViewer: View {
         // Delete stays a bottom action sheet; the "…" is now a native dropdown menu in the header.
         .overlay {
             if confirmDelete {
-                BottomActionSheet(onCancel: { confirmDelete = false }) {
+                BottomActionSheet(title: "Delete this story? It will also be deleted for everyone who received it.",
+                                  onCancel: { confirmDelete = false }) {
                     // Seamless delete: the viewer slides to the adjacent item itself; we just remove from the db.
                     sheetButton("Delete", destructive: true) {
                         confirmDelete = false
@@ -629,11 +630,12 @@ struct StoryViewer: View {
     @ViewBuilder private func sheetButton(_ title: String, destructive: Bool = false, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.body.weight(destructive ? .semibold : .regular))
-                .foregroundStyle(destructive ? Color.red : Color.primary)
-                .frame(maxWidth: .infinity).frame(height: 56)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(destructive ? Color.red : Color.white)
+                .frame(maxWidth: .infinity).frame(height: 54)
                 .contentShape(Rectangle())
         }
+        .background(.thinMaterial, in: Capsule())   // liquid-glass capsule (image 2)
     }
 
     private func loadCurrentImage(_ captured: String? = nil) async -> UIImage? {
@@ -854,9 +856,11 @@ struct SeenBySheet: View {
 // Native-style bottom action sheet: dim scrim + a material action group + a separate Cancel pill,
 // anchored to the bottom (replaces confirmationDialog, which rendered centered over the clear cover).
 struct BottomActionSheet<Content: View>: View {
+    var title: String? = nil
     let onCancel: () -> Void
     @ViewBuilder let content: Content
-    init(onCancel: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+    init(title: String? = nil, onCancel: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+        self.title = title
         self.onCancel = onCancel
         self.content = content()
     }
@@ -866,19 +870,29 @@ struct BottomActionSheet<Content: View>: View {
     }
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color.black.opacity(0.32).ignoresSafeArea()
+            Color.black.opacity(0.4).ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onCancel)
-            VStack(spacing: 8) {
-                VStack(spacing: 0) { content }
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                Button(action: onCancel) {
-                    Text("Cancel").font(.body.weight(.semibold)).foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity).frame(height: 56).contentShape(Rectangle())
+            // ONE dark glass card holding the title + the action capsules + Cancel (image 2 / native style).
+            VStack(spacing: 12) {
+                if let title {
+                    Text(title)
+                        .font(.callout).foregroundStyle(.white.opacity(0.85))
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 6).padding(.top, 6).padding(.bottom, 2)
                 }
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                content   // destructive capsule(s) from sheetButton
+                Button(action: onCancel) {
+                    Text("Cancel").font(.body.weight(.semibold)).foregroundStyle(.white)
+                        .frame(maxWidth: .infinity).frame(height: 54).contentShape(Rectangle())
+                }
+                .background(.thinMaterial, in: Capsule())
             }
-            .padding(.horizontal, 10)
+            .padding(14)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .environment(\.colorScheme, .dark)   // dark liquid glass regardless of the app's light/dark mode
+            .padding(.horizontal, 12)
             .padding(.bottom, max(10, bottomSafeInset))   // clear the home indicator (host ignores safe area)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
