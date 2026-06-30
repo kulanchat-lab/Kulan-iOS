@@ -771,7 +771,7 @@ struct StoryViewer: View {
     // Horizontal row of ALL my posted stories: centre card large, neighbours peek + shrink to ~0.70
     // (Telegram sideVisibleItemWidth/centralVisibleItemWidth). Clean image only — no caption, no blur.
     private var pulledUpCarousel: some View {
-        let cardW: CGFloat = 188
+        let cardW: CGFloat = 160   // must match carouselCard width so the focused card centres
         let centered = byStory[carouselCenteredId ?? ""] ?? []
         let centeredLikes = centered.filter { !($0.reaction ?? "").isEmpty }.count
         return VStack(spacing: 14) {
@@ -784,11 +784,11 @@ struct StoryViewer: View {
             }
             .scrollTargetBehavior(.viewAligned)
             .scrollPosition(id: $carouselCenteredId)
-            .frame(height: 320)
+            .frame(height: 270)
             carouselCount(views: centered.count, likes: centeredLikes, big: true)   // centred story count, big
             Spacer(minLength: 0)
         }
-        .padding(.top, 64)                                          // clear the close-X / safe area
+        .padding(.top, 44)                                          // clear the close-X / safe area
         .opacity(Double(sheetProgress))                            // fade in as the sheet rises
         .scaleEffect(0.92 + 0.08 * sheetProgress, anchor: .top)
         .allowsHitTesting(sheetProgress > 0.5)
@@ -797,7 +797,7 @@ struct StoryViewer: View {
     private func carouselCard(_ s: Story) -> some View {
         let vs = byStory[s.id] ?? []
         let likes = vs.filter { !($0.reaction ?? "").isEmpty }.count
-        let w: CGFloat = 188, h: CGFloat = 320
+        let w: CGFloat = 160, h: CGFloat = 270                     // fits above the 60% sheet
         let sideScale: CGFloat = 0.70                              // (central - 54) / central ≈ 0.70
         return StoryImage(url: s.mediaUrl)                         // clean image — no caption, no blur
             .frame(width: w, height: h)
