@@ -46,7 +46,7 @@ struct UserView: View {
                         label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
                     Button { NotificationCenter.default.post(name: .init("storyActionShare"), object: nil) }
                         label: { Label("Share", systemImage: "square.and.arrow.up") }
-                    Button(role: .destructive) { NotificationCenter.default.post(name: .init("storyActionHide"), object: nil) }
+                    Button { NotificationCenter.default.post(name: .init("storyActionHide"), object: nil) }
                         label: { Label("Hide Stories", systemImage: "eye.slash") }
                 } label: {
                     Image(systemName: "ellipsis")
