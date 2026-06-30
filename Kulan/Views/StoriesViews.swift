@@ -526,7 +526,7 @@ struct StoryViewer: View {
                     // Seamless delete: the viewer slides to the adjacent item itself; we just remove from the db.
                     sheetButton("Delete", destructive: true) {
                         confirmDelete = false
-                        NotificationCenter.default.post(name: .deleteCurrentStoryItem, object: nil)
+                        NotificationCenter.default.post(name: .init("deleteCurrentStoryItem"), object: nil)
                     }
                 }
             }
@@ -534,7 +534,7 @@ struct StoryViewer: View {
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: confirmDelete)
         // The viewer dropped the item in-place + advanced; here we delete it from the database. If that was
         // my last story, close the viewer (Case 3). Otherwise leave the (captured) viewer untouched — no re-feed.
-        .onReceive(NotificationCenter.default.publisher(for: .storyItemDeleted)) { note in
+        .onReceive(NotificationCenter.default.publisher(for: .init("storyItemDeleted"))) { note in
             guard let id = note.object as? String, !id.isEmpty else { return }
             Task {
                 await StoriesService.shared.deleteStory(id)
