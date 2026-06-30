@@ -801,6 +801,8 @@ struct StoryViewer: View {
         let sideScale: CGFloat = 0.70                              // (central - 54) / central ≈ 0.70
         return StoryImage(url: s.mediaUrl)                         // clean image — no caption, no blur
             .frame(width: w, height: h)
+            // clipShape must live OUTSIDE scrollTransition (its closure only accepts visual effects, not clip).
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(alignment: .bottom) {
                 carouselCount(views: vs.count, likes: likes, big: false)   // small count on side cards only
                     .padding(.bottom, 12)
@@ -808,9 +810,6 @@ struct StoryViewer: View {
             }
             .scrollTransition(.interactive) { content, phase in
                 content
-                    // Corner-radius compensation (Telegram cornerRadius * 1/scale): clip BEFORE scaling so the
-                    // VISUAL radius stays 24 on the shrunk side cards.
-                    .clipShape(RoundedRectangle(cornerRadius: phase.isIdentity ? 24 : 24 / sideScale, style: .continuous))
                     .scaleEffect(phase.isIdentity ? 1.0 : sideScale)
                     .opacity(phase.isIdentity ? 1.0 : 0.92)
             }
