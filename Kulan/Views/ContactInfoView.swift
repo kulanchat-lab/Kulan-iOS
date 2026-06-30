@@ -161,10 +161,12 @@ struct ContactInfoView: View {
     // trails (you're already here). Video is an honest "coming soon"; Voice always calls.
     private var quickActions: some View {
         HStack(spacing: 12) {
-            if source == .calls || isSelf {
-                actionTile("message", "message.fill") { openChat = true }   // self → message yourself (My Space later)
+            if source == .calls {
+                actionTile("message", "message.fill") { openChat = true }
             }
-            if !isSelf {   // can't call yourself — hide video/voice on your own profile
+            // Your OWN profile: no call-yourself buttons, and NO message-self yet (opening a self-chat crashed —
+            // that's the upcoming "My Space" feature, built separately). Friends keep video/voice.
+            if !isSelf {
                 actionTile("video", "video.fill") { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl, video: true) }
                 actionTile("voice", "phone.fill") { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl) }
             }
