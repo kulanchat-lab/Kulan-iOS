@@ -140,6 +140,7 @@ final class ImageLoader: UIView {
         apply(nil)
         showShimmer(true)
 
+        let requestedURL = imageURL   // capture: if the view is reused mid-download, drop this stale result
         URLSession.shared.dataTask(
             with: imageURL,
             completionHandler: { [weak self] (data, response, error) in
@@ -163,6 +164,7 @@ final class ImageLoader: UIView {
 
             DispatchQueue.main.async {
                 self.showShimmer(false)
+                guard self.imageURL == requestedURL else { imageIsLoaded(); return }   // reused → don't show stale photo
                 self.apply(image)
                 imageIsLoaded()
             }

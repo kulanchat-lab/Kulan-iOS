@@ -385,6 +385,11 @@ struct StoryViewer: View {
     private var me: String { AuthService.shared.uid ?? "" }
     private var currentIsMine: Bool { groups.first { $0.authorUid == currentBucketUid }?.isMine ?? false }
     private var myStories: [Story] { groups.first { $0.isMine }?.stories ?? [] }
+    // Home-indicator inset (the story ignoresSafeArea, so overlays must add it back themselves).
+    private var bottomInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.bottom }.max() ?? 0
+    }
     private var currentStory: Story? { groups.flatMap(\.stories).first { $0.id == currentStoryId } }
     // Any sheet shown over the story → pause it (viewers list, share, forward, "…" menu, delete confirm).
     private var sheetUp: Bool { showViewers || shareImg != nil || forwardImg != nil || confirmDelete || profileSheet != nil }
@@ -682,7 +687,7 @@ struct StoryViewer: View {
         }
         // Smooth, gradual shadow: a tall gradient that eases clear -> black so it blends softly into the photo
         // (no hard edge), with the controls on the solid part at the bottom.
-        .padding(.horizontal, 18).padding(.top, 64).padding(.bottom, 22)
+        .padding(.horizontal, 18).padding(.top, 64).padding(.bottom, max(22, bottomInset + 10))
         .background(LinearGradient(stops: [
             .init(color: .clear,                 location: 0.0),
             .init(color: .black.opacity(0.35),   location: 0.45),
@@ -832,6 +837,10 @@ struct BottomActionSheet<Content: View>: View {
         self.onCancel = onCancel
         self.content = content()
     }
+    private var bottomSafeInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.bottom }.max() ?? 0
+    }
     var body: some View {
         ZStack(alignment: .bottom) {
             Color.black.opacity(0.32).ignoresSafeArea()
@@ -847,7 +856,7 @@ struct BottomActionSheet<Content: View>: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
             .padding(.horizontal, 10)
-            .padding(.bottom, 10)
+            .padding(.bottom, max(10, bottomSafeInset))   // clear the home indicator (host ignores safe area)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }

@@ -39,7 +39,7 @@ struct ShareStorySheet: View {
                                 .frame(width: 48, height: 48).liquidGlass(Circle())
                         }
                         Spacer(); Text("Share Story").font(.headline); Spacer()
-                        Color.clear.frame(width: 40, height: 40)
+                        Color.clear.frame(width: 48, height: 48)   // match the 48pt X so the title is truly centered
                     }
                     .padding(.horizontal, 16).padding(.vertical, 10)
 

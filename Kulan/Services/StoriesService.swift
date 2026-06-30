@@ -66,12 +66,14 @@ final class StoriesService {
         uploading = true
         uploadTask = Task {
             var failure: String?
+            var cancelled = false
             do { try await postStory(image: image, caption: caption, excluded: excluded, included: included) }
-            catch { failure = error.localizedDescription }   // surface it instead of dying silently
+            catch is CancellationError { cancelled = true }   // user hit cancel → postStory removed the doc
+            catch { failure = error.localizedDescription }     // surface it instead of dying silently
             // On success, pull the new story into the repo BEFORE clearing the placeholder — otherwise the
             // card briefly shows the OLD latest story (stale-cover flicker) then rebuilds again. Reloading
             // first lets the "Uploading…" card morph straight into the final My Story card (one transition).
-            if failure == nil { await StoriesRepository.shared.load(force: true) }
+            if !cancelled && failure == nil { await StoriesRepository.shared.load(force: true) }
             await MainActor.run { uploading = false; uploadingImage = nil; uploadTask = nil; uploadError = failure }
         }
     }
@@ -86,6 +88,7 @@ final class StoriesService {
                    excluded: Set<String> = [], included: Set<String> = []) async throws {
         let me = uid
         guard !me.isEmpty else { return }
+        try Task.checkCancellation()   // bail before any write if the user already cancelled
         let storyId = UUID().uuidString
         let path = "stories/\(storyId)/photo.jpg"   // {storyId}/ segment so Storage rules can audience-scope reads
 
@@ -120,13 +123,16 @@ final class StoriesService {
             "recipientUids": Array(recipients),
         ])
 
-        // Upload the image, then resolve + persist its download URL. If anything fails,
-        // remove the doc so we never leave a story with no image.
+        // Upload the image, then resolve + persist its download URL. If anything fails OR the user cancels,
+        // remove the doc (and any uploaded bytes) so we never leave a story with no image — or a story the
+        // user explicitly cancelled — visible to the audience.
         do {
+            try Task.checkCancellation()   // cancelled after the doc was created → undo it below
             let jpeg = ChatService.downscaledJPEG(image)
             let ref = Storage.storage().reference().child(path)
             let meta = StorageMetadata(); meta.contentType = "image/jpeg"
             _ = try await ref.putDataAsync(jpeg, metadata: meta)
+            try Task.checkCancellation()   // cancelled during upload → undo
             let url = try await ref.downloadURL().absoluteString
             try await docRef.updateData(["mediaUrl": url])
             // Warm the cache the My Story card reads from (DiskImageCache), so the final card shows the
@@ -134,6 +140,7 @@ final class StoriesService {
             if let img = UIImage(data: jpeg) { DiskImageCache.shared.store(img, data: jpeg, for: url) }
         } catch {
             try? await docRef.delete()
+            try? await Storage.storage().reference().child(path).delete()
             throw error
         }
     }
@@ -271,6 +278,14 @@ final class StoriesRepository {
         let mineSnap = try? await mineSnapT
         let ctxSnap = try? await ctxSnapT
 
+        // A failed read returns nil (try?). On a network blip, do NOT commit — that would wipe the live story
+        // row to empty (and the 20s throttle would then lock that empty state in). Keep what's showing and
+        // allow an immediate retry. (Only commit when BOTH story reads actually succeeded.)
+        if othersSnap == nil || mineSnap == nil {
+            lastLoadAt = nil
+            return
+        }
+
         let all = (parse(othersSnap?.documents) + parse(mineSnap?.documents))
             .filter { $0.expiresAt > now }
 
@@ -321,7 +336,7 @@ final class StoriesRepository {
 
     // ===== TEMPORARY demo stories (real images) for testing the viewer/carousel/rings =====
     // Flip `injectDemoStories` to false (or delete this block) before production.
-    static let injectDemoStories = true
+    static let injectDemoStories = false
     static func demoGroups(now: Date) -> [StoryGroup] {
         func story(_ uid: String, _ n: Int, _ seed: String) -> Story {
             Story(id: "demo_\(uid)_\(n)", authorUid: uid,

@@ -83,6 +83,14 @@ struct StoryDetailView: View {
                         .overlay(captionView(story.caption), alignment: .bottom)
                         // Top dark scrim so the username/avatar/close stay readable on white/bright photos.
                         .overlay(topScrim, alignment: .top)
+                    // Always-on bottom scrim for reply-bar stories WITHOUT a caption, so the white reply pill /
+                    // heart / send stay readable on bright photos (the caption gradient only exists with a caption).
+                    if story.config.storyType != .plain() && story.caption.isEmpty {
+                        LinearGradient(colors: [.clear, .black.opacity(0.45)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 180)
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                            .allowsHitTesting(false)
+                    }
                     // Reply bar floats at the bottom OVER the photo (no black background row anymore).
                     VStack(spacing: 0) { Spacer(); messageView(with: index) }
                     getEmojiView(story: story)
@@ -198,13 +206,13 @@ private extension StoryDetailView {
                 
             }
         case .plain:
-            Divider()
+            EmptyView()   // was Divider() — drew a faint hairline across the screen centre on plain stories
         }
     }
-    
+
     @ViewBuilder
     func getUserInfoAndProgressBar(with index: Int) -> some View {
-        let date = getStory(with: index).date
+        let date = getStoryOrNil(with: index)?.date ?? ""
         let name = model.user.name
         let image = model.user.image
         VStack {
@@ -269,7 +277,7 @@ private extension StoryDetailView {
                     .foregroundColor(.white)
                     .shadow(color: .black.opacity(0.25), radius: 4)
                     .multilineTextAlignment(.leading)
-                    .lineLimit(captionExpanded ? nil : 3)
+                    .lineLimit(captionExpanded ? 12 : 3)   // cap expansion so a long caption can't overrun the header
                     .padding(.horizontal, 16)
                     .padding(.bottom, Constant.MessageView.height + winInsets.bottom + 22)   // sit ABOVE the reply bar
                     .contentShape(Rectangle())
@@ -371,6 +379,7 @@ private extension StoryDetailView {
     }
     
     func startProgress() {
+        guard !model.stories.isEmpty else { return }   // empty bucket (all expired/deleted) → nothing to index
         // Report the ACTUAL current item as seen (per-item, not the whole bucket) — drives accurate
         // view receipts + "Seen by". Runs before the pause guard so it fires the moment an item shows.
         if viewModel.currentStoryUser == model.id {
@@ -411,8 +420,9 @@ private extension StoryDetailView {
         if keyboardManager.isKeyboardOpen { keyboardManager.dismiss(); return }   // tap closes keyboard, resumes
         configureTapScreen()
         guard !isTapDisabled else { return }
-        if (timerProgress + 1) > CGFloat(model.stories.count) {
-            //next user
+        if Int(timerProgress) + 1 >= model.stories.count {
+            //next user — on the LAST item, advance immediately (was `(p+1) > count` which, when timerProgress
+            // sat on an exact integer after a tap, filled all bars instead of advancing until the next tick)
             guard !isAdvancing else { return }   // don't double-advance if the auto-timer is crossing over too
             isAdvancing = true
             updateStory()
@@ -471,6 +481,12 @@ private extension StoryDetailView {
     }
     
     func getStory(with index: Int) -> Story {
+        return model.stories[index]
+    }
+
+    // Safe accessor — returns nil instead of trapping on an empty / out-of-range bucket (crash guard).
+    func getStoryOrNil(with index: Int) -> Story? {
+        guard index >= 0, index < model.stories.count else { return nil }
         return model.stories[index]
     }
     
