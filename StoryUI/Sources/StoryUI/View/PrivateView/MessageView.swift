@@ -60,6 +60,7 @@ private extension MessageView {
             Image(systemName: likeButtonTapped ? Constant.MessageView.likeImageTapped : Constant.MessageView.likeImage)
                 .font(.title3)                                   // smaller heart
                 .foregroundColor(likeButtonTapped ? .red : .white)
+                .shadow(color: .black.opacity(0.35), radius: 4, y: 1)   // soft shadow (WhatsApp) so it reads on any photo
                 .scaleEffect(likeButtonTapped ? 1.18 : 1.0)      // pop when you give love
                 .animation(.spring(response: 0.3, dampingFraction: 0.45), value: likeButtonTapped)
         }
@@ -104,6 +105,7 @@ private extension MessageView {
             .padding(Constant.MessageView.padding)
             .background(Capsule().fill(.black.opacity(0.3)))   // filled pill, more native than a bare stroke
             .overlay(Capsule().stroke(.white.opacity(0.5), lineWidth: 1))
+            .shadow(color: .black.opacity(0.28), radius: 6, y: 1)   // WhatsApp-style soft shadow so it pops on any photo
 
             // Send button appears once you've typed (heart shows when empty) — was Return-key only.
             if text.isEmpty {
@@ -111,6 +113,7 @@ private extension MessageView {
             } else {
                 Button(action: onCommitAction) {
                     Image(systemName: "paperplane.fill").font(.title2).foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
                         .frame(width: 44, height: 44)        // bigger TAP target, same icon size
                         .contentShape(Rectangle())
                 }

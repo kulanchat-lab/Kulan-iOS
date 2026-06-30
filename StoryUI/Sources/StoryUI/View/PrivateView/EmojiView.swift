@@ -45,6 +45,7 @@ struct EmojiView: View {
                                 userClosure?(story, nil, emoji, false)
                             }
                             .font(.system(size: emojiSize))
+                            .shadow(color: .black.opacity(0.3), radius: 4, y: 1)   // WhatsApp-style soft shadow on any photo
                         }
                     }
                 }
