@@ -374,6 +374,7 @@ struct StoryViewer: View {
     @State private var currentStoryId = ""
     @State private var barViewers: [StoryViewerInfo] = []
     @State private var showViewers = false
+    @State private var sheetProgress: CGFloat = 0       // 0 = closed, 1 = open. Drives the story scale/corner/lift.
     @State private var confirmDelete = false
     @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
     @State private var forwardImg: StoryImagePayload?   // … → Forward (chat picker)
@@ -440,6 +441,12 @@ struct StoryViewer: View {
     }
 
     var body: some View {
+      ZStack {
+        // LAYER 1: black canvas, opaque ONLY while the viewers sheet is open (clear otherwise → swipe-down
+        // dismiss still shows the Chats list behind, no black strip).
+        Color.black.ignoresSafeArea().opacity(Double(sheetProgress))
+
+        // LAYER 2: ACTIVE STORY — full-screen; scales/rounds/lifts with sheetProgress (never inside the sheet).
         StoryView(
             stories: models,
             selectedIndex: startIndex,
@@ -474,11 +481,34 @@ struct StoryViewer: View {
                     )
             }
         }
-        // Viewers (image 2): carousel of my posted stories on top (centre large, neighbours peek, view/❤️
-        // counts) + search + viewer list below. Swiping the carousel re-centres a story and its viewer list.
-        .sheet(isPresented: $showViewers) {
-            StoryViewersSheet(stories: myStories, selectedId: currentStoryId)
+        // LAYER 2 transforms (your numbers): scale 100% -> 92%, corner 0 -> 28, lift up 40, all from sheetProgress.
+        .allowsHitTesting(sheetProgress < 0.5)
+        .clipShape(RoundedRectangle(cornerRadius: 28 * sheetProgress, style: .continuous))
+        .scaleEffect(1 - 0.08 * sheetProgress, anchor: .top)
+        .offset(y: -40 * sheetProgress)
+
+        // LAYER 3: VIEWERS BOTTOM SHEET — handle + tabs + search + list ONLY. No carousel, no story media.
+        if showViewers {
+            StoryViewersBottomSheet(activeStoryId: currentStoryId,
+                                    progress: $sheetProgress,
+                                    onClose: { closeViewers() })
         }
+        // Close-X over the floating story card while the sheet is open.
+        if sheetProgress > 0.01 {
+            VStack {
+                HStack {
+                    Spacer()
+                    Button { closeViewers() } label: {
+                        Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.white)
+                            .frame(width: 38, height: 38).background(.black.opacity(0.45), in: Circle())
+                    }
+                    .opacity(Double(sheetProgress))
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16).padding(.top, 12)
+        }
+      }   // ZStack
         .sheet(item: $shareImg) { p in ActivityView(items: [p.image]) }
         .sheet(item: $forwardImg) { p in StoryForwardSheet(image: p.image, onSent: { flashSentToast() }) }
         .sheet(item: $profileSheet) { g in
@@ -551,7 +581,20 @@ struct StoryViewer: View {
         .onChange(of: sheetUp) { _, up in
             NotificationCenter.default.post(name: up ? .init("pauseStory") : .init("resumeStory"), object: nil)
         }
+        // Opening the viewers springs sheetProgress 0 -> 1 (story scales/rounds/lifts as the sheet rises).
+        .onChange(of: showViewers) { _, open in
+            if open { withAnimation(.spring(response: 0.44, dampingFraction: 0.86)) { sheetProgress = 1 } }
+        }
         .presentationBackground(.clear)   // see-through cover so the Chats list shows behind during swipe-down
+    }
+
+    // Close the viewers sheet: spring sheetProgress -> 0 (story restores to full screen in the SAME spring),
+    // then unmount the sheet once it has parked below.
+    private func closeViewers() {
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { sheetProgress = 0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.44) {
+            if sheetProgress < 0.02 { showViewers = false }
+        }
     }
 
     private func flashSentToast(_ text: String = "Sent") {
