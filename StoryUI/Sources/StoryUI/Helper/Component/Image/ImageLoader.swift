@@ -66,10 +66,7 @@ final class ImageLoader: UIView {
     var imageView = UIImageView()
     // Background: a zoomed + blurred copy of the same photo that fills the empty top/bottom.
     private let backgroundImageView = UIImageView()
-    // Telegram glass mirror: a THIN dark frosted blur so the blurred copy of the image is VISIBLE behind the
-    // bars (the thick material looked solid black). A subtle dark tint keeps it from distracting.
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialDark))
-    private let darkTint = UIView()
+    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterialDark))
     private let shimmer = ShimmerView()
 
     // MARK: - Initializers
@@ -86,7 +83,6 @@ final class ImageLoader: UIView {
         super.layoutSubviews()
         backgroundImageView.frame = bounds
         blurView.frame = bounds
-        darkTint.frame = bounds
         imageView.frame = bounds
         shimmer.frame = bounds
     }
@@ -185,10 +181,7 @@ private extension ImageLoader {
        backgroundImageView.contentMode = .scaleAspectFill
        backgroundImageView.clipsToBounds = true
        addSubview(backgroundImageView)
-       addSubview(blurView)   // frosted blur over the fill copy (Telegram glass mirror)
-       darkTint.backgroundColor = UIColor.black.withAlphaComponent(0.22)   // subtle dark tint over the blur
-       darkTint.isUserInteractionEnabled = false
-       addSubview(darkTint)
+       addSubview(blurView)   // heavy Gaussian blur over the fill copy
 
        // Foreground: the photo at its TRUE aspect ratio — aspect-FIT so a square/landscape is never cropped.
        imageView.contentMode = .scaleAspectFit

@@ -83,8 +83,6 @@ struct StoryDetailView: View {
                         .overlay(captionView(story.caption, plain: story.config.storyType == .plain()), alignment: .bottom)
                         // Top dark scrim so the username/avatar/close stay readable on white/bright photos.
                         .overlay(topScrim, alignment: .top)
-                        // (Reply keyboard: photo stays FULL behind the reply bar — the earlier shrink-to-60%
-                        //  looked wrong, reverted per request.)
                     // Always-on bottom scrim for reply-bar stories WITHOUT a caption, so the white reply pill /
                     // heart / send stay readable on bright photos (the caption gradient only exists with a caption).
                     if story.config.storyType != .plain() && story.caption.isEmpty {
@@ -101,11 +99,8 @@ struct StoryDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .overlay(
                 getUserInfoAndProgressBar(with: index)
-                    // Fade the chrome (progress bars, avatar/name, "…", X) while holding OR while a host sheet
-                    // is over the story (viewers sheet) — otherwise the shrunk card shows tiny cluttered chrome
-                    // plus a second full-size X (audit #1).
-                    .opacity((isPaused || hostPaused) ? 0 : 1)
-                    .animation(.linear(duration: 0.2), value: isPaused || hostPaused)
+                    .opacity(isPaused ? 0 : 1)                       // fade chrome out while holding (IG/WhatsApp)
+                    .animation(.linear(duration: 0.2), value: isPaused)
                 ,alignment: .top
             )
             .rotation3DEffect(
@@ -165,11 +160,9 @@ struct StoryDetailView: View {
             let idx = getCurrentIndex()
             guard idx >= 0, idx < model.stories.count else { return }
             let deletedId = model.stories[idx].id
-            // Case 3 — only one story left: tell the host to delete from the db AND dismiss the viewer right
-            // here, so a failed reload can't leave us stuck on an already-deleted story (audit #4).
+            // Case 3 — only one story left: let the host delete + dismiss the whole viewer (no seamless slide).
             if model.stories.count <= 1 {
                 NotificationCenter.default.post(name: .storyItemDeleted, object: deletedId)
-                dissmis()
                 return
             }
             // Cases 1 & 2 — compute the target BEFORE mutating: next item if there is one, else the previous.
@@ -319,10 +312,9 @@ private extension StoryDetailView {
                     .multilineTextAlignment(.leading)
                     .lineLimit(captionExpanded ? 12 : 3)   // cap expansion so a long caption can't overrun the header
                     .padding(.horizontal, 16)
-                    // Plain stories (my own) are now a CARD with a separate black footer below — the caption just
-                    // sits near the card's bottom (small padding), no big lift/safe-area double-count. Friend
-                    // stories keep the lift above the floating reply bar.
-                    .padding(.bottom, plain ? 26 : (Constant.MessageView.height + winInsets.bottom + 22))
+                    // Sit ABOVE the bottom bar. On plain stories (my own = the "N Views"/trash owner bar) lift
+                    // it higher so the caption never overlaps those controls.
+                    .padding(.bottom, Constant.MessageView.height + (plain ? 54 : 0) + winInsets.bottom + 22)
                     .contentShape(Rectangle())
                     .onTapGesture {   // tap expands/collapses; consumes the tap so it doesn't advance the story
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { captionExpanded.toggle() }
@@ -363,11 +355,7 @@ private extension StoryDetailView {
         // StoryUI library's cube (tiskender2/StoryUI): angle = 45° × (minX / width). Combined with the
         // pager's horizontal slide + the .leading/.trailing anchor + perspective 2.5, this IS the cube —
         // pure SwiftUI, no UIKit transform feedback (so no shake/black).
-        let frame = proxy.frame(in: .global)
-        // When the host scales the card down for the viewers sheet, its global frame shrinks below the layout
-        // width — DON'T apply the cube tilt in that state, or the shrunk card looks skewed. Keep it flat.
-        guard frame.width >= proxy.size.width * 0.95 else { return .zero }
-        let progress = frame.minX / proxy.size.width
+        let progress = proxy.frame(in: .global).minX / proxy.size.width
         return Angle(degrees: 45 * progress)
     }
     
