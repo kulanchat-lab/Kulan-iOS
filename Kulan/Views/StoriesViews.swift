@@ -379,6 +379,7 @@ struct StoryViewer: View {
     @State private var sheetProgress: CGFloat = 0       // 0 = closed, 1 = open. Drives the story scale/corner/lift.
     // Pull-up carousel of ALL my posted stories (centre = active, neighbours peek). Driven by sheetProgress.
     @State private var carouselCenteredId: String? = nil       // centred card → big count + which viewers show
+    @State private var carDragStart: CGFloat? = nil            // vertical drag on the carousel → drives sheetProgress
     @State private var byStory: [String: [StoryViewerInfo]] = [:]   // per-story viewers → view/like counts
     @State private var confirmDelete = false
     @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
@@ -770,33 +771,62 @@ struct StoryViewer: View {
     // Horizontal row of ALL my posted stories: centre card large, neighbours peek + shrink to ~0.70
     // (Telegram sideVisibleItemWidth/centralVisibleItemWidth). Clean image only — no caption, no blur.
     private var pulledUpCarousel: some View {
-        let cardW: CGFloat = 160   // must match carouselCard width so the focused card centres
-        let centered = byStory[carouselCenteredId ?? ""] ?? []
-        let centeredLikes = centered.filter { !($0.reaction ?? "").isEmpty }.count
-        return VStack(spacing: 14) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {                               // Telegram itemSpacing = 12
-                    ForEach(myStories, id: \.id) { s in carouselCard(s) }
+        // Measure in the SAME full-screen space as StoryViewersBottomSheet (it ignores the safe area and is
+        // the bottom 60%), so the cards + count are guaranteed to sit ABOVE the sheet top at 40% from the top.
+        GeometryReader { geo in
+            let sheetFrac: CGFloat = 0.60
+            let sheetTopY = geo.size.height * (1 - sheetFrac)          // sheet's top edge in this space
+            let topSafe   = geo.safeAreaInsets.top
+            // Fit the card so [topSafe+24] + cardH + [14 gap + 24 count] + [18 margin] <= sheetTopY.
+            let cardH: CGFloat = max(150, min(270, sheetTopY - topSafe - 80))
+            let cardW: CGFloat = cardH * (160.0 / 270.0)              // keep the 160x270 aspect
+            let centered = byStory[carouselCenteredId ?? ""] ?? []
+            let centeredLikes = centered.filter { !($0.reaction ?? "").isEmpty }.count
+
+            VStack(spacing: 0) {
+                Spacer(minLength: topSafe + 24)                       // clear status bar / close-X
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {                             // Telegram itemSpacing = 12
+                        ForEach(myStories, id: \.id) { s in carouselCard(s, w: cardW, h: cardH) }
+                    }
+                    .scrollTargetLayout()
+                    .padding(.horizontal, max(16, (geo.size.width - cardW) / 2))   // centre the focused card
                 }
-                .scrollTargetLayout()
-                .padding(.horizontal, max(16, (UIScreen.main.bounds.width - cardW) / 2))   // centre the focused card
+                .scrollTargetBehavior(.viewAligned)
+                .scrollPosition(id: $carouselCenteredId)
+                .frame(height: cardH)
+                .scrollClipDisabled()                                 // let scaled neighbours peek
+                carouselCount(views: centered.count, likes: centeredLikes, big: true)
+                    .padding(.top, 14)                               // footer pinned just under the card
+                Spacer(minLength: 18)                                // guaranteed margin above the sheet top
             }
-            .scrollTargetBehavior(.viewAligned)
-            .scrollPosition(id: $carouselCenteredId)
-            .frame(height: 270)
-            carouselCount(views: centered.count, likes: centeredLikes, big: true)   // centred story count, big
-            Spacer(minLength: 0)
+            .frame(width: geo.size.width, height: sheetTopY)         // CONFINE the block to ABOVE the sheet
+            .opacity(Double(sheetProgress))                          // fade in with the sheet (no rescale → no jitter)
+            // Vertical pan on the cards drives the SAME progress as the sheet header (Telegram verticalPanState);
+            // horizontal swipes fall through to the ScrollView, so the two never fight.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 12)
+                    .onChanged { v in
+                        guard abs(v.translation.height) > abs(v.translation.width) else { return }
+                        if carDragStart == nil { carDragStart = sheetProgress }
+                        sheetProgress = max(0, min(1, (carDragStart ?? 1) - v.translation.height / (geo.size.height * sheetFrac)))
+                    }
+                    .onEnded { v in
+                        let wasVertical = abs(v.translation.height) > abs(v.translation.width)
+                        carDragStart = nil
+                        guard wasVertical else { return }
+                        if sheetProgress < 0.65 || v.predictedEndTranslation.height > 220 { closeViewers() }
+                        else { withAnimation(.spring(response: 0.4, dampingFraction: 0.86)) { sheetProgress = 1 } }
+                    }
+            )
         }
-        .padding(.top, 44)                                          // clear the close-X / safe area
-        .opacity(Double(sheetProgress))                            // fade in as the sheet rises
-        .scaleEffect(0.92 + 0.08 * sheetProgress, anchor: .top)
+        .ignoresSafeArea()                                            // match the sheet's coordinate space
         .allowsHitTesting(sheetProgress > 0.5)
     }
 
-    private func carouselCard(_ s: Story) -> some View {
+    private func carouselCard(_ s: Story, w: CGFloat, h: CGFloat) -> some View {
         let vs = byStory[s.id] ?? []
         let likes = vs.filter { !($0.reaction ?? "").isEmpty }.count
-        let w: CGFloat = 160, h: CGFloat = 270                     // fits above the 60% sheet
         let sideScale: CGFloat = 0.70                              // (central - 54) / central ≈ 0.70
         return StoryImage(url: s.mediaUrl)                         // clean image — no caption, no blur
             .frame(width: w, height: h)
@@ -825,7 +855,7 @@ struct StoryViewer: View {
                 Text(compactCount(likes))
             }
         }
-        .font(big ? .subheadline.weight(.bold) : .caption2.weight(.semibold))
+        .font(big ? .headline.weight(.bold) : .caption2.weight(.semibold))
         .foregroundStyle(.white)
         .shadow(color: .black.opacity(0.5), radius: 3)
     }
