@@ -497,6 +497,9 @@ struct StoryViewer: View {
                 storyCore.ignoresSafeArea()
             }
         }
+        // The clipShape below must clip to the FULL screen, not the safe area — otherwise it cuts the story's
+        // top + bottom and the Chats list / tab bar show through (the bug). Extend the group full-bleed first.
+        .ignoresSafeArea()
         // LAYER 2 transforms — TELEGRAM math (StoryItemSetContainerComponent): the story scales to FIT the
         // space ABOVE the sheet (scale = remaining height / full height), anchored at the top, so the WHOLE
         // image is visible instead of being half-covered. The sheet occupies ~60% when open, so the story
