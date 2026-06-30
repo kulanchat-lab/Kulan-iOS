@@ -103,8 +103,11 @@ struct StoryDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .overlay(
                 getUserInfoAndProgressBar(with: index)
-                    .opacity(isPaused ? 0 : 1)                       // fade chrome out while holding (IG/WhatsApp)
-                    .animation(.linear(duration: 0.2), value: isPaused)
+                    // Fade the chrome (progress bars, avatar/name, "…", X) while holding OR while a host sheet
+                    // is over the story (viewers sheet) — otherwise the shrunk card shows tiny cluttered chrome
+                    // plus a second full-size X (audit #1).
+                    .opacity((isPaused || hostPaused) ? 0 : 1)
+                    .animation(.linear(duration: 0.2), value: isPaused || hostPaused)
                 ,alignment: .top
             )
             .rotation3DEffect(
@@ -164,9 +167,11 @@ struct StoryDetailView: View {
             let idx = getCurrentIndex()
             guard idx >= 0, idx < model.stories.count else { return }
             let deletedId = model.stories[idx].id
-            // Case 3 — only one story left: let the host delete + dismiss the whole viewer (no seamless slide).
+            // Case 3 — only one story left: tell the host to delete from the db AND dismiss the viewer right
+            // here, so a failed reload can't leave us stuck on an already-deleted story (audit #4).
             if model.stories.count <= 1 {
                 NotificationCenter.default.post(name: .storyItemDeleted, object: deletedId)
+                dissmis()
                 return
             }
             // Cases 1 & 2 — compute the target BEFORE mutating: next item if there is one, else the previous.

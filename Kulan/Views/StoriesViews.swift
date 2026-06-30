@@ -465,10 +465,11 @@ struct StoryViewer: View {
 
     var body: some View {
       ZStack {
-        // LAYER 1: black backdrop. Opaque while the viewers sheet is open AND while swiping down to dismiss
-        // (so the reveal behind the card is dark, not the bright light-mode Chats list).
+        // LAYER 1: black backdrop. Opaque while the viewers sheet is open, and goes dark the INSTANT a
+        // swipe-down begins (so the top strip never flashes the bright light-mode Chats list — build-161 feel).
         Color.black.ignoresSafeArea()
-            .opacity(max(Double(sheetProgress), min(1.0, Double(dragDown) / 110)))
+            .opacity(max(Double(sheetProgress), dragDown > 2 ? 1.0 : 0.0))
+            .animation(.easeOut(duration: 0.18), value: dragDown > 2)
 
         // LAYER 2: ACTIVE STORY. My own story = a rounded story CARD above a SOLID BLACK footer bar (Views +
         // trash), per image_6. Friends = full-bleed (the reply bar lives inside the library).
@@ -484,6 +485,11 @@ struct StoryViewer: View {
                                 if v.translation.height < -30 { showViewers = true }
                             }
                         )
+                        // Fade the Views/trash footer out as the viewers sheet rises (audit #1) AND during a
+                        // swipe-down dismiss (audit #6 — it's a SwiftUI sibling the pager transform can't move,
+                        // so hide it instead of letting it hang in place while the photo slides away).
+                        .opacity(dragDown > 6 ? 0 : max(0, 1 - Double(sheetProgress) * 2.5))
+                        .animation(.easeOut(duration: 0.15), value: dragDown > 6)
                 }
                 .background(Color.black)
                 .ignoresSafeArea()
@@ -595,10 +601,11 @@ struct StoryViewer: View {
             NotificationCenter.default.post(name: up ? .init("pauseStory") : .init("resumeStory"), object: nil)
         }
         // Swipe-down: pause the instant the card starts moving (host-driven off the real drag amount, so it
-        // can't be missed like the library's .began notification can). Resume when it springs back to 0 (cancel).
+        // can't be missed like the library's .began notification can). RESUME is handled by the library's
+        // cancel branch + onDisappear + sheetUp — NOT here, because a mid-drag upward wiggle momentarily zeroes
+        // dragDown and would post a stray resume that flickers the story playing (audit #8).
         .onChange(of: dragDown) { _, d in
             if d > 3 { NotificationCenter.default.post(name: .init("pauseStory"), object: nil) }
-            else if d == 0 { NotificationCenter.default.post(name: .init("resumeStory"), object: nil) }
         }
         // Opening the viewers springs sheetProgress 0 -> 1 (story scales/rounds/lifts as the sheet rises).
         .onChange(of: showViewers) { _, open in
