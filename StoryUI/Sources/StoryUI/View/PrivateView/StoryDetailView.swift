@@ -319,9 +319,10 @@ private extension StoryDetailView {
                     .multilineTextAlignment(.leading)
                     .lineLimit(captionExpanded ? 12 : 3)   // cap expansion so a long caption can't overrun the header
                     .padding(.horizontal, 16)
-                    // Sit ABOVE the bottom bar. On plain stories (my own = the "N Views"/trash owner bar) lift
-                    // it higher so the caption never overlaps those controls.
-                    .padding(.bottom, Constant.MessageView.height + (plain ? 54 : 0) + winInsets.bottom + 22)
+                    // Plain stories (my own) are now a CARD with a separate black footer below — the caption just
+                    // sits near the card's bottom (small padding), no big lift/safe-area double-count. Friend
+                    // stories keep the lift above the floating reply bar.
+                    .padding(.bottom, plain ? 26 : (Constant.MessageView.height + winInsets.bottom + 22))
                     .contentShape(Rectangle())
                     .onTapGesture {   // tap expands/collapses; consumes the tap so it doesn't advance the story
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { captionExpanded.toggle() }
