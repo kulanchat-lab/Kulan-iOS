@@ -490,11 +490,13 @@ struct StoryViewer: View {
                 storyCore.ignoresSafeArea()
             }
         }
-        // LAYER 2 transforms (your numbers): scale 100% -> 92%, corner 0 -> 28, lift up 40, all from sheetProgress.
+        // LAYER 2 transforms — TELEGRAM math (StoryItemSetContainerComponent): the story scales to FIT the
+        // space ABOVE the sheet (scale = remaining height / full height), anchored at the top, so the WHOLE
+        // image is visible instead of being half-covered. The sheet occupies ~60% when open, so the story
+        // shrinks toward ~40% at the top. Corner radius eases in with the rise.
         .allowsHitTesting(sheetProgress < 0.5)
-        .clipShape(RoundedRectangle(cornerRadius: 28 * sheetProgress, style: .continuous))
-        .scaleEffect(1 - 0.08 * sheetProgress, anchor: .top)
-        .offset(y: -40 * sheetProgress)
+        .clipShape(RoundedRectangle(cornerRadius: 24 * sheetProgress, style: .continuous))
+        .scaleEffect(1 - 0.6 * sheetProgress, anchor: .top)
 
         // LAYER 3: VIEWERS BOTTOM SHEET — handle + tabs + search + list ONLY. No carousel, no story media.
         if showViewers {
