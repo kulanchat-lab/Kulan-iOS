@@ -123,6 +123,14 @@ struct StoryEditorView: View {
                     // otherwise strokes bake shifted down by the top inset and the bottom band is clipped.
                     DrawingCanvas(drawing: $drawing, isActive: true)
                         .frame(width: geo.size.width, height: geo.size.height)
+                } else if !drawing.bounds.isEmpty {
+                    // Bug fix: after "Done", keep the markup VISIBLE in the preview (it used to vanish because
+                    // the canvas only existed in edit mode). Render the saved strokes as a static image, same
+                    // space + on top, so it persists and matches the flattened export exactly.
+                    Image(uiImage: drawing.image(from: CGRect(origin: .zero, size: geo.size), scale: UIScreen.main.scale))
+                        .resizable()
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .allowsHitTesting(false)
                 }
 
                 // Center alignment guides + trash zone (only while dragging an overlay).
@@ -161,12 +169,16 @@ struct StoryEditorView: View {
                 .ignoresSafeArea(.keyboard, edges: .bottom)
 
                 // Bottom bar — ONLY this rises above the keyboard (caption docks above it, toolbar hides).
-                VStack {
-                    Spacer()
-                    bottomBar
-                        .padding(.bottom, captionFocused ? 8 : geo.safeAreaInsets.bottom + 8)
+                // While DRAWING, hide it entirely so the PencilKit pen palette owns the bottom (no overlap
+                // with the caption pill / Aa / crop / send). The top "Done" exits drawing.
+                if !isDrawing {
+                    VStack {
+                        Spacer()
+                        bottomBar
+                            .padding(.bottom, captionFocused ? 8 : geo.safeAreaInsets.bottom + 8)
+                    }
+                    .opacity(draggingID == nil && editingID == nil ? 1 : 0)   // hide chrome while dragging text (trash owns the bottom)
                 }
-                .opacity(draggingID == nil && editingID == nil ? 1 : 0)   // hide chrome while dragging text (trash owns the bottom)
             }
             .coordinateSpace(name: "canvas")
             .onAppear { canvasSize = geo.size; recomputeEdited() }
