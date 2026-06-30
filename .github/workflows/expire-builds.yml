@@ -1,0 +1,88 @@
+name: Expire TestFlight builds
+
+# One-off maintenance: expire a RANGE of TestFlight build numbers (so testers can no longer install them).
+# Uses the same App Store Connect API key the upload lane uses. Defaults to 165-170.
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: "First build number to expire (inclusive)"
+        required: true
+        default: "165"
+      to:
+        description: "Last build number to expire (inclusive)"
+        required: true
+        default: "170"
+
+jobs:
+  expire:
+    runs-on: ubuntu-latest
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+      BUNDLE_ID: "com.kulan.messenger.native"
+      FROM: ${{ github.event.inputs.from }}
+      TO: ${{ github.event.inputs.to }}
+    steps:
+      - name: Write API key
+        run: printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+      - name: Install deps
+        run: pip install --quiet pyjwt cryptography requests
+      - name: Expire builds
+        env:
+          P8: ${{ runner.temp }}/AuthKey.p8
+        run: |
+          python3 - <<'PY'
+          import os, time, jwt, requests, sys
+
+          key_id = os.environ["ASC_KEY_ID"]
+          issuer = os.environ["ASC_ISSUER_ID"]
+          bundle = os.environ["BUNDLE_ID"]
+          lo, hi = int(os.environ["FROM"]), int(os.environ["TO"])
+          targets = {str(n) for n in range(lo, hi + 1)}
+          with open(os.environ["P8"]) as f:
+              private_key = f.read()
+
+          token = jwt.encode(
+              {"iss": issuer, "iat": int(time.time()), "exp": int(time.time()) + 1200,
+               "aud": "appstoreconnect-v1"},
+              private_key, algorithm="ES256", headers={"kid": key_id, "typ": "JWT"})
+          H = {"Authorization": f"Bearer {token}"}
+          BASE = "https://api.appstoreconnect.apple.com/v1"
+
+          apps = requests.get(f"{BASE}/apps", headers=H,
+                              params={"filter[bundleId]": bundle}).json()
+          if not apps.get("data"):
+              print("ERROR: app not found for bundle", bundle); sys.exit(1)
+          app_id = apps["data"][0]["id"]
+          print(f"app {bundle} -> {app_id}; expiring builds {lo}-{hi}")
+
+          url = f"{BASE}/builds"
+          params = {"filter[app]": app_id, "limit": 200,
+                    "fields[builds]": "version,expired"}
+          found = set(); failures = 0
+          while url:
+              r = requests.get(url, headers=H, params=params).json()
+              for b in r.get("data", []):
+                  v = b["attributes"]["version"]
+                  if v in targets:
+                      found.add(v)
+                      if b["attributes"]["expired"]:
+                          print(f"  build {v}: already expired"); continue
+                      bid = b["id"]
+                      pr = requests.patch(
+                          f"{BASE}/builds/{bid}",
+                          headers={**H, "Content-Type": "application/json"},
+                          json={"data": {"type": "builds", "id": bid,
+                                         "attributes": {"expired": True}}})
+                      ok = pr.status_code in (200, 204)
+                      print(f"  build {v} ({bid}): expire -> {pr.status_code} {'OK' if ok else pr.text[:200]}")
+                      if not ok: failures += 1
+              url = r.get("links", {}).get("next"); params = None
+
+          missing = targets - found
+          if missing: print("NOTE: not found on TestFlight:", sorted(missing))
+          if failures: print(f"FAILED to expire {failures} build(s)"); sys.exit(1)
+          print("Done.")
+          PY
