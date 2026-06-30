@@ -611,10 +611,15 @@ struct StoryViewer: View {
             }
             .buttonStyle(.plain)
         }
-        // More top breathing room + a gradient that reaches SOLID black at the controls, so "N Views"/trash
-        // sit on a clean black bar instead of touching the photo.
-        .padding(.horizontal, 18).padding(.top, 30).padding(.bottom, 22)
-        .background(LinearGradient(colors: [.clear, .black, .black], startPoint: .top, endPoint: .bottom))
+        // Smooth, gradual shadow: a tall gradient that eases clear -> black so it blends softly into the photo
+        // (no hard edge), with the controls on the solid part at the bottom.
+        .padding(.horizontal, 18).padding(.top, 64).padding(.bottom, 22)
+        .background(LinearGradient(stops: [
+            .init(color: .clear,                 location: 0.0),
+            .init(color: .black.opacity(0.35),   location: 0.45),
+            .init(color: .black.opacity(0.85),   location: 0.78),
+            .init(color: .black,                 location: 1.0)
+        ], startPoint: .top, endPoint: .bottom))
     }
 
     private func loadBarViewers() {

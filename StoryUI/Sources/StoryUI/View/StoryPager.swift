@@ -256,7 +256,8 @@ struct StoryPager: UIViewControllerRepresentable {
             guard let pager else { return }
             let t = g.translation(in: pager.view)
             let v = g.velocity(in: pager.view)
-            if g.state == .ended, t.y < -90 || v.y < -600 { parent.onSwipeUp() }
+            // More sensitive: a normal short swipe-up (or a flick) opens the viewers — was too strict at -90/-600.
+            if g.state == .ended, t.y < -48 || v.y < -350 { parent.onSwipeUp() }
         }
 
         // Let the dismiss/swipe-up pans coexist with the hosted SwiftUI gestures (tap zones, hold-to-pause)
