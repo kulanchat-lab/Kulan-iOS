@@ -442,7 +442,10 @@ struct StoryViewer: View {
 
     var body: some View {
       ZStack {
-        Color.black.ignoresSafeArea()   // canvas backdrop behind the floating story card
+        // Black backdrop ONLY while the viewers sheet is open (the scaled story floats on black). When the
+        // sheet is closed it's fully transparent, so the swipe-down dismiss shows the Chats list behind again
+        // (no black header strip) and the cover stays see-through as before.
+        Color.black.ignoresSafeArea().opacity(Double(sheetProgress))
 
         // ===== LAYER ②: ACTIVE STORY — always full-screen; only scaled/rounded/lifted, never put in the sheet.
         StoryView(
