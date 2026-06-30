@@ -152,6 +152,30 @@ struct StoryDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .resumeStory)) { _ in
             hostPaused = false; if !keyboardManager.isKeyboardOpen { playVideo() }
         }
+        // Seamless per-item delete (host trash tap). Compute the adjacent index FIRST, then drop the item from
+        // THIS bucket in-place and slide to it — the user never sees a blank frame. The host removes it from the
+        // database off the back of storyItemDeleted. Only the currently-shown bucket reacts.
+        .onReceive(NotificationCenter.default.publisher(for: .deleteCurrentStoryItem)) { _ in
+            guard viewModel.currentStoryUser == model.id else { return }
+            let idx = getCurrentIndex()
+            guard idx >= 0, idx < model.stories.count else { return }
+            let deletedId = model.stories[idx].id
+            // Case 3 — only one story left: let the host delete + dismiss the whole viewer (no seamless slide).
+            if model.stories.count <= 1 {
+                NotificationCenter.default.post(name: .storyItemDeleted, object: deletedId)
+                return
+            }
+            // Cases 1 & 2 — compute the target BEFORE mutating: next item if there is one, else the previous.
+            let nextIndex = idx < model.stories.count - 1 ? idx : idx - 1
+            // Clear the pause/advance latches WITHOUT resetting timerProgress (resetProgress would jump to 0).
+            isAdvancing = false; isPaused = false; isTimerRunning = false
+            isAnimationStarted = false; isFolding = false; captionExpanded = false
+            withAnimation(.easeInOut(duration: 0.18)) {
+                model.stories.remove(at: idx)
+                timerProgress = CGFloat(max(0, nextIndex))
+            }
+            NotificationCenter.default.post(name: .storyItemDeleted, object: deletedId)
+        }
     }
 }
 

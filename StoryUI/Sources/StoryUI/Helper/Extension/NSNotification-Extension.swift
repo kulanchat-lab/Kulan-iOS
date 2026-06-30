@@ -15,4 +15,9 @@ extension NSNotification.Name {
     // Host (app) can freeze/resume the running story+progress while it shows a sheet over the viewer.
     static let pauseStory = Notification.Name("pauseStory")
     static let resumeStory = Notification.Name("resumeStory")
+    // Seamless per-item delete: host posts deleteCurrentStoryItem (trash tap); the viewer drops the active
+    // item + slides to the adjacent one in-place, then posts storyItemDeleted(object: id) for the host to
+    // remove it from the database.
+    static let deleteCurrentStoryItem = Notification.Name("deleteCurrentStoryItem")
+    static let storyItemDeleted = Notification.Name("storyItemDeleted")
 }

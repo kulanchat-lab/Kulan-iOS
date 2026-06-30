@@ -523,11 +523,25 @@ struct StoryViewer: View {
         .overlay {
             if confirmDelete {
                 BottomActionSheet(onCancel: { confirmDelete = false }) {
-                    sheetButton("Delete", destructive: true) { confirmDelete = false; Task { await deleteCurrent() } }
+                    // Seamless delete: the viewer slides to the adjacent item itself; we just remove from the db.
+                    sheetButton("Delete", destructive: true) {
+                        confirmDelete = false
+                        NotificationCenter.default.post(name: .deleteCurrentStoryItem, object: nil)
+                    }
                 }
             }
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: confirmDelete)
+        // The viewer dropped the item in-place + advanced; here we delete it from the database. If that was
+        // my last story, close the viewer (Case 3). Otherwise leave the (captured) viewer untouched — no re-feed.
+        .onReceive(NotificationCenter.default.publisher(for: .storyItemDeleted)) { note in
+            guard let id = note.object as? String, !id.isEmpty else { return }
+            Task {
+                await StoriesService.shared.deleteStory(id)
+                await StoriesRepository.shared.load(force: true)
+                if StoriesRepository.shared.mine?.stories.isEmpty ?? true { onClose() }
+            }
+        }
         // "…" dropdown menu actions (posted from the library header Menu) — run on LIVE state here.
         .onReceive(NotificationCenter.default.publisher(for: .init("storyActionSave"))) { _ in
             saveCurrentImage(currentStory?.mediaUrl)
@@ -706,18 +720,6 @@ struct StoryViewer: View {
         }
     }
 
-    private func deleteCurrent() async {
-        guard !currentStoryId.isEmpty else { return }
-        await StoriesService.shared.deleteStory(currentStoryId)
-        await StoriesRepository.shared.load(force: true)
-        // Don't kick back to chats while I still have other stories — re-feed the viewer the remaining ones
-        // (the StoryUI library can't drop one item mid-view, so the host re-presents on the updated bucket).
-        if let mine = StoriesRepository.shared.mine, !mine.stories.isEmpty {
-            onDeletedRemaining(mine)
-        } else {
-            onClose()
-        }
-    }
 }
 
 // Live viewer for a story that's STILL uploading: renders the local image full-screen with an "Uploading…"
