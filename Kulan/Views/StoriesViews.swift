@@ -474,31 +474,24 @@ struct StoryViewer: View {
             .opacity(max(Double(sheetProgress), dragDown > 2 ? 1.0 : 0.0))
             .animation(.easeOut(duration: 0.18), value: dragDown > 2)
 
-        // LAYER 2: ACTIVE STORY. My own story = a rounded story CARD above a SOLID BLACK footer bar (Views +
-        // trash), per image_6. Friends = full-bleed (the reply bar lives inside the library).
+        // LAYER 2: ACTIVE STORY — FULL-bleed photo (build 160: full-screen image, no card/footer that shortened
+        // it and added side bars). My own story overlays the owner bar (Views + delete) on top of the photo.
         Group {
-            if currentIsMine {
-                VStack(spacing: 0) {
-                    storyCore
-                        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 24, bottomTrailingRadius: 24, style: .continuous))
-                    ownerBar
-                        .contentShape(Rectangle())
-                        .simultaneousGesture(
-                            DragGesture(minimumDistance: 16).onEnded { v in
-                                if v.translation.height < -30 { showViewers = true }
-                            }
-                        )
-                        // Fade the Views/trash footer out as the viewers sheet rises (audit #1) AND during a
-                        // swipe-down dismiss (audit #6 — it's a SwiftUI sibling the pager transform can't move,
-                        // so hide it instead of letting it hang in place while the photo slides away).
-                        .opacity(dragDown > 6 ? 0 : max(0, 1 - Double(sheetProgress) * 2.5))
-                        .animation(.easeOut(duration: 0.15), value: dragDown > 6)
-                }
-                .background(Color.black)
+            storyCore
                 .ignoresSafeArea()
-            } else {
-                storyCore.ignoresSafeArea()
-            }
+                .overlay(alignment: .bottom) {
+                    if currentIsMine {
+                        ownerBar
+                            .opacity(dragDown > 6 ? 0 : max(0, 1 - Double(sheetProgress) * 2.5))
+                            .animation(.easeOut(duration: 0.15), value: dragDown > 6)
+                            .contentShape(Rectangle())
+                            .simultaneousGesture(
+                                DragGesture(minimumDistance: 16).onEnded { v in
+                                    if v.translation.height < -30 { showViewers = true }
+                                }
+                            )
+                    }
+                }
         }
         // The clipShape below must clip to the FULL screen, not the safe area — otherwise it cuts the story's
         // top + bottom and the Chats list / tab bar show through (the bug). Extend the group full-bleed first.
@@ -659,7 +652,7 @@ struct StoryViewer: View {
                 .frame(maxWidth: .infinity).frame(height: 54)
                 .contentShape(Rectangle())
         }
-        .background(.thinMaterial, in: Capsule())   // liquid-glass capsule (image 2)
+        .liquidGlass(Capsule())   // real Apple Liquid Glass (.glassEffect)
     }
 
     private func loadCurrentImage(_ captured: String? = nil) async -> UIImage? {
@@ -750,11 +743,16 @@ struct StoryViewer: View {
             }
             .buttonStyle(.plain)
         }
-        // Solid black footer bar (image_6): sits BELOW the rounded story card, fills to the screen bottom
-        // (controls lifted above the home indicator). Not a gradient over the photo anymore.
-        .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, max(16, bottomInset + 6))
+        // Gradient that eases clear -> black behind the controls, overlaid on the FULL-bleed photo (build 160) —
+        // blends softly into the image instead of a hard black bar.
+        .padding(.horizontal, 18).padding(.top, 64).padding(.bottom, max(22, bottomInset + 10))
         .frame(maxWidth: .infinity)
-        .background(Color.black)
+        .background(LinearGradient(stops: [
+            .init(color: .clear,               location: 0.0),
+            .init(color: .black.opacity(0.35), location: 0.45),
+            .init(color: .black.opacity(0.85), location: 0.78),
+            .init(color: .black,               location: 1.0)
+        ], startPoint: .top, endPoint: .bottom))
     }
 
     private func loadBarViewers() {
@@ -992,11 +990,11 @@ struct BottomActionSheet<Content: View>: View {
                     Text("Cancel").font(.body.weight(.semibold)).foregroundStyle(.white)
                         .frame(maxWidth: .infinity).frame(height: 54).contentShape(Rectangle())
                 }
-                .background(.thinMaterial, in: Capsule())
+                .liquidGlass(Capsule())
             }
             .padding(14)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
-            .environment(\.colorScheme, .dark)   // dark liquid glass regardless of the app's light/dark mode
+            .liquidGlass(RoundedRectangle(cornerRadius: 30, style: .continuous))   // real Apple Liquid Glass card
+            .environment(\.colorScheme, .dark)   // dark glass regardless of the app's light/dark mode
             .padding(.horizontal, 12)
             .padding(.bottom, max(10, bottomSafeInset))   // clear the home indicator (host ignores safe area)
             .transition(.move(edge: .bottom).combined(with: .opacity))
