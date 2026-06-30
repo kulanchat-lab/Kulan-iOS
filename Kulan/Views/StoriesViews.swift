@@ -908,14 +908,14 @@ struct StoryViewersSheet: View {
                 // Side cards show a small count; the CENTRED card hides it (the big count is shown below).
                 countRow(views: vs.count, likes: reacts, big: false)
                     .padding(.bottom, 10)
-                    .scrollTransition(.interactive(bounces: false)) { c, phase in
+                    .scrollTransition(.interactive) { c, phase in
                         c.opacity(phase.isIdentity ? 0 : 1)
                     }
             }
             // Scale driven by the SCROLL itself (not a GeometryReader) — centre card full size, neighbours
             // shrink, interpolated smoothly during the drag. viewAligned snaps to centre on release, so there's
             // no glitch / duplicate / stuck-between-positions bug.
-            .scrollTransition(.interactive(bounces: false)) { content, phase in
+            .scrollTransition(.interactive) { content, phase in
                 content
                     .scaleEffect(phase.isIdentity ? 1.0 : 0.76)
                     .opacity(phase.isIdentity ? 1.0 : 0.9)
