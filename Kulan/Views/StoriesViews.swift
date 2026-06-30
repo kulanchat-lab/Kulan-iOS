@@ -374,6 +374,8 @@ struct StoryViewer: View {
     @State private var currentStoryId = ""
     @State private var barViewers: [StoryViewerInfo] = []
     @State private var showViewers = false
+    @State private var sheetProgress: CGFloat = 0       // 0 = sheet closed, 1 = fully open. Drives the story's
+                                                         // scale / corner-radius / lift so both layers move in sync.
     @State private var confirmDelete = false
     @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
     @State private var forwardImg: StoryImagePayload?   // … → Forward (chat picker)
@@ -433,6 +435,10 @@ struct StoryViewer: View {
     }
 
     var body: some View {
+      ZStack {
+        Color.black.ignoresSafeArea()   // canvas backdrop behind the floating story card
+
+        // ===== LAYER ②: ACTIVE STORY — always full-screen; only scaled/rounded/lifted, never put in the sheet.
         StoryView(
             stories: models,
             selectedIndex: startIndex,
@@ -467,9 +473,34 @@ struct StoryViewer: View {
                     )
             }
         }
-        .sheet(isPresented: $showViewers) {
-            StoryViewersSheet(stories: myStories, selectedId: currentStoryId)
+        // Active-story transforms driven by ONE value (sheetProgress) → story + sheet move perfectly in sync.
+        .allowsHitTesting(sheetProgress < 0.5)   // while the sheet is open, taps go to the sheet, not the story
+        .clipShape(RoundedRectangle(cornerRadius: 30 * sheetProgress, style: .continuous))
+        .scaleEffect(1 - 0.075 * sheetProgress, anchor: .top)
+        .offset(y: -34 * sheetProgress)
+
+        // ===== LAYER ③: VIEWERS BOTTOM SHEET — drag handle + sticky tabs + search + list ONLY. No story media.
+        if showViewers {
+            StoryViewersBottomSheet(activeStoryId: currentStoryId,
+                                    progress: $sheetProgress,
+                                    onClose: { closeViewers() })
         }
+        // Close-X floating over the scaled story card while the sheet is open.
+        if sheetProgress > 0.01 {
+            VStack {
+                HStack {
+                    Spacer()
+                    Button { closeViewers() } label: {
+                        Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.white)
+                            .frame(width: 38, height: 38).background(.black.opacity(0.45), in: Circle())
+                    }
+                    .opacity(Double(sheetProgress))
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16).padding(.top, 12)
+        }
+      }   // ZStack
         .sheet(item: $shareImg) { p in ActivityView(items: [p.image]) }
         .sheet(item: $forwardImg) { p in StoryForwardSheet(image: p.image, onSent: { flashSentToast() }) }
         .sheet(item: $profileSheet) { g in
@@ -524,7 +555,20 @@ struct StoryViewer: View {
         .onChange(of: sheetUp) { _, up in
             NotificationCenter.default.post(name: up ? .init("pauseStory") : .init("resumeStory"), object: nil)
         }
+        // Opening the viewers springs sheetProgress 0 -> 1 (story scales down + rounds as the sheet rises).
+        .onChange(of: showViewers) { _, open in
+            if open { withAnimation(.spring(response: 0.44, dampingFraction: 0.86)) { sheetProgress = 1 } }
+        }
         .presentationBackground(.clear)   // see-through cover so the Chats list shows behind during swipe-down
+    }
+
+    // Close the viewers sheet: spring sheetProgress -> 0 (story restores to full screen in the SAME spring),
+    // then unmount the sheet once it has parked below.
+    private func closeViewers() {
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { sheetProgress = 0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.44) {
+            if sheetProgress < 0.02 { showViewers = false }
+        }
     }
 
     private func flashSentToast(_ text: String = "Sent") {
@@ -806,6 +850,162 @@ struct BottomActionSheet<Content: View>: View {
             .padding(.bottom, 10)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
+    }
+}
+
+// Telegram-architecture viewers sheet: a SEPARATE bottom layer holding ONLY the drag handle, sticky tabs,
+// search, and the scrollable viewer list — NO story media. It drives `progress` (0 closed … 1 open); the
+// StoryViewer reads that to scale/round/lift the active story behind it. Both layers share one value → in sync.
+struct StoryViewersBottomSheet: View {
+    let activeStoryId: String
+    @Binding var progress: CGFloat
+    let onClose: () -> Void
+
+    @State private var viewers: [StoryViewerInfo] = []
+    @State private var segment = 0          // 0 = All Viewers, 1 = Contacts
+    @State private var search = ""
+    @State private var loading = true
+    @State private var dragStart: CGFloat? = nil
+
+    private var me: String { AuthService.shared.uid ?? "" }
+    private var contactUids: Set<String> {
+        Set(ConversationsRepository.shared.conversations.compactMap { $0.isGroup ? nil : $0.otherUid(me) })
+    }
+    private var filtered: [StoryViewerInfo] {
+        var v = viewers
+        if segment == 1 { v = v.filter { contactUids.contains($0.id) } }
+        let q = search.trimmingCharacters(in: .whitespaces)
+        if !q.isEmpty { v = v.filter { $0.name.localizedCaseInsensitiveContains(q) } }
+        return v.sorted { $0.viewedAt > $1.viewedAt }
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let sheetH = geo.size.height * 0.60     // sheet occupies the bottom ~60%
+            VStack(spacing: 0) {
+                stickyHeader(sheetH: sheetH)        // drag handle + tabs + search (does NOT scroll)
+                viewerList                          // the only scrolling part
+            }
+            .frame(height: sheetH)
+            .background(
+                UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous)
+                    .fill(Color(white: 0.10))
+            )
+            .frame(maxHeight: .infinity, alignment: .bottom)   // park at the bottom of the screen
+            .offset(y: (1 - progress) * sheetH)                // slide up/down with progress
+        }
+        .ignoresSafeArea()
+        .task(id: activeStoryId) { await load() }
+    }
+
+    // Sticky header (handle + tabs + search). Dragging here drives `progress`; the list below scrolls on its own.
+    private func stickyHeader(sheetH: CGFloat) -> some View {
+        VStack(spacing: 12) {
+            Capsule().fill(.white.opacity(0.28)).frame(width: 38, height: 5).padding(.top, 8)
+            HStack(spacing: 8) { Spacer(); tabPill("All Viewers", 0); tabPill("Contacts", 1); Spacer() }
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.6))
+                TextField("", text: $search, prompt: Text("Search").foregroundColor(.white.opacity(0.5)))
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(.white.opacity(0.12), in: Capsule())
+            .padding(.horizontal, 16)
+        }
+        .padding(.bottom, 10)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 4)
+                .onChanged { v in
+                    if dragStart == nil { dragStart = progress }
+                    progress = max(0, min(1, (dragStart ?? 1) - v.translation.height / sheetH))
+                }
+                .onEnded { v in
+                    dragStart = nil
+                    let close = progress < 0.65 || v.predictedEndTranslation.height > 220
+                    if close { onClose() }
+                    else { withAnimation(.spring(response: 0.4, dampingFraction: 0.86)) { progress = 1 } }
+                }
+        )
+    }
+
+    private var viewerList: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                if loading {
+                    ProgressView().tint(.white).padding(.top, 44).frame(maxWidth: .infinity)
+                } else if filtered.isEmpty {
+                    ContentUnavailableView("No views yet", systemImage: "eye",
+                        description: Text("When people view this story, they'll show up here."))
+                        .padding(.top, 40)
+                } else {
+                    ForEach(filtered) { v in
+                        viewerRow(v)
+                        Divider().overlay(Color.white.opacity(0.08)).padding(.leading, 74)
+                    }
+                }
+            }
+            .padding(.bottom, 30)
+        }
+    }
+
+    private func tabPill(_ title: String, _ tag: Int) -> some View {
+        let sel = segment == tag
+        return Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(sel ? .white : .white.opacity(0.5))
+            .padding(.horizontal, 16).padding(.vertical, 7)
+            .background(sel ? Color.white.opacity(0.14) : .clear, in: Capsule())
+            .contentShape(Capsule())
+            .onTapGesture { withAnimation(.easeInOut(duration: 0.18)) { segment = tag } }
+    }
+
+    private var doubleCheck: some View {
+        ZStack(alignment: .leading) {
+            Image(systemName: "checkmark"); Image(systemName: "checkmark").offset(x: 4)
+        }
+        .font(.system(size: 9, weight: .bold))
+    }
+
+    private func viewerRow(_ v: StoryViewerInfo) -> some View {
+        HStack(spacing: 12) {
+            AvatarView(name: v.name, photoUrl: v.photoUrl, size: 46)
+                .overlay(alignment: .bottomTrailing) {
+                    if let r = v.reaction, !r.isEmpty {
+                        Text(r).font(.system(size: 11))
+                            .frame(width: 19, height: 19)
+                            .background(Circle().fill(Color(.systemRed)))
+                            .overlay(Circle().stroke(Color(white: 0.10), lineWidth: 2))
+                            .offset(x: 3, y: 3)
+                    }
+                }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(v.name).font(.body.weight(.semibold)).foregroundStyle(.white)
+                HStack(spacing: 5) { doubleCheck; Text(dateFmt(v.viewedAt)) }
+                    .font(.caption).foregroundStyle(.white.opacity(0.5))
+            }
+            Spacer()
+            Menu {
+                Button { } label: { Label("Send message", systemImage: "message") }
+                Button { } label: { Label("View profile", systemImage: "person.crop.circle") }
+            } label: {
+                Image(systemName: "ellipsis").font(.body).foregroundStyle(.white.opacity(0.55))
+                    .frame(width: 38, height: 38).contentShape(Rectangle())
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 9)
+    }
+
+    private func dateFmt(_ d: Date) -> String {
+        let f = DateFormatter(); f.dateFormat = "dd/MM/yy 'at' h:mm a"; return f.string(from: d)
+    }
+
+    private func load() async {
+        let id = activeStoryId
+        guard !id.isEmpty else { loading = false; return }
+        if viewers.isEmpty { loading = true }
+        let v = await StoriesService.shared.fetchViewers(storyId: id)
+        if id == activeStoryId { viewers = v; loading = false }
     }
 }
 
