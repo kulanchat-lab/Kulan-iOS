@@ -374,8 +374,6 @@ struct StoryViewer: View {
     @State private var currentStoryId = ""
     @State private var barViewers: [StoryViewerInfo] = []
     @State private var showViewers = false
-    @State private var sheetProgress: CGFloat = 0       // 0 = sheet closed, 1 = fully open. Drives the story's
-                                                         // scale / corner-radius / lift so both layers move in sync.
     @State private var confirmDelete = false
     @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
     @State private var forwardImg: StoryImagePayload?   // … → Forward (chat picker)
@@ -441,13 +439,6 @@ struct StoryViewer: View {
     }
 
     var body: some View {
-      ZStack {
-        // Black backdrop ONLY while the viewers sheet is open (the scaled story floats on black). When the
-        // sheet is closed it's fully transparent, so the swipe-down dismiss shows the Chats list behind again
-        // (no black header strip) and the cover stays see-through as before.
-        Color.black.ignoresSafeArea().opacity(Double(sheetProgress))
-
-        // ===== LAYER ②: ACTIVE STORY — always full-screen; only scaled/rounded/lifted, never put in the sheet.
         StoryView(
             stories: models,
             selectedIndex: startIndex,
@@ -482,34 +473,11 @@ struct StoryViewer: View {
                     )
             }
         }
-        // Active-story transforms driven by ONE value (sheetProgress) → story + sheet move perfectly in sync.
-        .allowsHitTesting(sheetProgress < 0.5)   // while the sheet is open, taps go to the sheet, not the story
-        .clipShape(RoundedRectangle(cornerRadius: 30 * sheetProgress, style: .continuous))
-        .scaleEffect(1 - 0.075 * sheetProgress, anchor: .top)
-        .offset(y: -34 * sheetProgress)
-
-        // ===== LAYER ③: VIEWERS BOTTOM SHEET — drag handle + sticky tabs + search + list ONLY. No story media.
-        if showViewers {
-            StoryViewersBottomSheet(activeStoryId: currentStoryId,
-                                    progress: $sheetProgress,
-                                    onClose: { closeViewers() })
+        // Viewers (image 2): carousel of my posted stories on top (centre large, neighbours peek, view/❤️
+        // counts) + search + viewer list below. Swiping the carousel re-centres a story and its viewer list.
+        .sheet(isPresented: $showViewers) {
+            StoryViewersSheet(stories: myStories, selectedId: currentStoryId)
         }
-        // Close-X floating over the scaled story card while the sheet is open.
-        if sheetProgress > 0.01 {
-            VStack {
-                HStack {
-                    Spacer()
-                    Button { closeViewers() } label: {
-                        Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.white)
-                            .frame(width: 38, height: 38).background(.black.opacity(0.45), in: Circle())
-                    }
-                    .opacity(Double(sheetProgress))
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 16).padding(.top, 12)
-        }
-      }   // ZStack
         .sheet(item: $shareImg) { p in ActivityView(items: [p.image]) }
         .sheet(item: $forwardImg) { p in StoryForwardSheet(image: p.image, onSent: { flashSentToast() }) }
         .sheet(item: $profileSheet) { g in
@@ -578,20 +546,7 @@ struct StoryViewer: View {
         .onChange(of: sheetUp) { _, up in
             NotificationCenter.default.post(name: up ? .init("pauseStory") : .init("resumeStory"), object: nil)
         }
-        // Opening the viewers springs sheetProgress 0 -> 1 (story scales down + rounds as the sheet rises).
-        .onChange(of: showViewers) { _, open in
-            if open { withAnimation(.spring(response: 0.44, dampingFraction: 0.86)) { sheetProgress = 1 } }
-        }
         .presentationBackground(.clear)   // see-through cover so the Chats list shows behind during swipe-down
-    }
-
-    // Close the viewers sheet: spring sheetProgress -> 0 (story restores to full screen in the SAME spring),
-    // then unmount the sheet once it has parked below.
-    private func closeViewers() {
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) { sheetProgress = 0 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.44) {
-            if sheetProgress < 0.02 { showViewers = false }
-        }
     }
 
     private func flashSentToast(_ text: String = "Sent") {
