@@ -80,7 +80,7 @@ struct StoryDetailView: View {
                                 )
                         )
                         // Telegram-style caption: overlaid on the media (never baked into the photo).
-                        .overlay(captionView(story.caption), alignment: .bottom)
+                        .overlay(captionView(story.caption, plain: story.config.storyType == .plain()), alignment: .bottom)
                         // Top dark scrim so the username/avatar/close stay readable on white/bright photos.
                         .overlay(topScrim, alignment: .top)
                     // Always-on bottom scrim for reply-bar stories WITHOUT a caption, so the white reply pill /
@@ -297,7 +297,7 @@ private extension StoryDetailView {
     // Telegram StoryContentCaptionComponent: 16pt regular white text with a soft shadow, left-aligned,
     // 16pt side padding, sitting over a 128pt black gradient (0 → 80%). Collapsed to 3 lines; tap to expand.
     @ViewBuilder
-    func captionView(_ text: String) -> some View {
+    func captionView(_ text: String, plain: Bool = false) -> some View {
         if !text.isEmpty {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
@@ -311,7 +311,9 @@ private extension StoryDetailView {
                     .multilineTextAlignment(.leading)
                     .lineLimit(captionExpanded ? 12 : 3)   // cap expansion so a long caption can't overrun the header
                     .padding(.horizontal, 16)
-                    .padding(.bottom, Constant.MessageView.height + winInsets.bottom + 22)   // sit ABOVE the reply bar
+                    // Sit ABOVE the bottom bar. On plain stories (my own = the "N Views"/trash owner bar) lift
+                    // it higher so the caption never overlaps those controls.
+                    .padding(.bottom, Constant.MessageView.height + (plain ? 54 : 0) + winInsets.bottom + 22)
                     .contentShape(Rectangle())
                     .onTapGesture {   // tap expands/collapses; consumes the tap so it doesn't advance the story
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { captionExpanded.toggle() }
