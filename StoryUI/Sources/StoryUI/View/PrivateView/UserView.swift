@@ -49,17 +49,21 @@ struct UserView: View {
                         label: { Label("Hide Stories", systemImage: "archivebox") }
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(.black.opacity(0.3)))   // subtle circle → clear on any photo (Telegram)
+                        .frame(width: 44, height: 44)                      // keep the 44pt tap target
                         .contentShape(Rectangle())
                 }
             }
 
-            // 18pt glyph (was 24, looked oversized) in a 44×44 invisible touch target.
+            // 18pt glyph in a 44×44 touch target, now inside a subtle circle for visibility.
             Image(systemName: "xmark")
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(.white)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(.black.opacity(0.3)))
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
                 .onTapGesture {

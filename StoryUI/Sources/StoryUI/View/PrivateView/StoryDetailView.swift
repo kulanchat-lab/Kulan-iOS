@@ -183,7 +183,7 @@ private extension StoryDetailView {
                         selectedEmoji: $selectedEmoji,
                         userClosure: userClosure
                     )
-                    .animation(messageViewPosition == 0 ? .none : .easeOut, value: messageViewPosition)
+                    .animation(.easeOut(duration: keyboardManager.animationDuration), value: messageViewPosition)
                     .offset(y: emojiViewPosition)
                     .opacity(messageViewPosition == 0 ? 0 : 1)
                 }
@@ -241,7 +241,7 @@ private extension StoryDetailView {
         )
         .padding()
         .padding(.bottom, winInsets.bottom)   // keep the reply bar above the home indicator (host no longer insets)
-        .animation(messageViewPosition == 0 ? .none : .easeOut, value: messageViewPosition)
+        .animation(.easeOut(duration: keyboardManager.animationDuration), value: messageViewPosition)
         .offset(y: messageViewPosition)
     }
 
@@ -259,30 +259,25 @@ private extension StoryDetailView {
     @ViewBuilder
     func captionView(_ text: String) -> some View {
         if !text.isEmpty {
-            ZStack(alignment: .bottom) {
+            ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
                     .frame(height: 210)   // backs both the caption AND the floating reply bar
                     .allowsHitTesting(false)
-                VStack(spacing: 10) {
-                    Text(text)
-                        .font(.system(size: 16))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.25), radius: 4)
-                        .multilineTextAlignment(.center)            // WhatsApp: caption centered
-                        .lineLimit(captionExpanded ? nil : 3)
-                        .padding(.horizontal, 24)
-                        .contentShape(Rectangle())
-                        .onTapGesture {   // tap expands/collapses; consumes the tap so it doesn't advance the story
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { captionExpanded.toggle() }
-                        }
-                    Rectangle()                                     // thin divider line under the caption (WhatsApp)
-                        .fill(Color.white.opacity(0.25))
-                        .frame(height: 0.5)
-                        .padding(.horizontal, 16)
-                }
-                .padding(.bottom, Constant.MessageView.height + winInsets.bottom + 16)   // sit ABOVE the reply bar
+                // Our own design (clean, IG/Telegram-style): bottom-LEFT, no hard line, over the soft fade.
+                Text(text)
+                    .font(.system(size: 16))
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.25), radius: 4)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(captionExpanded ? nil : 3)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, Constant.MessageView.height + winInsets.bottom + 22)   // sit ABOVE the reply bar
+                    .contentShape(Rectangle())
+                    .onTapGesture {   // tap expands/collapses; consumes the tap so it doesn't advance the story
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { captionExpanded.toggle() }
+                    }
             }
-            .frame(maxWidth: .infinity, alignment: .bottom)
+            .frame(maxWidth: .infinity, alignment: .bottomLeading)
         }
     }
 

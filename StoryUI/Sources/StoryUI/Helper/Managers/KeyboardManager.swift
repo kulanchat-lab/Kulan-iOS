@@ -12,6 +12,7 @@ final class KeyboardManager: ObservableObject {
     
     @Published private(set) var currentHeight: CGFloat = 0
     @Published private(set) var isKeyboardOpen = false
+    @Published private(set) var animationDuration: Double = 0.25   // ride the keyboard's own timing (no lag)
 
     private var notificationCenter: NotificationCenter
     
@@ -46,12 +47,14 @@ final class KeyboardManager: ObservableObject {
     
     @objc func keyBoardWillShow(notification: Notification) {
         if let keyboardSize = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
+            animationDuration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
             currentHeight = keyboardSize.height - UIApplication.bottomSafeAreaHeight
             isKeyboardOpen = true
         }
     }
-    
+
     @objc func keyBoardWillHide(notification: Notification) {
+        animationDuration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
         isKeyboardOpen = false
         currentHeight = 0
     }
