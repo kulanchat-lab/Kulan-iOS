@@ -68,29 +68,23 @@ struct StoryDetailView: View {
                 // Empty bucket (all items expired/removed) -> render nothing instead of indexing [-1] (crash).
                 if index < model.stories.count {
                     let story = model.stories[index]
-                    VStack(spacing: 8) {
-                        getStoryView(with: index, story: story)
-                            // Full-bleed: fill the WHOLE card top-to-bottom (no centered rounded card, which
-                            // left a black strip above the progress bars). The aspect-fit photo + blurred
-                            // backdrop now cover the entire screen, like WhatsApp.
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .overlay(
-                                tapStory()
-                                    .offset(
-                                        y: story.config.storyType != .plain()
-                                        ? -Constant.MessageView.height : .zero
-                                    )
-                            )
-                            // Telegram-style caption: overlaid on the media (never baked into the photo,
-                            // which clipped it), bottom-left over a soft gradient, tap to expand.
-                            // (iOS 14 overlay form — the library deploys to iOS 14, no trailing-closure overlay.)
-                            .overlay(captionView(story.caption), alignment: .bottom)
-                            // Top dark scrim (mirror of the bottom caption gradient) so the username, avatar
-                            // and close button stay readable on white/bright photos. Black at the very top
-                            // fading to clear; behind the header, no touches.
-                            .overlay(topScrim, alignment: .top)
-                        messageView(with: index)
-                    }
+                    // Photo fills the ENTIRE screen (it's the background); the reply bar FLOATS on top of it,
+                    // so the photo/blur shows behind the reply box too — no black bar at the bottom (WhatsApp).
+                    getStoryView(with: index, story: story)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .overlay(
+                            tapStory()
+                                .offset(
+                                    y: story.config.storyType != .plain()
+                                    ? -Constant.MessageView.height : .zero
+                                )
+                        )
+                        // Telegram-style caption: overlaid on the media (never baked into the photo).
+                        .overlay(captionView(story.caption), alignment: .bottom)
+                        // Top dark scrim so the username/avatar/close stay readable on white/bright photos.
+                        .overlay(topScrim, alignment: .top)
+                    // Reply bar floats at the bottom OVER the photo (no black background row anymore).
+                    VStack(spacing: 0) { Spacer(); messageView(with: index) }
                     getEmojiView(story: story)
                 }
             }
