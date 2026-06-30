@@ -920,7 +920,7 @@ struct StoryViewersBottomSheet: View {
             .frame(height: sheetH)
             .background(
                 UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .continuous)
-                    .fill(Color(white: 0.10))
+                    .fill(Color(red: 0.1, green: 0.1, blue: 0.12))   // match your spec's sheet colour
             )
             .frame(maxHeight: .infinity, alignment: .bottom)   // park at the bottom of the screen
             .offset(y: (1 - progress) * sheetH)                // slide up/down with progress
