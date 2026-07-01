@@ -1,0 +1,45 @@
+name: TestFlight build status
+
+# Report the processing/compliance status of the most recent builds so we know why a build
+# hasn't appeared in TestFlight yet. Uses the same App Store Connect API key as the upload lane.
+on:
+  workflow_dispatch:
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+      BUNDLE_ID: "com.kulan.messenger.native"
+    steps:
+      - name: Write API key
+        run: printf '%s' "$ASC_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+      - name: Install deps
+        run: pip install --quiet pyjwt cryptography requests
+      - name: Report status
+        env:
+          P8: ${{ runner.temp }}/AuthKey.p8
+        run: |
+          python3 - <<'PY'
+          import os, time, jwt, requests, sys
+          key_id = os.environ["ASC_KEY_ID"]; issuer = os.environ["ASC_ISSUER_ID"]
+          bundle = os.environ["BUNDLE_ID"]
+          with open(os.environ["P8"]) as f: private_key = f.read()
+          token = jwt.encode({"iss": issuer, "iat": int(time.time()), "exp": int(time.time())+1200,
+                              "aud": "appstoreconnect-v1"}, private_key,
+                             algorithm="ES256", headers={"kid": key_id, "typ": "JWT"})
+          H = {"Authorization": f"Bearer {token}"}; BASE = "https://api.appstoreconnect.apple.com/v1"
+          app = requests.get(f"{BASE}/apps", headers=H, params={"filter[bundleId]": bundle}).json()["data"][0]["id"]
+          r = requests.get(f"{BASE}/builds", headers=H, params={
+              "filter[app]": app, "limit": 6, "sort": "-version",
+              "fields[builds]": "version,processingState,uploadedDate,expired,usesNonExemptEncryption"}).json()
+          print(f"{'build':>6}  {'processing':<11} {'compliance':<16} expired  uploaded")
+          for b in r.get("data", []):
+              a = b["attributes"]
+              enc = a.get("usesNonExemptEncryption")
+              comp = "MISSING (answer!)" if enc is None else ("set: exempt" if enc is False else "set: uses-encryption")
+              print(f"{a['version']:>6}  {str(a.get('processingState')):<11} {comp:<16} {str(a.get('expired')):<7} {a.get('uploadedDate')}")
+          print("\nInstallable = processing VALID AND compliance not MISSING.")
+          PY
