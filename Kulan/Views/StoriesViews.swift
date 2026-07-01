@@ -98,6 +98,25 @@ enum StoryPrefs {
 // Horizontal Stories row for the top of the Chats screen.
 struct SeenByTarget: Identifiable { let id: String }
 
+// Custom per-card story context menu. Native `.contextMenu` can't work here: inside a `List`,
+// SwiftUI collapses every per-card menu in one row into ONE menu (the first card's), centered.
+// So each card long-presses → this payload → a clear full-screen cover owned by StoriesRow.
+private struct StoryMenu: Identifiable {
+    let id = UUID()
+    let cover: String?          // cover image url (nil/empty → avatar placeholder)
+    let name: String
+    let avatar: String?
+    let items: [StoryMenuItem]
+}
+
+private struct StoryMenuItem: Identifiable {
+    let id = UUID()
+    let title: String
+    let systemImage: String
+    let destructive: Bool
+    let action: () -> Void
+}
+
 struct StoriesRow: View {
     @State private var repo = StoriesRepository.shared
     @State private var stories = StoriesService.shared   // observe the live upload state
@@ -113,6 +132,8 @@ struct StoriesRow: View {
     var onOpenUploading: () -> Void = {}   // tap the still-uploading card → live upload viewer
     @State private var prefsTick = 0   // re-render after hide/notify toggles
     @State private var hideTarget: StoryGroup?   // "Hide Stories?" confirmation target
+    @State private var storyMenu: StoryMenu?          // custom long-press context menu target
+    @State private var pendingAction: (() -> Void)?   // action to run AFTER the cover fully dismisses
 
     private let storySpacing: CGFloat = 10
     private let storyHPad: CGFloat = 12
@@ -150,6 +171,7 @@ struct StoriesRow: View {
                                     onMessage: { onMessage(g) },
                                     onProfile: { onProfile(g) },
                                     onHide: { hideTarget = g },
+                                    onLongPress: { presentMenu($0) },
                                     storyNS: storyNS,
                                     groupID: g.id)
                         .equatable()
@@ -173,6 +195,16 @@ struct StoriesRow: View {
         } message: { g in
             Text("New story updates from \(g.name.isEmpty ? "this person" : g.name) won't appear at the top of the stories list anymore.")
         }
+        .fullScreenCover(item: $storyMenu, onDismiss: {
+            // Run the picked action only after the cover is fully gone (avoids nested-cover conflicts
+            // when the action itself presents the story viewer).
+            let a = pendingAction; pendingAction = nil; a?()
+        }) { menu in
+            StoryContextMenuOverlay(menu: menu, cardW: cardW, cardH: cardH) { action in
+                dismissMenu(action)   // action == nil for a backdrop tap
+            }
+            .presentationBackground(.clear)   // see-through cover → escapes the List row's clipping
+        }
         .task { await repo.load() }
     }
 
@@ -190,16 +222,21 @@ struct StoriesRow: View {
                      seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []), onBadge: onCompose) {
                     if let m = repo.mine { onOpen(m) } else { onCompose() }
                 }
-                .contextMenu {
-                    Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
-                    Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
-                        label: { Label("Posted Stories", systemImage: "circle.dashed") }
-                } preview: {
-                    // Explicit preview = JUST my card, so the long-press lifts this card, not the whole
-                    // stories strip, now that the row lives inside the chat List.
-                    coverImage(repo.mine?.stories.last?.mediaUrl ?? mePhoto, name: "My Story", avatar: mePhoto)
-                        .frame(width: cardW, height: cardH)
-                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                // Custom long-press (native .contextMenu can't work per-card inside the List).
+                .onLongPressGesture(minimumDuration: 0.4) {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    presentMenu(StoryMenu(
+                        cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
+                        name: "My Story",
+                        avatar: mePhoto,
+                        items: [
+                            StoryMenuItem(title: "Add Story", systemImage: "plus",
+                                          destructive: false, action: onCompose),
+                            StoryMenuItem(title: "Posted Stories", systemImage: "circle.dashed",
+                                          destructive: false) {
+                                if let m = repo.mine, !m.stories.isEmpty { onOpen(m) }
+                            }
+                        ]))
                 }
                 .matchedTransitionSource(id: repo.mine?.id ?? "my-story", in: storyNS)   // hero grow source
                 .transition(.opacity)
@@ -297,6 +334,18 @@ struct StoriesRow: View {
     }
 
     func reload() { Task { await repo.load(force: true) } }
+
+    // Present/dismiss the custom menu WITHOUT the cover's default bottom-slide, so the overlay's own
+    // spring+scale is the only animation (matches the iOS context-menu feel).
+    private func presentMenu(_ m: StoryMenu) {
+        var t = Transaction(); t.disablesAnimations = true
+        withTransaction(t) { storyMenu = m }
+    }
+    private func dismissMenu(_ action: (() -> Void)?) {
+        pendingAction = action
+        var t = Transaction(); t.disablesAnimations = true
+        withTransaction(t) { storyMenu = nil }   // onDismiss: fires pendingAction after it's gone
+    }
 }
 
 // One friend's story card in the row. Its own Equatable view so the long-press context menu stays
@@ -311,6 +360,7 @@ private struct StoryFriendCard: View, Equatable {
     let onMessage: () -> Void
     let onProfile: () -> Void
     let onHide: () -> Void
+    let onLongPress: (StoryMenu) -> Void   // signals up to StoriesRow (this struct is separate)
     let storyNS: Namespace.ID    // hero zoom: card ⇄ viewer
     let groupID: String          // matches the viewer's zoom sourceID
 
@@ -339,16 +389,18 @@ private struct StoryFriendCard: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contextMenu {
-            Button { onMessage() } label: { Label("Send Message", systemImage: "message") }
-            Button { onProfile() } label: { Label("Open Profile", systemImage: "person.crop.circle") }
-            Button(role: .destructive) { onHide() } label: { Label("Hide Stories", systemImage: "archivebox") }
-        } preview: {
-            // Explicit preview = JUST this card, so inside the chat List the long-press lifts this card
-            // instead of the whole stories strip (the List otherwise snapshots the entire row cell).
-            coverView
-                .frame(width: cardW, height: cardH)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .onLongPressGesture(minimumDuration: 0.4) {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            onLongPress(StoryMenu(
+                cover: cover, name: name, avatar: avatar,
+                items: [
+                    StoryMenuItem(title: "Send Message", systemImage: "message",
+                                  destructive: false, action: onMessage),
+                    StoryMenuItem(title: "Open Profile", systemImage: "person.crop.circle",
+                                  destructive: false, action: onProfile),
+                    StoryMenuItem(title: "Hide Stories", systemImage: "archivebox",
+                                  destructive: true, action: onHide)
+                ]))
         }
         .matchedTransitionSource(id: groupID, in: storyNS)   // hero grow source
     }
@@ -359,6 +411,103 @@ private struct StoryFriendCard: View, Equatable {
         } else {
             ZStack { Color.secondary.opacity(0.2); AvatarView(name: name, photoUrl: avatar, size: cardW * 0.62) }
         }
+    }
+}
+
+// Custom iOS-context-menu-style overlay for a story card long-press. Lives in a clear full-screen
+// cover owned by StoriesRow so it escapes the chat List's row clipping and covers the whole screen.
+private struct StoryContextMenuOverlay: View {
+    let menu: StoryMenu
+    let cardW: CGFloat
+    let cardH: CGFloat
+    let onDismiss: (_ action: (() -> Void)?) -> Void   // nil action = cancel
+
+    @State private var shown = false          // drives the spring-in / animate-out
+    @State private var dragY: CGFloat = 0      // swipe-down to dismiss
+
+    private var previewW: CGFloat { cardW * 1.4 }
+    private var previewH: CGFloat { previewW * 1.46 }   // same aspect as the cards
+    private let menuW: CGFloat = 230
+
+    var body: some View {
+        ZStack {
+            // Dimmed + blurred backdrop. Tap anywhere to dismiss with no action.
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(Color.black.opacity(0.18))
+                .ignoresSafeArea()
+                .opacity(shown ? 1 : 0)
+                .contentShape(Rectangle())
+                .onTapGesture { close(nil) }
+
+            VStack(spacing: 14) {
+                preview
+                    .frame(width: previewW, height: previewH)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .shadow(color: .black.opacity(0.4), radius: 22, y: 12)
+                menuCard
+            }
+            .scaleEffect(shown ? 1 : 0.86)
+            .opacity(shown ? 1 : 0)
+            .offset(y: dragY)
+            .padding(.bottom, 40)
+        }
+        // Swipe-down anywhere on the floating content dismisses (buttons still tap: they win on a tap).
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12)
+                .onChanged { v in dragY = max(0, v.translation.height) }
+                .onEnded { v in
+                    if v.translation.height > 90 { close(nil) }
+                    else { withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { dragY = 0 } }
+                }
+        )
+        .onAppear {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.76)) { shown = true }
+        }
+    }
+
+    @ViewBuilder private var preview: some View {
+        if let cover = menu.cover, !cover.isEmpty {
+            StoryImage(url: cover)
+        } else {
+            ZStack {
+                Color.secondary.opacity(0.2)
+                AvatarView(name: menu.name, photoUrl: menu.avatar, size: previewW * 0.5)
+            }
+        }
+    }
+
+    private var menuCard: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(menu.items.enumerated()), id: \.element.id) { idx, item in
+                Button { close(item.action) } label: {
+                    HStack(spacing: 12) {
+                        Text(item.title)
+                            .font(.system(size: 17))
+                            .foregroundStyle(item.destructive ? Color.red : Color.primary)
+                        Spacer(minLength: 8)
+                        Image(systemName: item.systemImage)
+                            .font(.system(size: 17))
+                            .foregroundStyle(item.destructive ? Color.red : Color.primary)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 46)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if idx < menu.items.count - 1 {
+                    Divider().overlay(Color.primary.opacity(0.08))
+                }
+            }
+        }
+        .frame(width: menuW)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
+    }
+
+    private func close(_ action: (() -> Void)?) {
+        withAnimation(.easeOut(duration: 0.18)) { shown = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.19) { onDismiss(action) }
     }
 }
 
