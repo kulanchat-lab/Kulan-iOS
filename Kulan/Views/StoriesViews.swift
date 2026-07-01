@@ -190,10 +190,16 @@ struct StoriesRow: View {
                      seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []), onBadge: onCompose) {
                     if let m = repo.mine { onOpen(m) } else { onCompose() }
                 }
-                .contextMenu {   // My Story menu: Add Story + Posted Stories only (lifts in place — build 147)
+                .contextMenu {
                     Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
                     Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
                         label: { Label("Posted Stories", systemImage: "circle.dashed") }
+                } preview: {
+                    // Explicit preview = JUST my card, so the long-press lifts this card, not the whole
+                    // stories strip, now that the row lives inside the chat List.
+                    coverImage(repo.mine?.stories.last?.mediaUrl ?? mePhoto, name: "My Story", avatar: mePhoto)
+                        .frame(width: cardW, height: cardH)
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 }
                 .matchedTransitionSource(id: repo.mine?.id ?? "my-story", in: storyNS)   // hero grow source
                 .transition(.opacity)
@@ -333,10 +339,16 @@ private struct StoryFriendCard: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contextMenu {   // lifts THIS card in place + friend menu (default lift — build 147)
+        .contextMenu {
             Button { onMessage() } label: { Label("Send Message", systemImage: "message") }
             Button { onProfile() } label: { Label("Open Profile", systemImage: "person.crop.circle") }
             Button(role: .destructive) { onHide() } label: { Label("Hide Stories", systemImage: "archivebox") }
+        } preview: {
+            // Explicit preview = JUST this card, so inside the chat List the long-press lifts this card
+            // instead of the whole stories strip (the List otherwise snapshots the entire row cell).
+            coverView
+                .frame(width: cardW, height: cardH)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
         .matchedTransitionSource(id: groupID, in: storyNS)   // hero grow source
     }
