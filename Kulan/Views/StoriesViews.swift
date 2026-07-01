@@ -225,7 +225,7 @@ struct StoriesRow: View {
                 // Custom long-press (native .contextMenu can't work per-card inside the List).
                 // simultaneousGesture (not .onLongPressGesture) so the press runs ALONGSIDE the card's Button —
                 // otherwise the Button wins the exclusive gesture and the long-press never fires.
-                .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     presentMenu(StoryMenu(
                         cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
@@ -392,7 +392,7 @@ private struct StoryFriendCard: View, Equatable {
         }
         .buttonStyle(.plain)
         // simultaneousGesture so the long-press coexists with the card's Button (else the Button eats it).
-        .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+        .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             onLongPress(StoryMenu(
                 cover: cover, name: name, avatar: avatar,
