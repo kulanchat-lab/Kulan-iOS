@@ -223,7 +223,9 @@ struct StoriesRow: View {
                     if let m = repo.mine { onOpen(m) } else { onCompose() }
                 }
                 // Custom long-press (native .contextMenu can't work per-card inside the List).
-                .onLongPressGesture(minimumDuration: 0.4) {
+                // simultaneousGesture (not .onLongPressGesture) so the press runs ALONGSIDE the card's Button —
+                // otherwise the Button wins the exclusive gesture and the long-press never fires.
+                .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     presentMenu(StoryMenu(
                         cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
@@ -237,7 +239,7 @@ struct StoriesRow: View {
                                 if let m = repo.mine, !m.stories.isEmpty { onOpen(m) }
                             }
                         ]))
-                }
+                })
                 .matchedTransitionSource(id: repo.mine?.id ?? "my-story", in: storyNS)   // hero grow source
                 .transition(.opacity)
             }
@@ -389,7 +391,8 @@ private struct StoryFriendCard: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onLongPressGesture(minimumDuration: 0.4) {
+        // simultaneousGesture so the long-press coexists with the card's Button (else the Button eats it).
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             onLongPress(StoryMenu(
                 cover: cover, name: name, avatar: avatar,
@@ -401,7 +404,7 @@ private struct StoryFriendCard: View, Equatable {
                     StoryMenuItem(title: "Hide Stories", systemImage: "archivebox",
                                   destructive: true, action: onHide)
                 ]))
-        }
+        })
         .matchedTransitionSource(id: groupID, in: storyNS)   // hero grow source
     }
 
