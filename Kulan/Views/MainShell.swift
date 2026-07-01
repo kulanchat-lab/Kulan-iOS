@@ -640,9 +640,10 @@ struct ChatsView: View {
                     ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.bubble.right",
                                            description: Text("Tap the compose button to start one."))
                 } else {
-                    VStack(spacing: 0) {
-                      // Stories row PINNED above the List (outside it) so EACH card long-presses on
-                      // its own. Inside a List, the whole row lifts as one cell (the bug). (Build 147.)
+                    // Stories row is now the FIRST ROW INSIDE the List, so it SCROLLS AWAY with the chats
+                    // (WhatsApp-style). Each card keeps its OWN .contextMenu on its own stable-.id view (the
+                    // build-147 per-card fix), so a long-press lifts just that card, not the whole strip.
+                    List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row
                       StoriesRow(meName: profile.me?.name ?? "You", mePhoto: profile.me?.photoUrl,
                                  storyNS: storyNS,
                                  onCompose: { showCompose = true },
@@ -651,7 +652,12 @@ struct ChatsView: View {
                                  onProfile: { g in profileGroup = g },
                                  onOpenAnon: { g in viewerAnonymous = true; viewerGroup = g },
                                  onOpenUploading: { showUploadViewer = true })
-                      List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .moveDisabled(true)
+                        .deleteDisabled(true)      // no swipe on the stories row
+                        .selectionDisabled()       // not selectable / no edit-mode circle
                       ForEach(visible) { conv in
                         // Full-row Button instead of a NavigationLink: a NavigationLink in a
                         // List always draws the trailing disclosure chevron (the arrow). A
@@ -714,7 +720,6 @@ struct ChatsView: View {
                     // membership only, so it won't animate unrelated content changes.
                     .animation(.spring(response: 0.38, dampingFraction: 0.86), value: visible.map(\.id))
                     .environment(\.editMode, .constant(selecting ? .active : .inactive))
-                    }   // VStack (pinned stories row + list) — build 147 layout
                 }
             }
             .navigationTitle("Chats")
