@@ -5,6 +5,7 @@ import CoreMedia
 import WebRTC
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseFunctions
 
 // Voice calling over WebRTC, signalled through Firestore `calls/{id}` (offer/answer
 // + caller/callee ICE candidate subcollections) — the same design the RN web client
@@ -85,17 +86,39 @@ final class CallService: NSObject {
         return RTCPeerConnectionFactory()
     }()
 
-    private let config: RTCConfiguration = {
+    // STUN-only fallback (used until the real TURN relay list arrives from the server, and if
+    // that fetch ever fails). STUN alone connects phones on friendly networks; the TURN relay
+    // from `iceServers` is what makes calls work across mobile/CGNAT (the reported failures).
+    private static let fallbackIceServers = [
+        RTCIceServer(urlStrings: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]),
+    ]
+    // Filled by refreshIceServers() from the `iceServers` Cloud Function (real TURN creds live
+    // server-side, never in this public repo). Read on every new peer connection.
+    private var fetchedIceServers: [RTCIceServer]?
+
+    private var config: RTCConfiguration {
         let c = RTCConfiguration()
-        c.iceServers = [
-            RTCIceServer(urlStrings: ["stun:stun.l.google.com:19302",
-                                      "stun:stun1.l.google.com:19302"]),
-            RTCIceServer(urlStrings: ["turn:openrelay.metered.ca:80"],
-                         username: "openrelayproject", credential: "openrelayproject"),
-        ]
+        c.iceServers = fetchedIceServers ?? Self.fallbackIceServers
         c.sdpSemantics = .unifiedPlan
         return c
-    }()
+    }
+
+    /// Pull the live TURN/STUN list from the server (short-lived credentials). Call at launch
+    /// after sign-in and again when starting/answering a call so credentials are always fresh.
+    /// Never throws — on any failure we keep whatever we had (or the STUN fallback).
+    func refreshIceServers() async {
+        guard let res = try? await Functions.functions(region: "me-central1")
+            .httpsCallable("iceServers").call(),
+              let arr = (res.data as? [String: Any])?["iceServers"] as? [[String: Any]] else { return }
+        let servers: [RTCIceServer] = arr.compactMap { s in
+            guard let urls = s["urls"] as? [String] ?? (s["urls"] as? String).map({ [$0] }) else { return nil }
+            if let user = s["username"] as? String, let cred = s["credential"] as? String {
+                return RTCIceServer(urlStrings: urls, username: user, credential: cred)
+            }
+            return RTCIceServer(urlStrings: urls)
+        }
+        if !servers.isEmpty { fetchedIceServers = servers }
+    }
 
     // Audio session is owned by CallKit (manual mode) — see CallKitManager.
 
@@ -342,6 +365,7 @@ final class CallService: NSObject {
         CallKitManager.shared.startOutgoing(name: name)   // native call UI + audio session
         CallKitManager.shared.reportConnecting()
 
+        Task { await refreshIceServers() }   // fresh TURN creds before we build the connection
         ensureMicPermission { [weak self] granted in
             guard let self else { return }
             guard granted else { self.hangUp(); return }   // no mic -> don't start a dead call
@@ -406,6 +430,8 @@ final class CallService: NSObject {
     func observeIncoming() {
         incomingListener?.remove()
         guard !me.isEmpty else { return }
+        Task { await refreshIceServers() }   // warm the TURN list at launch so the first call has it
+
         incomingListener = db.collection("calls")
             .whereField("callee", isEqualTo: me)
             .whereField("status", isEqualTo: "ringing")
@@ -464,6 +490,7 @@ final class CallService: NSObject {
         self.otherPhotoUrl = (photo?.isEmpty == false) ? photo : nil
         self.isCaller = false
         self.state = .incoming   // so the UI can present once answered
+        Task { await refreshIceServers() }   // ensure fresh TURN before the callee builds its connection
         markRinging()
         watchRingingCancel(callId)   // tear down if the caller cancels before I answer
     }
