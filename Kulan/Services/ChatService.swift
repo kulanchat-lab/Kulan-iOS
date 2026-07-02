@@ -774,10 +774,30 @@ enum ChatService {
         return Date().timeIntervalSince1970 * 1000 + hours * 3_600_000
     }
 
+    /// Human label for a disappearing timer (shared by the info screens + system notice).
+    static func disappearLabel(_ seconds: Int) -> String {
+        switch seconds {
+        case 86_400: return "1 day"
+        case 604_800: return "1 week"
+        case 2_592_000: return "1 month"
+        case 31_536_000: return "1 year"
+        default: return "\(seconds)s"
+        }
+    }
+
     /// Set the per-chat disappearing-message timer (seconds; 0 = off). Shared by both.
+    /// NEVER silent (WhatsApp rule): both sides get a centered system notice in the chat
+    /// saying who changed it — one member must not be able to flip it secretly.
     static func setDisappear(_ cid: String, seconds: Int) async {
-        try? await db.collection("conversations").document(cid)
-            .setData(["disappearSeconds": seconds], merge: true)
+        let ref = db.collection("conversations").document(cid)
+        let current = ((try? await ref.getDocument())?.data()?["disappearSeconds"] as? NSNumber)?.intValue ?? 0
+        guard current != seconds else { return }   // no change → no write, no duplicate notice
+        try? await ref.setData(["disappearSeconds": seconds], merge: true)
+        let name = await MainActor.run { ProfileStore.shared.me?.name ?? "Someone" }
+        let text = seconds > 0
+            ? "\(name) turned on disappearing messages (\(disappearLabel(seconds)))"
+            : "\(name) turned off disappearing messages"
+        try? await writeSystemMessage(cid: cid, text: text)
     }
 
     static func setBlocked(_ cid: String, _ value: Bool) async {

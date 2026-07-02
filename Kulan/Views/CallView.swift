@@ -46,6 +46,15 @@ struct CallView: View {
         return DiskImageCache.shared.memoryImage(url)
     }
 
+    // REAL device safe-area insets. GeometryReader sits under `.ignoresSafeArea()`, so its
+    // proxy reports ZERO insets — padding with those shoved the top buttons under the clock
+    // and battery (the reported overlap). Read the window's insets instead.
+    private var winInsets: UIEdgeInsets {
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets }
+            .max(by: { $0.top < $1.top }) ?? .zero
+    }
+
     var body: some View {
         GeometryReader { geo in
             ZStack {
@@ -56,19 +65,22 @@ struct CallView: View {
                 }
 
                 VStack(spacing: 0) {
-                    topBar(safeTop: geo.safeAreaInsets.top)
+                    topBar(safeTop: winInsets.top)
                         .frame(maxWidth: .infinity)        // full-width header (centered name/status)
                     Spacer()
                     if showAvatar {
                         AvatarView(name: call.otherName, photoUrl: call.otherPhotoUrl, size: 180)
                             .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
+                            // Soft expanding rings while the other side hasn't picked up yet —
+                            // the frozen avatar read as "dead"; big apps pulse here.
+                            .background { if call.state == .outgoing { PulsingRings(diameter: 180) } }
                             .shadow(color: .black.opacity(0.45), radius: 26, y: 10)
                             .frame(maxWidth: .infinity)    // guarantee horizontal centering
                         Spacer()
                     }
                     controlBar
                         .frame(maxWidth: .infinity)        // centered control pill
-                        .padding(.bottom, geo.safeAreaInsets.bottom + 22)
+                        .padding(.bottom, winInsets.bottom + 22)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)   // fill the screen (never collapse/offset)
             }
@@ -155,9 +167,11 @@ struct CallView: View {
             .buttonStyle(CallControlStyle())
 
             Spacer()
-            VStack(spacing: 2) {
-                Text(call.otherName).font(.system(size: 18, weight: .bold)).foregroundStyle(.white).lineLimit(1)
-                Text(statusText).font(.system(size: 14)).monospacedDigit().foregroundStyle(.white.opacity(0.7))
+            // Big bold name over a smaller status (WhatsApp/FaceTime scale — 18pt read as a toolbar label).
+            VStack(spacing: 3) {
+                Text(call.otherName).font(.system(size: 26, weight: .bold)).foregroundStyle(.white).lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Text(statusText).font(.system(size: 15)).monospacedDigit().foregroundStyle(.white.opacity(0.75))
             }
             Spacer()
 
@@ -188,7 +202,7 @@ struct CallView: View {
     // MARK: - Video self-PiP (draggable, with flip glyph)
 
     private func pipLayer(_ geo: GeometryProxy) -> some View {
-        let safeBottom = geo.safeAreaInsets.bottom
+        let safeBottom = winInsets.bottom
         let pipIsLocal = !isLocalExpanded                                   // small window = the OTHER feed
         let pipTrack = isLocalExpanded ? call.remoteVideoTrack : call.localVideoTrack
         // PiP only appears once the remote video is here (before that, MY camera is full-screen).
@@ -220,7 +234,7 @@ struct CallView: View {
                             let h = pipBase.height + v.translation.height
                             let maxLeft = -(geo.size.width - 104 - 28)
                             // Real geometry (PiP is 150 tall, sits at safeTop+70, control bar ~120) — no magic 300 that inverts on small screens.
-                            let maxDown = max(0, geo.size.height - 150 - (geo.safeAreaInsets.top + 70) - safeBottom - 120)
+                            let maxDown = max(0, geo.size.height - 150 - (winInsets.top + 70) - safeBottom - 120)
                             pipOffset = CGSize(width: min(0, max(maxLeft, w)), height: min(maxDown, max(0, h)))
                         }
                         .onEnded { _ in pipBase = pipOffset }
@@ -228,7 +242,7 @@ struct CallView: View {
                 .onTapGesture {
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { isLocalExpanded.toggle() }
                 }
-                .padding(.top, geo.safeAreaInsets.top + 70)
+                .padding(.top, winInsets.top + 70)
                 .padding(.trailing, 14)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
@@ -247,7 +261,9 @@ struct CallView: View {
                 // Seamless upgrade: turn this voice call into a video call (renegotiates, no hang-up).
                 callCircle("video.fill", active: false) { call.upgradeToVideo() }
             }
-            callCircle(call.isSpeaker ? "speaker.wave.2.fill" : "speaker.slash.fill", active: call.isSpeaker) { call.toggleSpeaker() }
+            // One steady speaker glyph; ON = filled white circle (the slash icon looked like
+            // something was muted even when it wasn't).
+            callCircle("speaker.wave.2.fill", active: call.isSpeaker) { call.toggleSpeaker() }
             endCircle
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
@@ -368,6 +384,30 @@ struct MiniCallBar: View {
         .frame(maxWidth: .infinity)
         .background(Color.green)
         .onReceive(ticker) { now = $0 }
+    }
+}
+
+// MARK: - PulsingRings
+
+// Soft rings expanding out from the avatar while the call is still unanswered — the
+// "alive" cue every big call UI has. Two staggered rings, GPU-cheap, removed on connect.
+struct PulsingRings: View {
+    let diameter: CGFloat
+    @State private var animate = false
+    var body: some View {
+        ZStack {
+            ForEach(0..<2, id: \.self) { i in
+                Circle()
+                    .stroke(.white.opacity(0.35), lineWidth: 1.5)
+                    .frame(width: diameter, height: diameter)
+                    .scaleEffect(animate ? 1.45 : 1.0)
+                    .opacity(animate ? 0 : 0.7)
+                    .animation(.easeOut(duration: 2.0).repeatForever(autoreverses: false).delay(Double(i)),
+                               value: animate)
+            }
+        }
+        .onAppear { animate = true }
+        .allowsHitTesting(false)
     }
 }
 

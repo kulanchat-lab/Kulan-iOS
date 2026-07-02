@@ -26,6 +26,7 @@ struct GroupInfoView: View {
     @State private var showAllMedia = false
     @State private var uploadingAvatar = false
     @State private var showCall = false
+    @State private var pendingDisappear: Int?   // chosen timer awaiting the "for all members" confirm
 
     struct MemberAction: Identifiable { let id: String; let name: String; let isAdmin: Bool }
 
@@ -57,10 +58,23 @@ struct GroupInfoView: View {
                     Button("Cancel", role: .cancel) {}
                 }
                 .confirmationDialog("Disappearing Messages", isPresented: $showDisappear, titleVisibility: .visible) {
+                    // Off is safe → applies directly; turning ON confirms first (deletes for everyone).
                     Button("Off")     { Task { await ChatService.setDisappear(cid, seconds: 0) } }
-                    Button("1 Day")   { Task { await ChatService.setDisappear(cid, seconds: 86_400) } }
-                    Button("1 Week")  { Task { await ChatService.setDisappear(cid, seconds: 604_800) } }
+                    Button("1 Day")   { pendingDisappear = 86_400 }
+                    Button("1 Week")  { pendingDisappear = 604_800 }
                     Button("Cancel", role: .cancel) {}
+                }
+                .alert("Turn on disappearing messages?", isPresented: Binding(
+                    get: { pendingDisappear != nil },
+                    set: { if !$0 { pendingDisappear = nil } }
+                )) {
+                    Button("Cancel", role: .cancel) { pendingDisappear = nil }
+                    Button("Turn On") {
+                        if let s = pendingDisappear { Task { await ChatService.setDisappear(cid, seconds: s) } }
+                        pendingDisappear = nil
+                    }
+                } message: {
+                    Text("New messages in this group will be deleted for ALL members after \(ChatService.disappearLabel(pendingDisappear ?? 86_400)). Everyone will see that you turned this on.")
                 }
         }
     }

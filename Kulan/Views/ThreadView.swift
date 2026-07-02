@@ -715,7 +715,16 @@ struct ThreadView: View {
         HStack(spacing: 9) {
             AvatarView(name: title, photoUrl: photoUrl, size: 40)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(title).font(.headline).foregroundStyle(.primary).lineLimit(1)
+                    // Constant reminder that messages self-delete here (WhatsApp shows one too) —
+                    // this timer being invisible is how a whole chat history vanished unnoticed.
+                    if repo.disappearSeconds > 0 {
+                        Image(systemName: "timer")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 if let sub = presenceSubtitle {
                     Text(sub).font(.caption2)
                         .foregroundStyle(repo.otherTyping ? Color.accentColor : Color.secondary)

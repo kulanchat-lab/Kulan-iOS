@@ -38,6 +38,7 @@ struct ContactInfoView: View {
     @State private var showMuteOptions = false
     @State private var showDisappear = false
     @State private var disappearSeconds = 0
+    @State private var pendingDisappear: Int?   // chosen timer awaiting the "for both of you" confirm
     @Environment(\.colorScheme) private var scheme
 
     private var dark: Bool { scheme == .dark }
@@ -73,6 +74,25 @@ struct ContactInfoView: View {
         .fullScreenCover(item: $viewerImage) { msg in ImageViewerView(message: msg, cid: cid) }
         .sheet(isPresented: $showAllMedia) { SharedMediaGridView(cid: cid, media: media) }
         .sheet(isPresented: $showShare) { ActivityView(items: [shareText]) }
+        // Options for the "Disappearing Messages" row (was a dead button — no dialog was attached).
+        .confirmationDialog("Disappearing Messages", isPresented: $showDisappear, titleVisibility: .visible) {
+            Button("Off")     { requestDisappear(0) }
+            Button("1 Day")   { requestDisappear(86_400) }
+            Button("1 Week")  { requestDisappear(604_800) }
+            Button("1 Month") { requestDisappear(2_592_000) }
+            Button("1 Year")  { requestDisappear(31_536_000) }
+            Button("Cancel", role: .cancel) {}
+        }
+        // Turning it ON destroys history for BOTH people — never on a single accidental tap.
+        .alert("Turn on disappearing messages?", isPresented: Binding(
+            get: { pendingDisappear != nil },
+            set: { if !$0 { pendingDisappear = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { pendingDisappear = nil }
+            Button("Turn On") { if let s = pendingDisappear { applyDisappear(s); pendingDisappear = nil } }
+        } message: {
+            Text("New messages in this chat will be deleted for both you and \(name) after \(ChatService.disappearLabel(pendingDisappear ?? 86_400)). \(name) will see that you turned this on.")
+        }
         .alert("Clear your messages?", isPresented: $showClear) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
@@ -118,9 +138,14 @@ struct ContactInfoView: View {
     }
 
     private var disappearLabel: String {
-        switch disappearSeconds { case 86_400: return "1 day"; case 604_800: return "1 week"; default: return "Off" }
+        disappearSeconds == 0 ? "Off" : ChatService.disappearLabel(disappearSeconds)
     }
-    private func setDisappear(_ s: Int) {
+    // Turning ON asks first (it deletes for both people); turning OFF is always safe → applies directly.
+    private func requestDisappear(_ s: Int) {
+        guard s != disappearSeconds else { return }
+        if s == 0 { applyDisappear(0) } else { pendingDisappear = s }
+    }
+    private func applyDisappear(_ s: Int) {
         disappearSeconds = s
         Task { await ChatService.setDisappear(cid, seconds: s) }
     }
@@ -192,12 +217,14 @@ struct ContactInfoView: View {
     private var moreMenu: some View {
         Menu {
             // Auto-delete (disappearing messages) — native submenu, Off up to 1 year.
+            // Goes through requestDisappear: enabling always confirms first (this menu was
+            // exactly the accidental-tap path that silently wiped a chat's history).
             Menu {
-                Button("Off") { setDisappear(0) }
-                Button("1 Day") { setDisappear(86_400) }
-                Button("1 Week") { setDisappear(604_800) }
-                Button("1 Month") { setDisappear(2_592_000) }
-                Button("1 Year") { setDisappear(31_536_000) }
+                Button("Off") { requestDisappear(0) }
+                Button("1 Day") { requestDisappear(86_400) }
+                Button("1 Week") { requestDisappear(604_800) }
+                Button("1 Month") { requestDisappear(2_592_000) }
+                Button("1 Year") { requestDisappear(31_536_000) }
             } label: { Label("Disappearing Messages", systemImage: "timer") }
 
             Button { showShare = true } label: {
