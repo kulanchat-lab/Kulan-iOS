@@ -39,6 +39,7 @@ struct StoryDetailView: View {
     @State private var isTapDisabled: Bool = false
     @State private var showEmoji: Bool = true
     @State private var isPaused: Bool = false   // hold-to-pause
+    @State private var scenePaused = false      // pause came from leaving the foreground, not a hold
     @State private var hostPaused: Bool = false // app froze it while showing a sheet (e.g. viewers list)
     @State private var isAdvancing: Bool = false   // guard the segment-end double-advance
     @State private var isFolding: Bool = false   // true while this page is mid-cube-fold (pause timer)
@@ -141,9 +142,15 @@ struct StoryDetailView: View {
         }
         .onChange(of: scenePhase) { phase in
             // Pause when the app leaves the foreground; resume on return (the timer also
-            // naturally suspends with the run loop, this coordinates video too).
-            if phase == .active { isPaused = false; playVideo() }
-            else { isPaused = true; pauseVideo() }
+            // naturally suspends with the run loop, this coordinates video too). Only undo a
+            // pause WE created: a Control Center peek fires .inactive→.active mid-hold, and
+            // blindly clearing isPaused resumed the story under the user's finger.
+            if phase == .active {
+                if scenePaused { scenePaused = false; isPaused = false; playVideo() }
+            } else {
+                if !isPaused { scenePaused = true }   // remember this pause is ours, not a hold
+                isPaused = true; pauseVideo()
+            }
         }
         // Host shows/hides a sheet over the viewer (viewers list, share, menu) → freeze/resume.
         .onReceive(NotificationCenter.default.publisher(for: .pauseStory)) { _ in
@@ -363,6 +370,7 @@ private extension StoryDetailView {
         timerProgress = 0
         isAdvancing = false
         isPaused = false   // safety: never carry a stuck pause across a user switch (R1 freeze fix)
+        scenePaused = false
         // Clear every pause latch too, or a new bucket can start permanently frozen (stuck-state bug).
         isTimerRunning = false
         isAnimationStarted = false
@@ -371,13 +379,8 @@ private extension StoryDetailView {
     }
     
     func getPreviousStory() {
-        
-        if let first = viewModel.stories.first, first.id != model.id {
-
-            let bundleIndex = viewModel.stories.firstIndex { currentBundle in
-                return model.id == currentBundle.id
-            } ?? 0
-            
+        // Index guard (was `?? 0` then `[index - 1]` → crash if this bucket ever left the array).
+        if let bundleIndex = viewModel.stories.firstIndex(where: { model.id == $0.id }), bundleIndex > 0 {
             withAnimation {
                 viewModel.currentStoryUser = viewModel.stories[bundleIndex - 1].id
             }

@@ -162,9 +162,10 @@ final class StoriesService {
 
         let receiptsOn = UserDefaults.standard.object(forKey: "storyViewReceipts") as? Bool ?? true
         if receiptsOn {
+            // merge: a re-view must NOT wipe a previously-set "reaction" off this receipt.
             try? await db.collection("stories").document(story.id)
                 .collection("views").document(me)
-                .setData(["viewedAt": FieldValue.serverTimestamp()])
+                .setData(["viewedAt": FieldValue.serverTimestamp()], merge: true)
         }
     }
 
