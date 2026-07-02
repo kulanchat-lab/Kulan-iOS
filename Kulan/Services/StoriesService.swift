@@ -204,6 +204,9 @@ final class StoriesService {
         // delete (before expiry) leaks the image forever (cleanup only handles EXPIRED docs).
         try? await Storage.storage().reference().child("stories/\(id)/photo.jpg").delete()
         try? await db.collection("stories").document(id).delete()
+        // Drop it from the live row immediately — callers check "was that my last story?"
+        // right after this, which must not race the listener's delete event.
+        await StoriesRepository.shared.removeLocally(id)
     }
 
     /// Flag a story for review (App Store 1.2 — abuse reporting).
@@ -237,16 +240,28 @@ final class StoriesService {
 }
 
 // Loads the stories I can see (mine + others' that include me), unexpired, grouped by
-// person, with my seen-state attached. On-demand load (refresh on appear) for v1.
+// person, with my seen-state attached. LIVE: snapshot listeners (same pattern as the chat
+// list) push new/deleted stories and my seen-watermarks straight into the row — a friend's
+// new ring slides in while you're sitting on the screen (WhatsApp), no pull-to-refresh.
 @Observable
 final class StoriesRepository {
     static let shared = StoriesRepository()
     private init() {}
 
     private let db = Firestore.firestore()
-    private var lastLoadAt: Date?    // throttle: skip reloads within 20s unless forced
     var mine: StoryGroup?            // my own story (the "My Status" cell)
     var others: [StoryGroup] = []    // friends' stories, unseen-first
+
+    // Live inputs. Listener callbacks arrive on the MAIN queue (Firestore default); rebuild()
+    // snapshots them there and regroups off-main.
+    private var othersReg: ListenerRegistration?
+    private var mineReg: ListenerRegistration?
+    private var ctxReg: ListenerRegistration?
+    private var listeningUid: String?               // re-attach when the signed-in user changes
+    private var othersStories: [Story] = []
+    private var mineStories: [Story] = []
+    private var profileCache: [String: (String, String?)] = [:]   // unknown-author name/photo
+    private var expiryTask: Task<Void, Never>?      // wakes at the next expiresAt → drop that card
 
     private func parse(_ docs: [QueryDocumentSnapshot]?) -> [Story] {
         (docs ?? []).compactMap { d in
@@ -275,6 +290,17 @@ final class StoriesRepository {
         }
     }
 
+    // Synchronous removal of one story from the live caches AND the visible groups (used by
+    // deleteStory so "was that my last story?" checks never race the listener's delete event).
+    @MainActor func removeLocally(_ storyId: String) {
+        mineStories.removeAll { $0.id == storyId }
+        othersStories.removeAll { $0.id == storyId }
+        mine?.stories.removeAll { $0.id == storyId }
+        if mine?.stories.isEmpty == true { mine = nil }
+        for i in others.indices { others[i].stories.removeAll { $0.id == storyId } }
+        others.removeAll { $0.stories.isEmpty }
+    }
+
     // Server-side watermark dedupe: true = this view advances the synced watermark (caller then
     // writes it), false = already covered (no write). Seeded from storyContexts on load.
     private var serverWatermarks: [String: Date] = [:]
@@ -284,58 +310,89 @@ final class StoriesRepository {
         return true
     }
 
+    // Kept for every existing call site: first call goes LIVE (attaches the listeners); later
+    // calls just regroup (refilter expiry, pick up renamed profiles) — no network round-trip.
     func load(force: Bool = false) async {
         guard let me = Auth.auth().currentUser?.uid else { return }
-        // Throttle: ChatsView re-appears often; skip a reload within 20s unless forced (e.g. post-upload).
-        if !force, let last = lastLoadAt, Date().timeIntervalSince(last) < 20 { return }
-        lastLoadAt = Date()
+        if listeningUid != me {
+            await MainActor.run { start(me) }   // first call, or the signed-in user changed
+        } else {
+            await rebuild()
+        }
+    }
+
+    // Attach the three live queries (chat-list listener pattern).
+    @MainActor private func start(_ me: String) {
+        stop()
+        listeningUid = me
+        othersReg = db.collection("stories").whereField("recipientUids", arrayContains: me)
+            .addSnapshotListener { [weak self] snap, error in
+                guard let self, let snap else { if let error { print("stories listen error:", error) }; return }
+                // Offline cold-start: ignore an empty cached snapshot so the last-known row stays.
+                if snap.metadata.isFromCache && snap.documents.isEmpty { return }
+                self.othersStories = self.parse(snap.documents)
+                Task { await self.rebuild() }
+            }
+        mineReg = db.collection("stories").whereField("authorUid", isEqualTo: me)
+            .addSnapshotListener { [weak self] snap, error in
+                guard let self, let snap else { if let error { print("my stories listen error:", error) }; return }
+                if snap.metadata.isFromCache && snap.documents.isEmpty { return }
+                self.mineStories = self.parse(snap.documents)
+                Task { await self.rebuild() }
+            }
+        // My per-author seen watermarks — live too, so watching on another device greys rings here.
+        ctxReg = db.collection("users").document(me).collection("storyContexts")
+            .addSnapshotListener { [weak self] snap, _ in
+                guard let self, let snap else { return }
+                for d in snap.documents {
+                    if let ts = (d.data()["lastViewedAt"] as? Timestamp)?.dateValue() {
+                        // Merge FORWARD only — a view that just happened locally may be newer.
+                        self.serverWatermarks[d.documentID] = max(self.serverWatermarks[d.documentID] ?? .distantPast, ts)
+                    }
+                }
+                Task { await self.rebuild() }
+            }
+    }
+
+    @MainActor private func stop() {
+        othersReg?.remove(); othersReg = nil
+        mineReg?.remove(); mineReg = nil
+        ctxReg?.remove(); ctxReg = nil
+        listeningUid = nil
+    }
+
+    // Regroup the cached live inputs into the row's groups. Cheap (no story reads); only
+    // unknown-author profiles are fetched, once each, then cached.
+    private typealias RebuildInputs = (me: String, all: [Story], convs: [Conversation],
+                                       myName: String, myPhoto: String?,
+                                       cachedProfiles: [String: (String, String?)])
+
+    private func rebuild() async {
         let now = Date()
-
-        // Fire the three reads CONCURRENTLY (was sequential = 3 serial round-trips).
-        async let othersSnapT = db.collection("stories").whereField("recipientUids", arrayContains: me).getDocuments()
-        async let mineSnapT = db.collection("stories").whereField("authorUid", isEqualTo: me).getDocuments()
-        async let ctxSnapT = db.collection("users").document(me).collection("storyContexts").getDocuments()
-        let othersSnap = try? await othersSnapT
-        let mineSnap = try? await mineSnapT
-        let ctxSnap = try? await ctxSnapT
-
-        // A failed read returns nil (try?). On a network blip, do NOT commit — that would wipe the live story
-        // row to empty (and the 20s throttle would then lock that empty state in). Keep what's showing and
-        // allow an immediate retry. (Only commit when BOTH story reads actually succeeded.)
-        if othersSnap == nil || mineSnap == nil {
-            lastLoadAt = nil
-            return
+        // Snapshot every live-mutated input on the main actor.
+        let inputs: RebuildInputs? = await MainActor.run {
+            guard let me = listeningUid else { return nil }
+            return (me, (othersStories + mineStories).filter { $0.expiresAt > now },
+                    ConversationsRepository.shared.conversations,
+                    ProfileStore.shared.me?.name ?? "You",
+                    ProfileStore.shared.me?.photoUrl,
+                    profileCache)
         }
+        guard let (me, all, convs, myName, myPhoto, cachedProfiles) = inputs else { return }
 
-        let all = (parse(othersSnap?.documents) + parse(mineSnap?.documents))
-            .filter { $0.expiresAt > now }
-
-        // My per-author "last viewed" markers.
-        var lastViewed: [String: Date] = [:]
-        for d in ctxSnap?.documents ?? [] {
-            if let ts = (d.data()["lastViewedAt"] as? Timestamp)?.dateValue() { lastViewed[d.documentID] = ts }
-        }
-
-        // Snapshot @Observable singletons on the main actor (they're mutated there by
-        // live listeners) — never read them from this background context directly.
-        let (convs, myName, myPhoto) = await MainActor.run {
-            (ConversationsRepository.shared.conversations,
-             ProfileStore.shared.me?.name ?? "You",
-             ProfileStore.shared.me?.photoUrl)
-        }
         // Authors NOT in my chats (a story can reach me from someone I've never messaged,
         // e.g. beta test accounts): fall back to their profile doc for name/photo instead of
-        // rendering "User". Rules allow any signed-in user to read users/{uid}. Fetched
-        // concurrently, only for the (rare) unknown authors.
+        // rendering "User". Rules allow any signed-in user to read users/{uid}.
         let known = Set(convs.map { $0.otherUid(me) })
         let unknownAuthors = Set(all.map(\.authorUid)).subtracting(known).subtracting([me])
-        var profiles: [String: (String, String?)] = [:]
+            .filter { cachedProfiles[$0] == nil }
+        var profiles = cachedProfiles
         if !unknownAuthors.isEmpty {
             await withTaskGroup(of: (String, String, String?)?.self) { group in
                 for u in unknownAuthors {
                     group.addTask { [db] in
                         guard let f = try? await db.collection("users").document(u).getDocument().data()
-                        else { return nil }
+                        else { return nil }   // fetch failed → not cached → retried next rebuild
                         return (u, f["name"] as? String ?? "", f["photoUrl"] as? String)
                     }
                 }
@@ -360,25 +417,23 @@ final class StoriesRepository {
             let sorted = list.sorted { $0.createdAt < $1.createdAt }
             let (name, photo) = display(author)
             let g = StoryGroup(authorUid: author, name: name, photoUrl: photo,
-                               stories: sorted, lastViewedAt: lastViewed[author], isMine: author == me)
+                               stories: sorted, lastViewedAt: nil, isMine: author == me)
             if author == me { myGroup = g }
             else if !blockedAuthors.contains(author) { groups.append(g) }
         }
         if Self.injectDemoStories { groups.append(contentsOf: Self.demoGroups(now: now)) }   // TEMP test data
 
-        // Unseen first, then by most-recent story.
+        // Unseen first, then by most-recent story. (Watermarks are applied on commit below,
+        // so hasUnseen here can be pessimistic — the row re-sorts from live state anyway.)
         groups.sort {
             if $0.hasUnseen != $1.hasUnseen { return $0.hasUnseen }
             return ($0.stories.last?.createdAt ?? .distantPast) > ($1.stories.last?.createdAt ?? .distantPast)
         }
 
+        let nextExpiry = all.map(\.expiresAt).min()
         await MainActor.run {
-            // Seed the server-watermark dedupe map (merge forward — a view that just happened
-            // locally may be newer than the snapshot we read).
-            for (author, ts) in lastViewed {
-                self.serverWatermarks[author] = max(self.serverWatermarks[author] ?? .distantPast, ts)
-            }
-            // Apply the freshest watermark to each group so a reload can never REGRESS a ring
+            for (u, p) in profiles where cachedProfiles[u] == nil { profileCache[u] = p }
+            // Apply the freshest watermark to each group so a rebuild can never REGRESS a ring
             // to unseen while the view write is still in flight (H8, watermark edition).
             var mg = myGroup
             if let m = mg, let w = self.serverWatermarks[m.authorUid] {
@@ -391,6 +446,21 @@ final class StoriesRepository {
                 }
             }
             self.mine = mg; self.others = gs
+            self.scheduleExpiryTick(nextExpiry)
+        }
+    }
+
+    // A story crossing its 24h mark changes nothing in the database, so no listener fires —
+    // wake up right after the soonest expiry and regroup so the card drops off by itself.
+    @MainActor private func scheduleExpiryTick(_ next: Date?) {
+        expiryTask?.cancel(); expiryTask = nil
+        guard let next else { return }
+        let delay = next.timeIntervalSinceNow + 1
+        guard delay > 0 else { return }
+        expiryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await self?.rebuild()
         }
     }
 
