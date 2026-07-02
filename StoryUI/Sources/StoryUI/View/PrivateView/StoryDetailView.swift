@@ -69,10 +69,18 @@ struct StoryDetailView: View {
                 // Empty bucket (all items expired/removed) -> render nothing instead of indexing [-1] (crash).
                 if index < model.stories.count {
                     let story = model.stories[index]
-                    // Photo fills the ENTIRE screen (it's the background); the reply bar FLOATS on top of it,
-                    // so the photo/blur shows behind the reply box too — no black bar at the bottom (WhatsApp).
+                    // Friend (reply-bar) stories render as a CARD: the photo ends above the reply-bar
+                    // footer with rounded bottom corners (matching my own story), and the black area
+                    // below holds the reply bar. Own/plain stories stay full-screen (the app draws
+                    // their own rounded card + Views/trash footer on top).
+                    let isReplyBar = story.config.storyType != .plain()
+                    let footerH: CGFloat = isReplyBar ? Constant.MessageView.height + 32 + winInsets.bottom : 0
                     getStoryView(with: index, story: story)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.bottom, footerH)
+                        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: isReplyBar ? 22 : 0,
+                                                          bottomTrailingRadius: isReplyBar ? 22 : 0,
+                                                          style: .continuous))
                         .overlay(
                             tapStory()
                                 .offset(
@@ -323,10 +331,10 @@ private extension StoryDetailView {
                     .multilineTextAlignment(.leading)
                     .lineLimit(captionExpanded ? 12 : 3)   // cap expansion so a long caption can't overrun the header
                     .padding(.horizontal, 16)
-                    // Sit clearly ABOVE the solid reply-bar footer. That footer is MessageView.height
-                    // + its own 32pt padding + the home-indicator inset; the old value omitted the
-                    // 32pt, so the caption slid behind the reply bar and got cut off ("going down").
-                    .padding(.bottom, Constant.MessageView.height + 32 + winInsets.bottom + (plain ? 40 : 18))
+                    // Friend (reply-bar) stories: the photo is now a card ending ABOVE the reply
+                    // footer, and this caption overlays that card, so it only needs a small gap from
+                    // the card's bottom. Plain (own) stories aren't shown here (caption suppressed).
+                    .padding(.bottom, plain ? (Constant.MessageView.height + 32 + winInsets.bottom + 40) : 16)
                     .contentShape(Rectangle())
                     .onTapGesture {   // tap expands/collapses; consumes the tap so it doesn't advance the story
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { captionExpanded.toggle() }

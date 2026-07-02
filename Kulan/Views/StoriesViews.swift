@@ -685,7 +685,7 @@ struct StoryViewer: View {
         // App-level swipe-down: move + shrink + fade the card as it's pulled down (Instagram feel).
         .scaleEffect(1 - min(dismissDrag / 2400, 0.1))
         .offset(y: dismissDrag)
-        .opacity(dismissDrag > 0 ? Double(max(0.3, 1 - dismissDrag / 500)) : 1)
+        .opacity(dismissDrag > 0 ? max(0.3, 1 - Double(dismissDrag) / 500) : 1)
         .allowsHitTesting(viewersProgress == 0 || openDragging)
         .ignoresSafeArea()
     }
