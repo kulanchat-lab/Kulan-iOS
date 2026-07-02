@@ -209,6 +209,7 @@ struct StoriesRow: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: stories.uploading)
+        .contentShape(.contextMenuPreview, StoryCardLiftShape())   // lift = just the photo, no white backing
         // My Story menu, attached to the STABLE container — NOT inside the uploading/normal branch.
         // Inside the branch, every upload start/finish tore the menu down and re-registered it, and
         // iOS could re-attach it to a recycled neighbouring card — that was the "friend card shows
@@ -300,6 +301,16 @@ struct StoriesRow: View {
     func reload() { Task { await repo.load(force: true) } }
 }
 
+// Long-press lift preview shape: ONLY the photo card (width × 1.46, r24 continuous — matching the
+// card's clip). Excludes the name label under it, so the system's white preview backing never
+// shows around the corners or behind the label.
+struct StoryCardLiftShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path(roundedRect: CGRect(x: 0, y: 0, width: rect.width, height: rect.width * 1.46),
+             cornerSize: CGSize(width: 24, height: 24), style: .continuous)
+    }
+}
+
 // One friend's story card in the row. Its own Equatable view so the long-press context menu stays
 // armed across the row's re-renders (the inline-ForEach version only worked on the first card).
 private struct StoryFriendCard: View, Equatable {
@@ -340,6 +351,7 @@ private struct StoryFriendCard: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contentShape(.contextMenuPreview, StoryCardLiftShape())   // lift = just the photo, no white backing
         .contextMenu {   // lifts THIS card in place + friend menu (default lift — build 147)
             Button { onMessage() } label: { Label("Send Message", systemImage: "message") }
             Button { onProfile() } label: { Label("Open Profile", systemImage: "person.crop.circle") }
