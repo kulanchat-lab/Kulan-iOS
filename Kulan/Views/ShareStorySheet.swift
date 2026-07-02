@@ -54,10 +54,8 @@ struct ShareStorySheet: View {
                          : "Everyone you'd share with is excluded. Adjust the audience and try again.")
                 }
         }
-        // ~50% (medium) sheet: tall enough to show all 3 audience rows + the Post button without
-        // cramming, short enough that it's not the old full-screen. The people picker is a pushed
-        // page, so the sheet never needs to grow for it. Drag up to .large if desired.
-        .presentationDetents([.medium, .large])
+        // 60% sheet: shows all 3 audience rows + the Post button comfortably. Drag up to .large.
+        .presentationDetents([.fraction(0.6), .large])
         .presentationDragIndicator(.visible)
         // SOLID background — the default translucent material let the story photo show through the
         // sheet ("looks different"); this makes it a normal opaque grouped-list sheet.
@@ -108,7 +106,8 @@ struct ShareStorySheet: View {
         }
         .buttonStyle(StoryPressStyle())
         .padding(.horizontal, 16).padding(.vertical, 10)
-        .background(.bar)
+        // Match the sheet background (was `.bar`, which showed as a grey strip behind the button).
+        .background(Color(.systemGroupedBackground))
     }
 
     private func optionRow(_ m: Int, _ icon: String, _ title: String) -> some View {
