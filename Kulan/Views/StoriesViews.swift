@@ -614,6 +614,10 @@ struct StoryViewer: View {
                     }
                     .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 24, bottomTrailingRadius: 24,
                                                       style: .continuous))
+                    // Black BEHIND the clipped card so the rounded-corner cutouts read as black — the
+                    // clear see-through cover (for swipe-down) was showing the chat list through the
+                    // corners as light/white patches.
+                    .background(Color.black)
                 ownerFooter
                     .opacity(dragDown > 6 ? 0 : 1).animation(.easeOut(duration: 0.15), value: dragDown > 6)
             } else {
