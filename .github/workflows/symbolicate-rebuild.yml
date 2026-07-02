@@ -1,0 +1,60 @@
+name: Symbolicate Rebuild
+# ASC has no dSYMs (nothing uploads them post-bitcode), so: rebuild the EXACT shipped
+# commit with the same toolchain/flags, keep the dSYM, and atos the crash offsets.
+# Same code + same Xcode ⇒ addresses land on the same functions (best effort).
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit SHA the crashing build shipped from'
+        required: true
+      addresses:
+        description: 'Space-separated Kulan image offsets in hex'
+        required: true
+      buildNumber:
+        description: 'CURRENT_PROJECT_VERSION of the shipped build'
+        required: true
+
+jobs:
+  rebuild:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Select latest Xcode (must match the ship builds)
+        run: |
+          LATEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -n1)
+          sudo xcode-select -s "$LATEST/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project + resolve packages
+        run: |
+          xcodegen generate
+          xcodebuild -resolvePackageDependencies -project Kulan.xcodeproj -scheme Kulan
+
+      - name: Archive (unsigned Release — mirrors fastlane beta xcargs)
+        run: |
+          xcodebuild archive -project Kulan.xcodeproj -scheme Kulan -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Kulan.xcarchive" \
+            CURRENT_PROJECT_VERSION=${{ inputs.buildNumber }} CODE_SIGNING_ALLOWED=NO \
+            -skipPackagePluginValidation -skipMacroValidation | tail -5
+
+      - name: Symbolicate
+        env:
+          ADDRESSES: ${{ inputs.addresses }}
+        run: |
+          DWARF=$(find "$RUNNER_TEMP/Kulan.xcarchive/dSYMs" -path '*Kulan.app.dSYM/Contents/Resources/DWARF/*' | head -1)
+          echo "DWARF: $DWARF"
+          dwarfdump --uuid "$DWARF"
+          echo "================ SYMBOLICATED ================"
+          for a in $ADDRESSES; do
+            addr=$(printf '0x%x' $(( 0x100000000 + a )))
+            echo "FRAME $a => $(atos -o "$DWARF" -arch arm64 -l 0x100000000 "$addr")"
+          done
+          echo "=============================================="
