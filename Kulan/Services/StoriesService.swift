@@ -151,6 +151,16 @@ final class StoriesService {
             // Warm the cache the My Story card reads from (DiskImageCache), so the final card shows the
             // image instantly as the "Uploading…" placeholder morphs into it — no blank-then-fetch.
             if let img = UIImage(data: jpeg) { DiskImageCache.shared.store(img, data: jpeg, for: url) }
+            // ALSO warm URLCache — the STORY VIEWER (StoryUI's ImageLoader) reads from URLCache first,
+            // NOT DiskImageCache. Without this, opening the just-posted story re-downloaded the image
+            // from Storage (~3s of shimmer). The uploaded bytes ARE what the URL returns, so cache them
+            // under that URL and the viewer shows it instantly.
+            if let u = URL(string: url) {
+                let resp = URLResponse(url: u, mimeType: "image/jpeg",
+                                       expectedContentLength: jpeg.count, textEncodingName: nil)
+                URLCache.shared.storeCachedResponse(CachedURLResponse(response: resp, data: jpeg),
+                                                    for: URLRequest(url: u))
+            }
         } catch {
             try? await docRef.delete()
             try? await Storage.storage().reference().child(path).delete()
