@@ -844,15 +844,19 @@ struct StoryViewer: View {
         let slotH = avail * 0.72                            // centred card height (mockup proportions)
         let slotW = slotH * 0.66
         let blockTop = topInset + (avail - slotH - 34) / 2  // 34 ≈ the big count row under the card
-        let settled = p > 0.985
+        // Crossfade window: carousel fades IN over the last 12% of travel, the morph card fades OUT
+        // there. Both are always mounted and driven by `p`, so the whole thing animates smoothly on
+        // a programmatic open/close (withAnimation animates p) — not just during a finger drag.
+        let carouselIn = max(0, (p - 0.88) / 0.12)      // 0 until p=0.88 → 1 at p=1
+        let cardOut = 1 - carouselIn
         ZStack(alignment: .top) {
             MyStoriesCarousel(stories: myStories, activeId: $sheetStoryId,
                               slotW: slotW, slotH: slotH,
                               onActiveTap: { closeViewers() })
                 .padding(.top, blockTop)
-                .opacity(settled ? 1 : 0)
-                .animation(.easeInOut(duration: 0.18), value: settled)
-            if !settled, let url = currentStory?.mediaUrl {
+                .opacity(Double(carouselIn))
+                .allowsHitTesting(carouselIn > 0.5)
+            if cardOut > 0.001, let url = currentStory?.mediaUrl {
                 // Start height matches the story CARD (which ends above the black owner footer),
                 // so the morph begins exactly where the card visually is.
                 let startH = scr.height - (mineOnly ? Self.ownerFooterHeight + max(10, bottomInset) : 0)
@@ -861,6 +865,7 @@ struct StoryViewer: View {
                     .clipShape(RoundedRectangle(cornerRadius: 26 * p, style: .continuous))
                     .padding(.top, blockTop * p)
                     .frame(maxWidth: .infinity)
+                    .opacity(Double(cardOut))
                     .allowsHitTesting(false)   // mid-drag frames take no touches
             }
         }
@@ -872,17 +877,26 @@ struct StoryViewer: View {
     private func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat { a + (b - a) * t }
 
     private func openViewers() {
-        guard currentIsMine, !showViewers else { return }
-        sheetStoryId = currentStoryId.isEmpty ? (myStories.last?.id ?? "") : currentStoryId
-        showViewers = true   // mount the sheet at progress 0 (offscreen) …
-        DispatchQueue.main.async {   // … then slide it up on the next tick so insertion animates
-            withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) { viewersProgress = 1 }
+        // Re-open allowed even while the previous close is still unmounting: setting progress back
+        // to 1 mid-close both cancels the unmount (guard below) and re-raises the sheet — no more
+        // "swipe up does nothing for 0.42s after closing".
+        guard currentIsMine else { return }
+        if !showViewers {
+            sheetStoryId = currentStoryId.isEmpty ? (myStories.last?.id ?? "") : currentStoryId
+            showViewers = true   // mount at progress 0 (offscreen) …
+        }
+        DispatchQueue.main.async {   // … then raise it on the next tick so the insertion animates
+            withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.84, blendDuration: 0.2)) {
+                viewersProgress = 1
+            }
         }
     }
     private func closeViewers() {
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.9)) { viewersProgress = 0 }
+        withAnimation(.interactiveSpring(response: 0.36, dampingFraction: 0.86, blendDuration: 0.2)) {
+            viewersProgress = 0
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
-            if viewersProgress == 0 { showViewers = false }   // unmount only if a re-open didn't interrupt
+            if viewersProgress == 0 { showViewers = false }   // a re-open set it back to 1 → stay mounted
         }
     }
 
@@ -1194,27 +1208,44 @@ struct MyStoriesCarousel: View {
     var onActiveTap: () -> Void = {}    // tap the centred card → collapse back to full screen
 
     @State private var byStory: [String: [StoryViewerInfo]] = [:]   // per-story viewers (counts)
+    // Seed the scroll position with the active story so the carousel opens CENTERED on it (B/D),
+    // never animating over from story A. `scrollPosition(id:)` reads this on the very first layout.
     @State private var scrolledID: String?
+    @State private var centered = false   // gate the count row to the settled card
 
     var body: some View {
         let active = byStory[activeId] ?? []
         let activeReacts = active.filter { !($0.reaction ?? "").isEmpty }.count
         VStack(spacing: 12) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 14) {
-                    ForEach(stories, id: \.id) { s in card(s) }
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(stories, id: \.id) { s in card(s) }
+                    }
+                    .scrollTargetLayout()
+                    // Centre whichever card is focused: half a screen minus half a slot of lead/trail padding.
+                    .padding(.horizontal, max(16, (UIScreen.main.bounds.width - slotW) / 2))
                 }
-                .scrollTargetLayout()
-                .padding(.horizontal, max(16, (UIScreen.main.bounds.width - slotW) / 2))   // centre the focused card
+                .scrollTargetBehavior(.viewAligned)
+                .scrollPosition(id: $scrolledID, anchor: .center)
+                .frame(height: slotH * 1.06)   // headroom so the 1.05-scaled centre card isn't clipped
+                .onAppear {
+                    // Jump (no animation) to the story that's on screen, before the first frame paints.
+                    scrolledID = activeId
+                    var t = Transaction(); t.disablesAnimations = true
+                    withTransaction(t) { proxy.scrollTo(activeId, anchor: .center) }
+                }
+                // If the caller retargets (rare), follow it.
+                .onChange(of: activeId) { _, v in
+                    guard v != scrolledID else { return }
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) { proxy.scrollTo(v, anchor: .center) }
+                }
             }
-            .scrollTargetBehavior(.viewAligned)
-            .scrollPosition(id: $scrolledID)
-            .frame(height: slotH)
             // The active (centred) card's count, big + centred under the carousel (mockup).
             countRow(views: active.count, likes: activeReacts, big: true)
         }
+        // Scroll drives activeId → the viewers list below follows the centred story.
         .onChange(of: scrolledID) { _, v in if let v { activeId = v } }
-        .onAppear { scrolledID = activeId }
         .task { await loadAll() }
     }
 
@@ -1223,24 +1254,25 @@ struct MyStoriesCarousel: View {
         let reacts = vs.filter { !($0.reaction ?? "").isEmpty }.count
         return StoryImage(url: s.mediaUrl)
             .frame(width: slotW, height: slotH)
-            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(alignment: .bottom) {
                 // Side cards show a small count inside; the CENTRED card hides it (big count below).
                 countRow(views: vs.count, likes: reacts, big: false)
                     .padding(.bottom, 10)
                     .scrollTransition(.interactive) { c, phase in c.opacity(phase.isIdentity ? 0 : 1) }
             }
-            // Scale driven by the SCROLL itself — centre card full size, neighbours shrink, smooth
-            // during the drag; viewAligned snaps to centre on release. Pure 2D.
-            .scrollTransition(.interactive) { content, phase in
+            // Scale tied to the SCROLL: centre card emphasised at 1.05, sides interpolate down toward
+            // 0.88 as they leave centre (phase.value is a continuous −1…0…+1). Smooth, finger-proportional.
+            .scrollTransition(.interactive(timingCurve: .easeInOut)) { content, phase in
                 content
-                    .scaleEffect(phase.isIdentity ? 1.0 : 0.78)
-                    .opacity(phase.isIdentity ? 1.0 : 0.9)
+                    .scaleEffect(1.05 - 0.17 * abs(phase.value))
+                    .opacity(1.0 - 0.25 * abs(phase.value))
+                    .saturation(1.0 - 0.35 * abs(phase.value))
             }
             .id(s.id)
             .onTapGesture {
                 if s.id == activeId { onActiveTap() }
-                else { withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) { scrolledID = s.id } }
+                else { withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) { scrolledID = s.id } }
             }
     }
 
@@ -1310,10 +1342,18 @@ struct StoryViewersBottomSheet: View {
                     .fill(Color(white: 0.10))
             )
             .frame(maxHeight: .infinity, alignment: .bottom)   // park at the bottom of the screen
-            .offset(y: (1 - progress) * sheetH)                // slide up/down with progress
+            // Rubber-band past fully-open (progress can exceed 1 while dragging up): resist so the
+            // sheet eases to a soft stop instead of a hard wall, Telegram-style.
+            .offset(y: (1 - min(progress, 1)) * sheetH - overshoot(progress) )
         }
         .ignoresSafeArea()
         .task(id: activeStoryId) { await load() }
+    }
+
+    // Extra pixels the sheet rises above fully-open, with diminishing return (rubber band).
+    private func overshoot(_ p: CGFloat) -> CGFloat {
+        guard p > 1 else { return 0 }
+        return 22 * (1 - 1 / (1 + (p - 1) * 3))   // asymptotes to ~22pt
     }
 
     // Sticky header (handle + search — no tabs, per the mockup). Dragging here drives `progress`;
@@ -1336,13 +1376,26 @@ struct StoryViewersBottomSheet: View {
             DragGesture(minimumDistance: 4)
                 .onChanged { v in
                     if dragStart == nil { dragStart = progress }
-                    progress = max(0, min(1, (dragStart ?? 1) - v.translation.height / sheetH))
+                    // Track the finger 1:1. Allow a little past 1.0 so overshoot() can rubber-band;
+                    // clamp the bottom at 0.
+                    progress = max(0, min(1.14, (dragStart ?? 1) - v.translation.height / sheetH))
                 }
                 .onEnded { v in
                     dragStart = nil
-                    let close = progress < 0.65 || v.predictedEndTranslation.height > 220
-                    if close { onClose() }
-                    else { withAnimation(.spring(response: 0.4, dampingFraction: 0.86)) { progress = 1 } }
+                    // Velocity-aware: a fast downward flick closes even from near-open; otherwise
+                    // decide by where the drag would COME TO REST (predicted end), like Telegram.
+                    let predicted = (dragStart ?? progress)   // (dragStart already nilled; use progress)
+                    _ = predicted
+                    let projected = progress - v.predictedEndTranslation.height / sheetH - v.translation.height / sheetH
+                    let close = projected < 0.6 || v.predictedEndTranslation.height > 240
+                    if close {
+                        onClose()
+                    } else {
+                        // Interactive spring settles the overshoot back to exactly 1.0.
+                        withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.78, blendDuration: 0.2)) {
+                            progress = 1
+                        }
+                    }
                 }
         )
     }
