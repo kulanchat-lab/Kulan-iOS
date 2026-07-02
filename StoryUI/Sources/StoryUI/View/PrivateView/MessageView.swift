@@ -99,6 +99,9 @@ private extension MessageView {
             .onChange(of: story, perform: { newValue in
                 likeButtonTapped = newValue.isLiked
             })
+            // onChange only fires on later swipes — seed the FIRST item's heart state too,
+            // or a reopened story always shows an empty heart despite being liked.
+            .onAppear { likeButtonTapped = story.isLiked }
             .foregroundColor(.white)
             .padding(.leading, 10)                              // small left space so text isn't flush to the edge
             .frame(height: Constant.MessageView.height)

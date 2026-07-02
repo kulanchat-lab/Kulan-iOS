@@ -91,6 +91,12 @@ enum StoryPrefs {
         guard !id.isEmpty else { return }
         var s = set("seenStoryItems"); s.insert(id); save("seenStoryItems", s)
     }
+    // My own ❤️ on a story — persists so the heart is still red on reopen (Instagram).
+    static func isStoryLiked(_ id: String) -> Bool { set("likedStories").contains(id) }
+    static func setStoryLiked(_ id: String, _ liked: Bool) {
+        guard !id.isEmpty else { return }
+        var s = set("likedStories"); if liked { s.insert(id) } else { s.remove(id) }; save("likedStories", s)
+    }
     // seen flags for a bucket's stories (oldest→newest), for StoryRingView.
     static func seenFlags(_ stories: [Story]) -> [Bool] { stories.map { isStorySeen($0.id) } }
 }
@@ -423,6 +429,7 @@ struct StoryViewer: View {
                         id: s.id,
                         mediaURL: s.mediaUrl,
                         date: timeAgo(s.createdAt),
+                        isLiked: StoryPrefs.isStoryLiked(s.id),   // heart stays red on reopen
                         isSeen: StoryPrefs.isStorySeen(s.id),   // open the viewer at the first UNSEEN item
                         caption: s.caption,
                         config: StoryConfiguration(
@@ -608,15 +615,27 @@ struct StoryViewer: View {
 
     // Reply text / tapped emoji / like → DM the story's author (mirrors the old sendToAuthor).
     private func handle(storyId: String, message: String?, emoji: String?, isLiked: Bool) {
-        let text = (message?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 }
-            ?? emoji ?? (isLiked ? "❤️" : "")
-        guard !text.isEmpty,
-              let s = groups.flatMap(\.stories).first(where: { $0.id == storyId }),
+        let typed = (message?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 }
+        guard let s = groups.flatMap(\.stories).first(where: { $0.id == storyId }),
               let me = AuthService.shared.uid, me != s.authorUid else { return }
+
+        // Pure like-button toggle (no text, no picker emoji): remember it locally so the heart
+        // is still red when the story is reopened (Instagram). Un-like removes my reaction from
+        // the author's "Seen by" and sends nothing.
+        if typed == nil && emoji == nil {
+            StoryPrefs.setStoryLiked(storyId, isLiked)
+            if !isLiked {
+                Task { await StoriesService.shared.clearStoryReaction(s) }
+                return
+            }
+        }
+
+        let text = typed ?? emoji ?? (isLiked ? "❤️" : "")
+        guard !text.isEmpty else { return }
         let cid = [me, s.authorUid].sorted().joined(separator: "_")
         // Attach the status reference so the reply shows as a "Status" quote (thumbnail) in chat.
         let ref = ReplyRef(id: s.id, authorId: s.authorUid, text: "", isStatus: true, storyThumbUrl: s.mediaUrl)
-        let isReaction = (message?.trimmingCharacters(in: .whitespaces) ?? "").isEmpty && (emoji != nil || isLiked)
+        let isReaction = typed == nil && (emoji != nil || isLiked)
         Task {
             try? await ChatService.sendText(cid: cid, text: text, replyTo: ref)
             if isReaction { await StoriesService.shared.setStoryReaction(s, emoji: text) }   // shows in "Seen by"

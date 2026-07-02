@@ -180,6 +180,16 @@ final class StoriesService {
             .setData(["viewedAt": FieldValue.serverTimestamp(), "reaction": emoji], merge: true)
     }
 
+    // Remove my reaction from my view receipt (un-like) so the author's "Seen by" stops
+    // showing a heart I took back.
+    func clearStoryReaction(_ story: Story) async {
+        let me = uid
+        guard !me.isEmpty, story.authorUid != me else { return }
+        try? await db.collection("stories").document(story.id)
+            .collection("views").document(me)
+            .updateData(["reaction": FieldValue.delete()])
+    }
+
     // Who viewed a story I posted (author-only per rules) → for the "Seen by" sheet.
     func fetchViewers(storyId: String) async -> [StoryViewerInfo] {
         guard !uid.isEmpty else { return [] }
