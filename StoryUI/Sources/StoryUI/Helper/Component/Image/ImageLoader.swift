@@ -85,22 +85,29 @@ final class ImageLoader: UIView {
         blurView.frame = bounds
         imageView.frame = bounds
         shimmer.frame = bounds
+        updateContentMode()
+    }
+
+    // Fill edge-to-edge (no blur) when the image's aspect essentially matches THIS VIEW's frame —
+    // e.g. a full-bleed text/colour status. Real photos differ → aspect-FIT + blurred backdrop.
+    // Keyed off `bounds` (the actual render frame, which accounts for the reply-bar card padding),
+    // NOT the physical screen, so a photo isn't cropped inside a shorter card.
+    private func updateContentMode() {
+        guard let img = imageView.image, img.size.width > 0, bounds.width > 1 else { return }
+        let imgAspect = img.size.height / img.size.width
+        let viewAspect = bounds.height / bounds.width
+        // Fill when the image is at least as TALL as the view. Text/colour statuses are rendered
+        // taller than any phone, so they always fill full-bleed on every device (fixes the
+        // cross-device blur-bars bug); real photos are almost always shorter than the screen →
+        // aspect-FIT + blurred backdrop. (A rare portrait-panorama taller than the screen fills,
+        // which is acceptable.)
+        imageView.contentMode = imgAspect >= viewAspect - 0.02 ? .scaleAspectFill : .scaleAspectFit
     }
 
     private func apply(_ image: UIImage?) {
         imageView.image = image
         backgroundImageView.image = image
-        // Text stories are rendered at the EXACT device aspect ratio, so they should fill the screen
-        // with the full-colour gradient and NO blur. When the image's aspect essentially matches the
-        // screen (only text stories do — real photos differ), fill edge-to-edge; otherwise keep the
-        // aspect-FIT + blurred backdrop that real photos want.
-        if let image, image.size.width > 0 {
-            let imgAspect = image.size.height / image.size.width
-            let scr = UIScreen.main.bounds
-            let scrAspect = scr.height / max(1, scr.width)
-            let matchesScreen = abs(imgAspect - scrAspect) / scrAspect < 0.03
-            imageView.contentMode = matchesScreen ? .scaleAspectFill : .scaleAspectFit
-        }
+        updateContentMode()
     }
 
     private func showShimmer(_ show: Bool) {

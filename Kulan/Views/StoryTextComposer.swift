@@ -97,11 +97,12 @@ struct StoryTextComposer: View {
     // Render the gradient + text to a 1080×1920 JPEG and hand it to the poster.
     @MainActor private func share() {
         guard !trimmed.isEmpty else { return }
-        // Render at the DEVICE's aspect ratio (not a fixed 16:9), so the gradient fills the WHOLE screen on
-        // tall phones with NO blur top/bottom. width 1080, height scaled to the screen's height:width ratio.
-        let screen = UIScreen.main.bounds
+        // Render TALLER than any phone (2.5:1) so the status fills full-bleed with the gradient on
+        // EVERY device (the viewer fills any image that's ≥ its own height). Rendering at the
+        // author's device aspect broke on differently-proportioned viewers (blur bars). The text is
+        // centred, so the small top/bottom crop on filling never touches it.
         let renderW: CGFloat = 1080
-        let renderH = (renderW * screen.height / max(1, screen.width)).rounded()
+        let renderH: CGFloat = renderW * 2.5
         let card = ZStack {
             gradient(bgIndex)
             Text(trimmed)

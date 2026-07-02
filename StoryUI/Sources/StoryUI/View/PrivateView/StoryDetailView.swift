@@ -89,7 +89,7 @@ struct StoryDetailView: View {
                     getStoryView(with: index, story: story)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding(.bottom, footerH)
-                        .clipShape(BottomRoundedShape(radius: isReplyBar ? 22 : 0))
+                        .clipShape(BottomRoundedShape(radius: isReplyBar ? 24 : 0))   // match the own-story card (24)
                         .overlay(
                             tapStory()
                                 .offset(
@@ -101,14 +101,9 @@ struct StoryDetailView: View {
                         .overlay(captionView(story.caption, plain: story.config.storyType == .plain()), alignment: .bottom)
                         // Top dark scrim so the username/avatar/close stay readable on white/bright photos.
                         .overlay(topScrim, alignment: .top)
-                    // Always-on bottom scrim for reply-bar stories WITHOUT a caption, so the white reply pill /
-                    // heart / send stay readable on bright photos (the caption gradient only exists with a caption).
-                    if story.config.storyType != .plain() && story.caption.isEmpty {
-                        LinearGradient(colors: [.clear, .black.opacity(0.45)], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 180)
-                            .frame(maxHeight: .infinity, alignment: .bottom)
-                            .allowsHitTesting(false)
-                    }
+                    // (Removed the always-on bottom photo scrim: the reply pill now sits on the solid
+                    // black footer BELOW the card, not over the photo, so dimming the photo's bottom
+                    // was pointless and just darkened captionless photos.)
                     // Reply bar floats at the bottom OVER the photo (no black background row anymore).
                     VStack(spacing: 0) { Spacer(); messageView(with: index) }
                     getEmojiView(story: story)
@@ -343,10 +338,11 @@ private extension StoryDetailView {
                     .multilineTextAlignment(.leading)
                     .lineLimit(captionExpanded ? 12 : 3)   // cap expansion so a long caption can't overrun the header
                     .padding(.horizontal, 16)
-                    // Friend (reply-bar) stories: the photo is now a card ending ABOVE the reply
-                    // footer, and this caption overlays that card, so it only needs a small gap from
-                    // the card's bottom. Plain (own) stories aren't shown here (caption suppressed).
-                    .padding(.bottom, plain ? (Constant.MessageView.height + 32 + winInsets.bottom + 40) : 16)
+                    // The caption overlay sits on the FULL-SCREEN padded frame (SwiftUI `.padding`
+                    // includes the padding in the view's bounds, so `.bottom` aligns to the SCREEN
+                    // bottom, not the card bottom). So lift the caption by the full reply-footer
+                    // height + a gap — otherwise it slid behind the reply pill (regression).
+                    .padding(.bottom, Constant.MessageView.height + 32 + winInsets.bottom + (plain ? 40 : 16))
                     .contentShape(Rectangle())
                     .onTapGesture {   // tap expands/collapses; consumes the tap so it doesn't advance the story
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { captionExpanded.toggle() }

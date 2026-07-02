@@ -640,41 +640,54 @@ struct StoryViewer: View {
                 .onChanged { v in
                     guard currentIsMine else { return }
                     let vertical = abs(v.translation.height) > abs(v.translation.width)
-                    // Swipe DOWN on my own story → app-level dismiss (the rounded-card clip makes the
-                    // library's own swipe-down inert, so it can't close). Follow the finger.
-                    if !openDragging, viewersProgress == 0, v.translation.height > 6, vertical {
-                        dismissDrag = v.translation.height
-                        return
+                    let sheetH = UIScreen.main.bounds.height * StoryViewersBottomSheet.heightFraction
+                    // Direction is decided LIVE each frame from the CURRENT translation, so reversing
+                    // mid-drag (down then up) cleanly switches modes instead of stranding a flag.
+                    if openDragging {
+                        // Already opening: keep tracking (upward raises progress). If the finger goes
+                        // net-downward while the sheet is fully closed, hand off to dismiss.
+                        if viewersProgress == 0, v.translation.height > 6, vertical {
+                            openDragging = false
+                        } else {
+                            viewersProgress = max(0, min(1, openDragStart - v.translation.height / sheetH))
+                            return
+                        }
                     }
-                    // Swipe UP → open viewers in real time.
-                    guard viewersProgress < 1 || openDragging else { return }
-                    if !openDragging {
-                        guard v.translation.height < -6, vertical else { return }
+                    if dismissDrag > 0 {
+                        // Already dismissing: track down; if it reverses upward, cancel the dismiss.
+                        if v.translation.height <= 0 { dismissDrag = 0 } else { dismissDrag = v.translation.height; return }
+                    }
+                    guard vertical else { return }
+                    // Fresh engagement: DOWN (sheet closed) → dismiss; UP → open viewers in real time.
+                    if v.translation.height > 6, viewersProgress == 0 {
+                        dismissDrag = v.translation.height
+                    } else if v.translation.height < -6, viewersProgress < 1 {
                         openDragging = true
                         openDragStart = viewersProgress
                         if !showViewers {
                             sheetStoryId = currentStoryId.isEmpty ? (myStories.last?.id ?? "") : currentStoryId
                             showViewers = true
                         }
+                        viewersProgress = max(0, min(1, openDragStart - v.translation.height / sheetH))
                     }
-                    let sheetH = UIScreen.main.bounds.height * StoryViewersBottomSheet.heightFraction
-                    viewersProgress = max(0, min(1, openDragStart - v.translation.height / sheetH))
                 }
                 .onEnded { v in
-                    // Finish an app-level swipe-down dismiss on my own story.
-                    if dismissDrag > 0 {
+                    let sheetH = UIScreen.main.bounds.height * StoryViewersBottomSheet.heightFraction
+                    let wasDismiss = dismissDrag > 0
+                    let wasOpen = openDragging
+                    // Always reset BOTH flags so a reversed/aborted drag can never strand state.
+                    openDragging = false
+                    if wasDismiss {
                         if dismissDrag > 110 || v.predictedEndTranslation.height > 320 { onClose() }
                         else { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dismissDrag = 0 } }
-                        return
-                    }
-                    guard openDragging else { return }
-                    openDragging = false
-                    let sheetH = UIScreen.main.bounds.height * StoryViewersBottomSheet.heightFraction
-                    let projected = viewersProgress - v.predictedEndTranslation.height / sheetH
-                    if projected > 0.5 {
-                        withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.84)) { viewersProgress = 1 }
-                    } else {
-                        closeViewers()
+                        dismissDrag = 0
+                    } else if wasOpen {
+                        let projected = viewersProgress - v.predictedEndTranslation.height / sheetH
+                        if projected > 0.5 {
+                            withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.84)) { viewersProgress = 1 }
+                        } else {
+                            closeViewers()
+                        }
                     }
                 },
             including: currentIsMine ? .all : .subviews
