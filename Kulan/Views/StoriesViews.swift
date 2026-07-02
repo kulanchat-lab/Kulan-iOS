@@ -204,16 +204,20 @@ struct StoriesRow: View {
                      seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []), onBadge: onCompose) {
                     if let m = repo.mine { onOpen(m) } else { onCompose() }
                 }
-                .contextMenu {   // My Story menu: Add Story + Posted Stories only (lifts in place — build 147)
-                    Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
-                    Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
-                        label: { Label("Posted Stories", systemImage: "circle.dashed") }
-                }
                 .matchedTransitionSource(id: repo.mine?.id ?? "my-story", in: storyNS)   // hero grow source
                 .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: stories.uploading)
+        // My Story menu, attached to the STABLE container — NOT inside the uploading/normal branch.
+        // Inside the branch, every upload start/finish tore the menu down and re-registered it, and
+        // iOS could re-attach it to a recycled neighbouring card — that was the "friend card shows
+        // Add Story/Posted Stories" bug. On the container it registers once and can never migrate.
+        .contextMenu {
+            Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
+            Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
+                label: { Label("Posted Stories", systemImage: "circle.dashed") }
+        }
     }
 
     // Shown in the first slot while a story is uploading: local image + spinner ring + "Uploading…".
@@ -291,17 +295,6 @@ struct StoriesRow: View {
                 AvatarView(name: name, photoUrl: avatar, size: cardW * 0.62)
             }
         }
-    }
-
-    @ViewBuilder private func storyMenuPreview(_ g: StoryGroup) -> some View {
-        Group {
-            if let cover = g.stories.last?.mediaUrl, !cover.isEmpty {
-                StoryImage(url: cover)
-            } else {
-                ZStack { Color.secondary.opacity(0.2); AvatarView(name: g.name, photoUrl: g.photoUrl, size: 110) }
-            }
-        }
-        .frame(width: 210, height: 300)
     }
 
     func reload() { Task { await repo.load(force: true) } }
