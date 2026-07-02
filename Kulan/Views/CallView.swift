@@ -195,7 +195,9 @@ struct CallView: View {
         Image(systemName: icon)
             .font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
             .frame(width: 40, height: 40)
-            .liquidGlass(Circle(), interactive: true)   // real iOS 26 glass
+            // NON-interactive glass: `.interactive()` glass consumes the touch itself, so the
+            // wrapping Button's action never fired — the minimize chevron did nothing when tapped.
+            .liquidGlass(Circle(), interactive: false)
     }
 
 
@@ -259,7 +261,11 @@ struct CallView: View {
                 callCircle("arrow.triangle.2.circlepath", active: false) { call.switchCamera() }
             } else {
                 // Seamless upgrade: turn this voice call into a video call (renegotiates, no hang-up).
+                // Only possible once CONNECTED — dim + disable it while still Calling/Ringing so it
+                // doesn't look broken (upgradeToVideo guards on state == .active).
                 callCircle("video.fill", active: false) { call.upgradeToVideo() }
+                    .disabled(call.state != .active)
+                    .opacity(call.state == .active ? 1 : 0.4)
             }
             // One steady speaker glyph; ON = filled white circle (the slash icon looked like
             // something was muted even when it wasn't).
