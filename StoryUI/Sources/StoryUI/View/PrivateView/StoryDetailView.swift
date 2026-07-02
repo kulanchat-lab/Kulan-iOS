@@ -8,6 +8,17 @@
 import SwiftUI
 import AVKit
 
+// Bottom-two-corners rounded rectangle (iOS 14 safe — UnevenRoundedRectangle is iOS 16+).
+struct BottomRoundedShape: Shape {
+    var radius: CGFloat
+    func path(in rect: CGRect) -> Path {
+        guard radius > 0 else { return Path(rect) }
+        return Path(UIBezierPath(roundedRect: rect,
+                                 byRoundingCorners: [.bottomLeft, .bottomRight],
+                                 cornerRadii: CGSize(width: radius, height: radius)).cgPath)
+    }
+}
+
 struct StoryDetailView: View {
     // MARK: Public Properties
     @ObservedObject var viewModel: StoryViewModel
@@ -78,9 +89,7 @@ struct StoryDetailView: View {
                     getStoryView(with: index, story: story)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding(.bottom, footerH)
-                        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: isReplyBar ? 22 : 0,
-                                                          bottomTrailingRadius: isReplyBar ? 22 : 0,
-                                                          style: .continuous))
+                        .clipShape(BottomRoundedShape(radius: isReplyBar ? 22 : 0))
                         .overlay(
                             tapStory()
                                 .offset(
@@ -292,7 +301,10 @@ private extension StoryDetailView {
         // Reply-bar (friend) stories sit on a SOLID BLACK footer bar (Instagram), not floating over
         // the photo — the media ends at the top of this bar. Own/plain stories render an empty reply
         // area (they use the app's own black footer), so they get a clear background here.
-        let isReplyBar = story.config.storyType != .plain()
+        // Solid black footer ONLY when the keyboard is CLOSED. When you tap to reply, the bar rises
+        // with the keyboard, and a black block riding up between the photo and the keyboard looked
+        // bad — so while the keyboard is open the background is clear and the reply pill floats.
+        let showBlackFooter = story.config.storyType != .plain() && !keyboardManager.isKeyboardOpen
         return MessageView(
             story: story,
             showEmoji: $showEmoji,
@@ -300,7 +312,7 @@ private extension StoryDetailView {
         )
         .padding()
         .padding(.bottom, winInsets.bottom)   // keep the reply bar above the home indicator (host no longer insets)
-        .background(isReplyBar ? AnyView(Color.black.ignoresSafeArea(edges: .bottom)) : AnyView(Color.clear))
+        .background(showBlackFooter ? AnyView(Color.black.ignoresSafeArea(edges: .bottom)) : AnyView(Color.clear))
         .animation(.easeOut(duration: keyboardManager.animationDuration), value: messageViewPosition)
         .offset(y: messageViewPosition)
     }
