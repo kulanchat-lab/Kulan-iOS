@@ -411,6 +411,8 @@ struct StoryViewer: View {
     @State private var barViewers: [StoryViewerInfo] = []
     @State private var showViewers = false
     @State private var viewersProgress: CGFloat = 0   // 0 sheet closed … 1 open; drives BOTH layers
+    @State private var openDragging = false           // finger is actively dragging the sheet OPEN
+    @State private var openDragStart: CGFloat = 0     // progress at drag start
     @State private var confirmDelete = false
     @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
     @State private var forwardImg: StoryImagePayload?   // … → Forward (chat picker)
@@ -625,24 +627,47 @@ struct StoryViewer: View {
                 storyContent
             }
         }
-        // Easy open (MY story only): swipe up anywhere → open viewers. On a FRIEND's story this drag
-        // did nothing useful but still competed with the library's swipe-down pan, so close worked
-        // only intermittently. `including: .subviews` for friends disables MY drag while keeping the
-        // library's own gestures (swipe-down, tap-to-advance); `.all` for my own enables both.
+        // Easy open (MY story only): swipe up anywhere → the sheet/card follow the finger in REAL
+        // TIME (onChanged drives `viewersProgress`), instead of only opening after you lift off.
+        // `including: .subviews` for friends disables MY drag while keeping the library's own
+        // gestures (swipe-down, tap-to-advance); `.all` for my own enables both.
         .simultaneousGesture(
-            DragGesture(minimumDistance: 16).onEnded { v in
-                guard currentIsMine, !showViewers else { return }
-                if v.translation.height < -30, abs(v.translation.height) > abs(v.translation.width) * 1.4 {
-                    openViewers()
+            DragGesture(minimumDistance: 10)
+                .onChanged { v in
+                    guard currentIsMine, viewersProgress < 1 || openDragging else { return }
+                    // Engage on a mostly-upward drag; then track continuously.
+                    if !openDragging {
+                        guard v.translation.height < -6,
+                              abs(v.translation.height) > abs(v.translation.width) else { return }
+                        openDragging = true
+                        openDragStart = viewersProgress
+                        if !showViewers {
+                            sheetStoryId = currentStoryId.isEmpty ? (myStories.last?.id ?? "") : currentStoryId
+                            showViewers = true
+                        }
+                    }
+                    let sheetH = UIScreen.main.bounds.height * StoryViewersBottomSheet.heightFraction
+                    viewersProgress = max(0, min(1, openDragStart - v.translation.height / sheetH))
                 }
-            },
-            including: (currentIsMine && !showViewers) ? .all : .subviews
+                .onEnded { v in
+                    guard openDragging else { return }
+                    openDragging = false
+                    let sheetH = UIScreen.main.bounds.height * StoryViewersBottomSheet.heightFraction
+                    let projected = viewersProgress - v.predictedEndTranslation.height / sheetH
+                    if projected > 0.5 {
+                        withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.84)) { viewersProgress = 1 }
+                    } else {
+                        closeViewers()
+                    }
+                },
+            including: currentIsMine ? .all : .subviews
         )
         // NEVER transformed (the library has an internal 3D cube for user-to-user swipes; scaling
         // it warped the card). While the sheet is up, the flat 2D morph card + carousel in
-        // `viewersBackdrop` replace it visually — this just fades out fast and stops taking touches.
-        .opacity(1 - Double(min(p * 6, 1)))
-        .allowsHitTesting(viewersProgress == 0)
+        // `viewersBackdrop` replace it visually. Keep a hair of opacity + hit-testing DURING an open
+        // drag so the gesture keeps tracking the finger even after the story has visually faded.
+        .opacity(max(openDragging ? 0.02 : 0, 1 - Double(min(p * 6, 1))))
+        .allowsHitTesting(viewersProgress == 0 || openDragging)
         .ignoresSafeArea()
     }
 
@@ -669,7 +694,7 @@ struct StoryViewer: View {
             },
             onDrag: { d in dragDown = d },   // fade my overlays out as the card is pulled down
             showMore: true, // "…" is a native dropdown menu in the header; its buttons post notifications
-            onSwipeUp: { if currentIsMine { openViewers() } }  // Telegram: swipe up opens your viewers
+            onSwipeUp: { }  // handled by the real-time drag on storyLayer (don't double-trigger)
         )
         // Exotic safety net: my story inside a MIXED feed (not the normal flow) still gets the
         // old gradient overlay bar, since the footer layout is only applied to mine-only feeds.
