@@ -16,6 +16,7 @@ struct ShareStorySheet: View {
     @State private var mode = UserDefaults.standard.integer(forKey: "storyAudMode")   // 0 contacts, 1 except, 2 only
     @State private var excluded = Set(UserDefaults.standard.stringArray(forKey: "storyAudExcluded") ?? [])
     @State private var included = Set(UserDefaults.standard.stringArray(forKey: "storyAudIncluded") ?? [])
+    @State private var emptyAudienceAlert = false
     private var me: String { AuthService.shared.uid ?? "" }
 
     struct AudienceContact: Identifiable { let id: String; let name: String; let photo: String? }
@@ -86,6 +87,13 @@ struct ShareStorySheet: View {
             .onChange(of: mode) { _, v in UserDefaults.standard.set(v, forKey: "storyAudMode") }
             .onChange(of: excluded) { _, v in UserDefaults.standard.set(Array(v), forKey: "storyAudExcluded") }
             .onChange(of: included) { _, v in UserDefaults.standard.set(Array(v), forKey: "storyAudIncluded") }
+            .alert("No one will see this", isPresented: $emptyAudienceAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(mode == 2
+                     ? "Pick at least one person under \"Only share with,\" or choose \"My contacts.\""
+                     : "Everyone you'd share with is excluded. Adjust the audience and try again.")
+            }
         }
     }
 
@@ -104,10 +112,19 @@ struct ShareStorySheet: View {
     }
 
     private func post() {
-        // "Only share with" + nobody selected would post to NO audience — block it (I6).
-        if mode == 2 && included.isEmpty {
+        // Compute the EFFECTIVE audience (intersect with current contacts) and block an empty one
+        // with a visible alert — not just a silent haptic. This catches both "only share with,
+        // nobody picked" AND the stale-list case (only-share with X, then X was deleted/blocked →
+        // recipientUids would be empty and the story would post to literally no one).
+        let contactIds = Set(contacts.map { $0.id })
+        let effective: Set<String>
+        if mode == 2 { effective = included.intersection(contactIds) }
+        else if mode == 1 { effective = contactIds.subtracting(excluded) }
+        else { effective = contactIds }
+        if effective.isEmpty {
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
-            return   // stay on the sheet so the user can pick someone
+            emptyAudienceAlert = true
+            return
         }
         // Remember this audience for next time.
         UserDefaults.standard.set(mode, forKey: "storyAudMode")

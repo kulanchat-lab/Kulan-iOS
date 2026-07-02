@@ -65,21 +65,29 @@ final class StoriesService {
         uploadTask?.cancel()
         uploadingImage = UIImage(data: image)
         uploading = true
+        // Each post owns a token; the completion below only touches shared state if it's STILL the
+        // owner. Without this, a cancel-then-repost (or a quick second post) let the FIRST task's
+        // completion run last and wipe the SECOND upload's spinner + task handle (so it couldn't be
+        // cancelled) — the "Uploading…" ring vanished mid-upload.
+        let token = UUID()
+        currentUploadToken = token
         uploadTask = Task {
             var failure: String?
             var cancelled = false
             do { try await postStory(image: image, caption: caption, excluded: excluded, included: included) }
             catch is CancellationError { cancelled = true }   // user hit cancel → postStory removed the doc
             catch { failure = error.localizedDescription }     // surface it instead of dying silently
-            // On success, pull the new story into the repo BEFORE clearing the placeholder — otherwise the
-            // card briefly shows the OLD latest story (stale-cover flicker) then rebuilds again. Reloading
-            // first lets the "Uploading…" card morph straight into the final My Story card (one transition).
             if !cancelled && failure == nil { await StoriesRepository.shared.load(force: true) }
-            await MainActor.run { uploading = false; uploadingImage = nil; uploadTask = nil; uploadError = failure }
+            await MainActor.run {
+                guard self.currentUploadToken == token else { return }   // a newer post owns the state now
+                self.uploading = false; self.uploadingImage = nil; self.uploadTask = nil; self.uploadError = failure
+            }
         }
     }
+    private var currentUploadToken: UUID?
 
     @MainActor func cancelUpload() {
+        currentUploadToken = nil   // invalidate any in-flight completion so it can't clobber a later post
         uploadTask?.cancel(); uploadTask = nil
         uploading = false; uploadingImage = nil
     }
@@ -97,8 +105,12 @@ final class StoriesService {
         //  • included non-empty -> only those; • excluded non-empty -> everyone minus those; • else everyone.
         let allContacts = await MainActor.run {
             Set(ConversationsRepository.shared.conversations
-                .filter { !$0.isGroup && !$0.leaksBlocked(me) }   // 1:1 contacts only (a group's otherUid is an
-                .map { $0.otherUid(me) }.filter { !$0.isEmpty })  // arbitrary member → leak); skip blocked (C3)
+                // 1:1 contacts only (a group's otherUid is an arbitrary member → leak). Exclude
+                // anyone I've BLOCKED — `isBlockedByMe`, NOT `leaksBlocked`: the latter is a
+                // chat-list freeze test (true only if they messaged AFTER the block), so a quietly-
+                // blocked contact was slipping into the audience and still getting my stories.
+                .filter { !$0.isGroup && !$0.isBlockedByMe(me) }
+                .map { $0.otherUid(me) }.filter { !$0.isEmpty })
         }
         let recipients: Set<String>
         let mode: String
@@ -425,8 +437,9 @@ final class StoriesRepository {
             return profiles[uid] ?? ("", nil)
         }
 
-        // Don't show stories from anyone in a blocked relationship (C3, read side).
-        let blockedAuthors = Set(convs.filter { $0.leaksBlocked(me) }.map { $0.otherUid(me) })
+        // Don't show stories from anyone I've blocked (C3, read side). isBlockedByMe, not
+        // leaksBlocked — a quietly-blocked author's stories were still appearing in my row.
+        let blockedAuthors = Set(convs.filter { $0.isBlockedByMe(me) }.map { $0.otherUid(me) })
 
         var myGroup: StoryGroup?
         var groups: [StoryGroup] = []

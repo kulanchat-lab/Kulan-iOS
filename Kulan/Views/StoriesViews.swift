@@ -86,6 +86,11 @@ enum StoryPrefs {
     static func toggleHidden(_ uid: String) {
         var s = set("hiddenStories"); if s.contains(uid) { s.remove(uid) } else { s.insert(uid) }; save("hiddenStories", s)
     }
+    // Explicit set — the "…" → Hide Stories action must always HIDE (toggle would UN-hide when the
+    // story was opened from the Archived screen, where the author is already hidden).
+    static func setHidden(_ uid: String, _ hidden: Bool) {
+        var s = set("hiddenStories"); if hidden { s.insert(uid) } else { s.remove(uid) }; save("hiddenStories", s)
+    }
     static func isNotifying(_ uid: String) -> Bool { set("notifyStories").contains(uid) }
     static func toggleNotify(_ uid: String) {
         var s = set("notifyStories"); if s.contains(uid) { s.remove(uid) } else { s.insert(uid) }; save("notifyStories", s)
@@ -193,6 +198,7 @@ struct StoriesRow: View {
                                     onMessage: { onMessage(g) },
                                     onProfile: { onProfile(g) },
                                     onHide: { hideTarget = g },
+                                    onOpenAnon: { onOpenAnon(g) },
                                     onLongPress: { presentMenu($0) },
                                     storyNS: storyNS,
                                     groupID: g.id)
@@ -382,6 +388,7 @@ private struct StoryFriendCard: View, Equatable {
     let onMessage: () -> Void
     let onProfile: () -> Void
     let onHide: () -> Void
+    var onOpenAnon: () -> Void = {}   // "View Anonymously" — opens the story without a seen receipt
     let onLongPress: (StoryMenu) -> Void   // signals up to StoriesRow (this struct is separate)
     let storyNS: Namespace.ID    // hero zoom: card ⇄ viewer
     let groupID: String          // matches the viewer's zoom sourceID
@@ -421,6 +428,8 @@ private struct StoryFriendCard: View, Equatable {
                 cover: cover, name: name, avatar: avatar,
                 seen: seen, sourceFrame: cardFrame,
                 items: [
+                    StoryMenuItem(title: "View Anonymously", systemImage: "eye.slash",
+                                  destructive: false, action: onOpenAnon),
                     StoryMenuItem(title: "Send Message", systemImage: "message",
                                   destructive: false, action: onMessage),
                     StoryMenuItem(title: "Open Profile", systemImage: "person.crop.circle",
@@ -461,10 +470,13 @@ private struct StoryContextMenuOverlay: View {
             ? CGRect(x: (screen.width - cardW) / 2, y: 140, width: cardW, height: cardH + 24)
             : menu.sourceFrame
         let menuX = min(max(12, src.minX), screen.width - menuW - 12)
+        // Menu normally sits just under the card; if that would run off the bottom, place it ABOVE.
+        let menuBelowY = src.maxY + 10
+        let menuAboveY = src.minY - 10 - 140   // ~140 ≈ a 3-row menu height
+        let menuY = menuBelowY + 150 > screen.height ? max(12, menuAboveY) : menuBelowY
         ZStack(alignment: .topLeading) {
             // Dim everything; the replica below stays bright = the native "source stays lit" look.
             Color.black.opacity(shown ? 0.28 : 0)
-                .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture { close(nil) }
 
@@ -474,12 +486,16 @@ private struct StoryContextMenuOverlay: View {
                 .shadow(color: .black.opacity(shown ? 0.30 : 0), radius: 18, y: 10)
                 .position(x: src.midX, y: src.midY)
 
-            // Menu right under the card, leading-aligned, clamped to the screen.
+            // Menu under (or above) the card, leading-aligned, clamped to the screen.
             menuCard
                 .scaleEffect(shown ? 1 : 0.3, anchor: .topLeading)
                 .opacity(shown ? 1 : 0)
-                .offset(x: menuX, y: src.maxY + 10)
+                .offset(x: menuX, y: menuY)
         }
+        // The whole overlay ignores the safe area so `sourceFrame` (captured in full-screen .global
+        // coords) lines up 1:1 — without this the ZStack lays out inset below the status bar and the
+        // lifted card + menu rendered ~47pt too low (a faint double image over the real card).
+        .ignoresSafeArea()
         .onAppear {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { shown = true }
         }
@@ -624,10 +640,10 @@ struct StoryViewer: View {
                         date: timeAgo(s.createdAt),
                         isLiked: StoryPrefs.isStoryLiked(s.id),   // heart stays red on reopen
                         isSeen: StoryPrefs.isStorySeen(s.id),   // open the viewer at the first UNSEEN item
-                        // My own story: WE draw the caption pinned above the footer (below) — the
-                        // library places it high with a reply-bar-sized gap, so with-caption and
-                        // no-caption stories looked different. Friends' stories keep the library's.
-                        caption: g.isMine ? "" : s.caption,
+                        // My own story in the MINE-ONLY viewer: WE draw the caption pinned above the
+                        // footer (below), so suppress the library's here. In a mixed feed (no footer,
+                        // no custom caption) keep the library's caption or it would show nowhere.
+                        caption: (g.isMine && mineOnly) ? "" : s.caption,
                         config: StoryConfiguration(
                             // My own story shows NO reply bar (owner bar is overlaid instead).
                             storyType: g.isMine
@@ -710,7 +726,7 @@ struct StoryViewer: View {
             Task { if let img = await loadCurrentImage(u) { shareImg = StoryImagePayload(image: img) } }
         }
         .onReceive(NotificationCenter.default.publisher(for: .init("storyActionHide"))) { _ in
-            if !currentIsMine { StoryPrefs.toggleHidden(currentBucketUid); isPresented = false }
+            if !currentIsMine { StoryPrefs.setHidden(currentBucketUid, true); isPresented = false }
         }
         // "…" → Delete Story (only shown on my own story) → same confirm + seamless delete as the trash button.
         .onReceive(NotificationCenter.default.publisher(for: .init("storyActionDelete"))) { _ in
@@ -751,6 +767,7 @@ struct StoryViewer: View {
                     if mineOnly, let c = currentStory?.caption, !c.isEmpty {
                         Text(c)
                             .font(.body).foregroundStyle(.white)
+                            .lineLimit(4)   // don't let a long caption climb over the whole photo (IG/WA cap)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 16).padding(.top, 26).padding(.bottom, 14)
                             .background(LinearGradient(colors: [.clear, .black.opacity(0.45)],
@@ -849,14 +866,21 @@ struct StoryViewer: View {
         // a programmatic open/close (withAnimation animates p) — not just during a finger drag.
         let carouselIn = max(0, (p - 0.88) / 0.12)      // 0 until p=0.88 → 1 at p=1
         let cardOut = 1 - carouselIn
+        // Feed the carousel from the LIVE repo (not the viewer's immutable snapshot), so a story
+        // deleted while viewing doesn't linger as a ghost card. Fall back to the snapshot.
+        let liveMyStories = StoriesRepository.shared.mine?.stories ?? myStories
+        // The morph card shows whatever the carousel has CENTERED (sheetStoryId), not the story that
+        // was on screen when the sheet opened — otherwise, after scrolling the carousel, closing
+        // cross-dissolved two different photos and collapsed into the wrong one.
+        let morphURL = (liveMyStories.first { $0.id == sheetStoryId } ?? currentStory).map { $0.mediaUrl }
         ZStack(alignment: .top) {
-            MyStoriesCarousel(stories: myStories, activeId: $sheetStoryId,
+            MyStoriesCarousel(stories: liveMyStories, activeId: $sheetStoryId,
                               slotW: slotW, slotH: slotH,
                               onActiveTap: { closeViewers() })
                 .padding(.top, blockTop)
                 .opacity(Double(carouselIn))
                 .allowsHitTesting(carouselIn > 0.5)
-            if cardOut > 0.001, let url = currentStory?.mediaUrl {
+            if cardOut > 0.001, let url = morphURL {
                 // Start height matches the story CARD (which ends above the black owner footer),
                 // so the morph begins exactly where the card visually is.
                 let startH = scr.height - (mineOnly ? Self.ownerFooterHeight + max(10, bottomInset) : 0)
@@ -1208,10 +1232,19 @@ struct MyStoriesCarousel: View {
     var onActiveTap: () -> Void = {}    // tap the centred card → collapse back to full screen
 
     @State private var byStory: [String: [StoryViewerInfo]] = [:]   // per-story viewers (counts)
-    // Seed the scroll position with the active story so the carousel opens CENTERED on it (B/D),
-    // never animating over from story A. `scrollPosition(id:)` reads this on the very first layout.
+    // Seed the scroll position with the active story as the INITIAL state value (not in onAppear),
+    // so `scrollPosition(id:)` centres on B/D on the very first layout — no one-frame flash of A.
     @State private var scrolledID: String?
-    @State private var centered = false   // gate the count row to the settled card
+
+    init(stories: [Story], activeId: Binding<String>, slotW: CGFloat, slotH: CGFloat,
+         onActiveTap: @escaping () -> Void = {}) {
+        self.stories = stories
+        self._activeId = activeId
+        self.slotW = slotW
+        self.slotH = slotH
+        self.onActiveTap = onActiveTap
+        self._scrolledID = State(initialValue: activeId.wrappedValue)
+    }
 
     var body: some View {
         let active = byStory[activeId] ?? []
@@ -1230,8 +1263,8 @@ struct MyStoriesCarousel: View {
                 .scrollPosition(id: $scrolledID, anchor: .center)
                 .frame(height: slotH * 1.06)   // headroom so the 1.05-scaled centre card isn't clipped
                 .onAppear {
-                    // Jump (no animation) to the story that's on screen, before the first frame paints.
-                    scrolledID = activeId
+                    // Belt-and-braces: also scrollTo (no animation) in case the seeded scrollPosition
+                    // isn't honored before the horizontal content is measured.
                     var t = Transaction(); t.disablesAnimations = true
                     withTransaction(t) { proxy.scrollTo(activeId, anchor: .center) }
                 }
@@ -1382,11 +1415,13 @@ struct StoryViewersBottomSheet: View {
                 }
                 .onEnded { v in
                     dragStart = nil
-                    // Velocity-aware: a fast downward flick closes even from near-open; otherwise
-                    // decide by where the drag would COME TO REST (predicted end), like Telegram.
-                    let predicted = (dragStart ?? progress)   // (dragStart already nilled; use progress)
-                    _ = predicted
-                    let projected = progress - v.predictedEndTranslation.height / sheetH - v.translation.height / sheetH
+                    // Where the sheet would COME TO REST given the fling (Telegram-style). progress
+                    // already reflects the current finger position; predictedEndTranslation is the
+                    // ADDITIONAL travel from here, so subtract only that (the old code also
+                    // subtracted the full translation again, triple-counting a slow drag → the sheet
+                    // snapped shut on a tiny downward nudge).
+                    let extra = (v.predictedEndTranslation.height - v.translation.height) / sheetH
+                    let projected = progress - extra
                     let close = projected < 0.6 || v.predictedEndTranslation.height > 240
                     if close {
                         onClose()

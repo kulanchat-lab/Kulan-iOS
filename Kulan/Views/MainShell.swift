@@ -641,10 +641,11 @@ struct ChatsView: View {
             Group {
                 if !repo.hasLoaded {
                     ChatListSkeleton()   // shimmer placeholders on a cold load (cached = instant)
-                } else if visible.isEmpty {
-                    ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.bubble.right",
-                                           description: Text("Tap the compose button to start one."))
                 } else {
+                    // NOTE: the empty state is an OVERLAY inside this ZStack (below), not a separate
+                    // branch — a separate branch replaced the whole view incl. the Stories row, so
+                    // filtering to Unread with nothing unread made all stories vanish + showed a
+                    // wrong "No chats yet". The row now always stays; only the list area goes empty.
                     ZStack(alignment: .top) {
                       List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row
                       ForEach(visible) { conv in
@@ -730,6 +731,18 @@ struct ChatsView: View {
                         .offset(y: -chatScrollY)
                     }   // ZStack (stories row scrolling in sync above the list)
                     .clipped()   // the row slides up under the nav bar, not over it
+                    // Empty state sits BELOW the stories row (which stays visible). "No chats yet"
+                    // only when truly unfiltered; a filtered empty result says so instead.
+                    .overlay(alignment: .top) {
+                        if visible.isEmpty {
+                            ContentUnavailableView(
+                                chatFilter == 0 ? "No chats yet" : "No unread chats",
+                                systemImage: chatFilter == 0 ? "bubble.left.and.bubble.right" : "checkmark.circle",
+                                description: Text(chatFilter == 0 ? "Tap the compose button to start one." : "You're all caught up."))
+                                .padding(.top, storiesRowHeight + 24)
+                                .allowsHitTesting(false)
+                        }
+                    }
                 }
             }
             .navigationTitle("Chats")
