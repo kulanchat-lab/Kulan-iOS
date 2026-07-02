@@ -390,13 +390,23 @@ final class CallService: NSObject {
                     ]) { [weak self] err in
                         guard let self else { return }
                         if err != nil { self.hangUp(); return }   // write failed -> don't leave the caller ringing into the void
+                        if self.state != .outgoing {
+                            // Caller hung up while the create was in flight: finishCall's update hit a
+                            // not-yet-existing doc, so end it here or it would ring the callee later.
+                            ref.updateData(["status": "ended", "endReason": EndReason.hangup.rawValue])
+                            return
+                        }
                         self.callDocCreated = true
                         self.flushLocalCandidates()   // now the doc exists, write the buffered candidates
+                        // CRITICAL: listen only AFTER the doc exists. The rules gate reads on the call
+                        // doc's caller/callee fields, so a listener attached before the create commits
+                        // is permission-denied — and a denied listener never retries, leaving the
+                        // caller deaf to the answer + candidates (every call dies at "Connecting…").
+                        self.observeCallDoc(ref)
+                        self.observeRemoteCandidates(ref.collection("calleeCandidates"))
                     }
                 }
             }
-            self.observeCallDoc(ref)
-            self.observeRemoteCandidates(ref.collection("calleeCandidates"))
         }
     }
 
