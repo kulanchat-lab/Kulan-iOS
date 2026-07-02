@@ -119,6 +119,8 @@ private struct StoryMenu: Identifiable {
     let cover: String?          // cover image url (nil/empty → avatar placeholder)
     let name: String
     let avatar: String?
+    let seen: [Bool]            // ring arcs, so the in-place replica matches the real card
+    let sourceFrame: CGRect     // the pressed card's GLOBAL frame → lift in place (native look)
     let items: [StoryMenuItem]
 }
 
@@ -150,6 +152,7 @@ struct StoriesRow: View {
     @State private var hideTarget: StoryGroup?   // "Hide Stories?" confirmation target
     @State private var storyMenu: StoryMenu?          // custom long-press context menu target
     @State private var pendingAction: (() -> Void)?   // action to run AFTER the cover fully dismisses
+    @State private var myCardFrame: CGRect = .zero    // My Story card's global frame → in-place menu
 
     private let storySpacing: CGFloat = 10
     private let storyHPad: CGFloat = 12
@@ -262,12 +265,15 @@ struct StoriesRow: View {
                 // Custom long-press: builds MY menu from MY data right here — a native .contextMenu
                 // registration could fire on a recycled friend card after re-sorts (the mixup bug).
                 // highPriority (not simultaneous) so a successful hold CANCELS the card's tap.
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { myCardFrame = $0 }
                 .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     presentMenu(StoryMenu(
                         cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
                         name: "My Story",
                         avatar: mePhoto,
+                        seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []),
+                        sourceFrame: myCardFrame,
                         items: [
                             StoryMenuItem(title: "Add Story", systemImage: "plus",
                                           destructive: false, action: onCompose),
@@ -385,6 +391,7 @@ private struct StoryFriendCard: View, Equatable {
             && l.seen == r.seen && l.cardW == r.cardW && l.groupID == r.groupID
     }
 
+    @State private var cardFrame: CGRect = .zero   // global frame → the menu lifts THIS card in place
     private var cardH: CGFloat { cardW * 1.46 }
 
     var body: some View {
@@ -405,12 +412,14 @@ private struct StoryFriendCard: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { cardFrame = $0 }
         // Custom long-press: builds THIS friend's menu from THIS card's data at press time —
         // strict ownership, nothing recycled. highPriority so a successful hold cancels the tap.
         .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             onLongPress(StoryMenu(
                 cover: cover, name: name, avatar: avatar,
+                seen: seen, sourceFrame: cardFrame,
                 items: [
                     StoryMenuItem(title: "Send Message", systemImage: "message",
                                   destructive: false, action: onMessage),
@@ -432,9 +441,10 @@ private struct StoryFriendCard: View, Equatable {
     }
 }
 
-// Custom iOS-context-menu-style overlay for a story card long-press. Lives in a clear full-screen
-// cover owned by StoriesRow, so it floats over the whole chat screen (design rule: blurred backdrop,
-// the card as an island preview, compact icon menu beneath, destructive in red).
+// Custom long-press menu presented the NATIVE way (per user request): the pressed card lifts
+// IN ITS OWN PLACE (replica at the exact captured global frame, everything else dims) and the
+// menu drops in right below it, leading-aligned with leading icons — visually the classic iOS
+// context menu. Only the presentation is custom; the per-card payload keeps menu mixups impossible.
 private struct StoryContextMenuOverlay: View {
     let menu: StoryMenu
     let cardW: CGFloat
@@ -442,75 +452,82 @@ private struct StoryContextMenuOverlay: View {
     let onDismiss: (_ action: (() -> Void)?) -> Void   // nil action = cancel
 
     @State private var shown = false          // drives the spring-in / animate-out
-    @State private var dragY: CGFloat = 0     // swipe-down to dismiss
-
-    private var previewW: CGFloat { cardW * 1.4 }
-    private var previewH: CGFloat { previewW * 1.46 }   // same aspect as the cards
-    private let menuW: CGFloat = 230
+    private let menuW: CGFloat = 252
 
     var body: some View {
-        ZStack {
-            // Dimmed + blurred backdrop. Tap anywhere to dismiss with no action.
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .overlay(Color.black.opacity(0.18))
+        let screen = UIScreen.main.bounds
+        // Fallback (frame never captured): centre the lift roughly where the row lives.
+        let src = menu.sourceFrame == .zero
+            ? CGRect(x: (screen.width - cardW) / 2, y: 140, width: cardW, height: cardH + 24)
+            : menu.sourceFrame
+        let menuX = min(max(12, src.minX), screen.width - menuW - 12)
+        ZStack(alignment: .topLeading) {
+            // Dim everything; the replica below stays bright = the native "source stays lit" look.
+            Color.black.opacity(shown ? 0.28 : 0)
                 .ignoresSafeArea()
-                .opacity(shown ? 1 : 0)
                 .contentShape(Rectangle())
                 .onTapGesture { close(nil) }
 
-            VStack(spacing: 14) {
-                preview
-                    .frame(width: previewW, height: previewH)
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                    .shadow(color: .black.opacity(0.4), radius: 22, y: 12)
-                menuCard
-            }
-            .scaleEffect(shown ? 1 : 0.86)
-            .opacity(shown ? 1 : 0)
-            .offset(y: dragY)
-            .padding(.bottom, 40)
+            // The pressed card, lifted in place at its exact on-screen position.
+            cardReplica(width: src.width)
+                .scaleEffect(shown ? 1.05 : 1.0)
+                .shadow(color: .black.opacity(shown ? 0.30 : 0), radius: 18, y: 10)
+                .position(x: src.midX, y: src.midY)
+
+            // Menu right under the card, leading-aligned, clamped to the screen.
+            menuCard
+                .scaleEffect(shown ? 1 : 0.3, anchor: .topLeading)
+                .opacity(shown ? 1 : 0)
+                .offset(x: menuX, y: src.maxY + 10)
         }
-        // Swipe-down anywhere on the floating content dismisses (buttons still tap: they win on a tap).
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 12)
-                .onChanged { v in dragY = max(0, v.translation.height) }
-                .onEnded { v in
-                    if v.translation.height > 90 { close(nil) }
-                    else { withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { dragY = 0 } }
-                }
-        )
         .onAppear {
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.76)) { shown = true }
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { shown = true }
         }
     }
 
-    @ViewBuilder private var preview: some View {
-        if let cover = menu.cover, !cover.isEmpty {
-            StoryImage(url: cover)
-        } else {
-            ZStack {
-                Color.secondary.opacity(0.2)
-                AvatarView(name: menu.name, photoUrl: menu.avatar, size: previewW * 0.5)
+    // Faithful copy of a story card: cover + avatar/ring + name label (drawn over the dim).
+    private func cardReplica(width: CGFloat) -> some View {
+        VStack(spacing: 6) {
+            ZStack(alignment: .bottomLeading) {
+                Group {
+                    if let cover = menu.cover, !cover.isEmpty {
+                        StoryImage(url: cover)
+                    } else {
+                        ZStack {
+                            Color.secondary.opacity(0.2)
+                            AvatarView(name: menu.name, photoUrl: menu.avatar, size: width * 0.62)
+                        }
+                    }
+                }
+                .frame(width: width, height: width * 1.46)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                AvatarView(name: menu.name, photoUrl: menu.avatar, size: 32)
+                    .overlay { if !menu.seen.isEmpty { StoryRingView(seen: menu.seen).frame(width: 37, height: 37) } }
+                    .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
+                    .padding(8)
             }
+            Text(menu.name).font(.system(size: 12)).lineLimit(1).frame(width: width)
+                .foregroundStyle(.white)
         }
+        .frame(width: width)
     }
 
     private var menuCard: some View {
         VStack(spacing: 0) {
             ForEach(Array(menu.items.enumerated()), id: \.element.id) { idx, item in
                 Button { close(item.action) } label: {
-                    HStack(spacing: 12) {
-                        Text(item.title)
-                            .font(.system(size: 17))
-                            .foregroundStyle(item.destructive ? Color.red : Color.primary)
-                        Spacer(minLength: 8)
+                    HStack(spacing: 14) {
                         Image(systemName: item.systemImage)
                             .font(.system(size: 17))
                             .foregroundStyle(item.destructive ? Color.red : Color.primary)
+                            .frame(width: 24)
+                        Text(item.title)
+                            .font(.system(size: 17))
+                            .foregroundStyle(item.destructive ? Color.red : Color.primary)
+                        Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 16)
-                    .frame(height: 46)
+                    .padding(.horizontal, 14)
+                    .frame(height: 44)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -520,13 +537,13 @@ private struct StoryContextMenuOverlay: View {
             }
         }
         .frame(width: menuW)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
     }
 
     private func close(_ action: (() -> Void)?) {
-        withAnimation(.easeOut(duration: 0.18)) { shown = false }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.19) { onDismiss(action) }
+        withAnimation(.easeOut(duration: 0.16)) { shown = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) { onDismiss(action) }
     }
 }
 
@@ -607,7 +624,10 @@ struct StoryViewer: View {
                         date: timeAgo(s.createdAt),
                         isLiked: StoryPrefs.isStoryLiked(s.id),   // heart stays red on reopen
                         isSeen: StoryPrefs.isStorySeen(s.id),   // open the viewer at the first UNSEEN item
-                        caption: s.caption,
+                        // My own story: WE draw the caption pinned above the footer (below) — the
+                        // library places it high with a reply-bar-sized gap, so with-caption and
+                        // no-caption stories looked different. Friends' stories keep the library's.
+                        caption: g.isMine ? "" : s.caption,
                         config: StoryConfiguration(
                             // My own story shows NO reply bar (owner bar is overlaid instead).
                             storyType: g.isMine
@@ -654,32 +674,19 @@ struct StoryViewer: View {
             .presentationDetents([.medium, .large])   // small profile sheet over the paused story
             .presentationDragIndicator(.visible)
         }
-        // Native-style bottom action sheets. (confirmationDialog rendered CENTERED over the cover's clear
-        // presentation background; this anchors to the bottom with a material group + a separate Cancel.)
-        // Delete stays a bottom action sheet; the "…" is now a native dropdown menu in the header.
-        .overlay {
-            if confirmDelete {
-                BottomActionSheet(onCancel: { confirmDelete = false }) {
-                    // Native action-sheet header: small grey title + message, divider, then the action.
-                    VStack(spacing: 4) {
-                        Text("Delete this story?")
-                            .font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
-                        Text("It will also be deleted for everyone who received it.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 24).padding(.vertical, 14)
-                    Divider()
-                    // Seamless delete: the viewer slides to the adjacent item itself; we just remove from the db.
-                    sheetButton("Delete", destructive: true) {
-                        confirmDelete = false
-                        NotificationCenter.default.post(name: .init("deleteCurrentStoryItem"), object: nil)
-                    }
-                }
+        // REAL native delete confirmation (user request: no custom sheet). An alert, not a
+        // confirmationDialog: over these full-screen covers dialogs render as centered popovers
+        // that HIDE role-cancel buttons (the Discard bug). Alerts are liquid-glass native and
+        // always show both buttons.
+        .alert("Delete this story?", isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) {
+                // Seamless delete: the viewer slides to the adjacent item itself; we just remove from the db.
+                NotificationCenter.default.post(name: .init("deleteCurrentStoryItem"), object: nil)
             }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("It will also be deleted for everyone who received it.")
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: confirmDelete)
         // The viewer dropped the item in-place + advanced; here we delete it from the database. If that was
         // my last story, close the viewer (Case 3). Otherwise leave the (captured) viewer untouched — no re-feed.
         .onReceive(NotificationCenter.default.publisher(for: .init("storyItemDeleted"))) { note in
@@ -738,6 +745,21 @@ struct StoryViewer: View {
         let p = viewersProgress
         return VStack(spacing: 0) {
             storyContent
+                // Own-story caption, pinned just above the footer (identical card layout whether
+                // a caption exists or not — the library's own caption is suppressed for mine).
+                .overlay(alignment: .bottom) {
+                    if mineOnly, let c = currentStory?.caption, !c.isEmpty {
+                        Text(c)
+                            .font(.body).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16).padding(.top, 26).padding(.bottom, 14)
+                            .background(LinearGradient(colors: [.clear, .black.opacity(0.45)],
+                                                       startPoint: .top, endPoint: .bottom))
+                            .opacity(dragDown > 6 ? 0 : 1)
+                            .animation(.easeOut(duration: 0.15), value: dragDown > 6)
+                            .allowsHitTesting(false)
+                    }
+                }
                 .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: mineOnly ? 24 : 0,
                                                   bottomTrailingRadius: mineOnly ? 24 : 0,
                                                   style: .continuous))
@@ -872,18 +894,6 @@ struct StoryViewer: View {
         }
     }
 
-
-    // Pass an explicit url (captured synchronously at button-tap) so a story that advances in the gap
-    // after the "…" dialog closes can't swap the photo out from under Save/Forward/Share.
-    @ViewBuilder private func sheetButton(_ title: String, destructive: Bool = false, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 20))   // native action-sheet option size (20pt regular)
-                .foregroundStyle(destructive ? Color.red : Color.primary)
-                .frame(maxWidth: .infinity).frame(height: 57)
-                .contentShape(Rectangle())
-        }
-    }
 
     private func loadCurrentImage(_ captured: String? = nil) async -> UIImage? {
         guard let url = captured ?? currentStory?.mediaUrl, !url.isEmpty else { return nil }
@@ -1171,42 +1181,6 @@ struct SeenBySheet: View {
     }
 }
 
-
-// Native-style bottom action sheet: dim scrim + a material action group + a separate Cancel pill,
-// anchored to the bottom (replaces confirmationDialog, which rendered centered over the clear cover).
-struct BottomActionSheet<Content: View>: View {
-    let onCancel: () -> Void
-    @ViewBuilder let content: Content
-    init(onCancel: @escaping () -> Void, @ViewBuilder content: () -> Content) {
-        self.onCancel = onCancel
-        self.content = content()
-    }
-    private var bottomSafeInset: CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.bottom }.max() ?? 0
-    }
-    var body: some View {
-        ZStack(alignment: .bottom) {
-            Color.black.opacity(0.32).ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture(perform: onCancel)
-            VStack(spacing: 8) {
-                VStack(spacing: 0) { content }
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                Button(action: onCancel) {
-                    Text("Cancel")
-                        .font(.system(size: 20, weight: .semibold))   // native action-sheet Cancel
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity).frame(height: 57).contentShape(Rectangle())
-                }
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            }
-            .padding(.horizontal, 10)
-            .padding(.bottom, max(10, bottomSafeInset))   // clear the home indicator (host ignores safe area)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-    }
-}
 
 // Carousel of ALL my posted stories, shown above the open viewers sheet (Telegram / user mockup):
 // ONLY the rounded photos — no captions, no avatars, no progress bars. Side cards carry a small
