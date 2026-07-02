@@ -292,11 +292,16 @@ final class StoriesRepository {
     // watermark is the POST time of the newest story I've watched — never wall clock — so a
     // person with newer unwatched stories keeps their colored ring.
     @MainActor func markSeenLocally(_ authorUid: String, upTo storyCreatedAt: Date) {
+        // READ the current value into a local BEFORE writing. `x?.y = max(x?.y ?? …)` reads the
+        // same @Observable property inside its own write access — a Swift exclusivity violation
+        // that crashed (SIGABRT) the instant an own-story item was viewed (build 176).
         if let i = others.firstIndex(where: { $0.authorUid == authorUid }) {
-            others[i].lastViewedAt = max(others[i].lastViewedAt ?? .distantPast, storyCreatedAt)
+            let cur = others[i].lastViewedAt ?? .distantPast
+            if storyCreatedAt > cur { others[i].lastViewedAt = storyCreatedAt }
         }
-        if mine?.authorUid == authorUid {
-            mine?.lastViewedAt = max(mine?.lastViewedAt ?? .distantPast, storyCreatedAt)
+        if let m = mine, m.authorUid == authorUid {
+            let cur = m.lastViewedAt ?? .distantPast
+            if storyCreatedAt > cur { mine?.lastViewedAt = storyCreatedAt }
         }
     }
 
@@ -356,8 +361,10 @@ final class StoriesRepository {
                 guard let self, let snap else { return }
                 for d in snap.documents {
                     if let ts = (d.data()["lastViewedAt"] as? Timestamp)?.dateValue() {
-                        // Merge FORWARD only — a view that just happened locally may be newer.
-                        self.serverWatermarks[d.documentID] = max(self.serverWatermarks[d.documentID] ?? .distantPast, ts)
+                        // Merge FORWARD only — read into a local first (same-property read inside
+                        // its own write access is an exclusivity crash, see markSeenLocally).
+                        let cur = self.serverWatermarks[d.documentID] ?? .distantPast
+                        if ts > cur { self.serverWatermarks[d.documentID] = ts }
                     }
                 }
                 Task { await self.rebuild() }
@@ -446,13 +453,14 @@ final class StoriesRepository {
             // Apply the freshest watermark to each group so a rebuild can never REGRESS a ring
             // to unseen while the view write is still in flight (H8, watermark edition).
             var mg = myGroup
-            if let m = mg, let w = self.serverWatermarks[m.authorUid] {
-                mg?.lastViewedAt = max(m.lastViewedAt ?? .distantPast, w)
+            if let m = mg, let w = self.serverWatermarks[m.authorUid], w > (m.lastViewedAt ?? .distantPast) {
+                mg?.lastViewedAt = w
             }
             var gs = groups
             for i in gs.indices {
-                if let w = self.serverWatermarks[gs[i].authorUid] {
-                    gs[i].lastViewedAt = max(gs[i].lastViewedAt ?? .distantPast, w)
+                let cur = gs[i].lastViewedAt ?? .distantPast
+                if let w = self.serverWatermarks[gs[i].authorUid], w > cur {
+                    gs[i].lastViewedAt = w
                 }
             }
             self.mine = mg; self.others = gs
