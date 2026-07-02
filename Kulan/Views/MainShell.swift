@@ -419,6 +419,11 @@ struct ChatsView: View {
     @State private var showUploadViewer = false   // live viewer for the still-uploading story
     @State private var profileGroup: StoryGroup?
     @Namespace private var storyNS   // zoom transition: story card ⇄ full-screen viewer
+    // Stories row scrolls WITH the chat list: the row stays OUTSIDE the List (per-card
+    // long-press dies inside a List row — build 147) but is offset 1:1 by the list's
+    // scroll, and the List gets a matching top margin so rows start below it.
+    @State private var chatScrollY: CGFloat = 0
+    @State private var storiesRowHeight: CGFloat = (UIScreen.main.bounds.width - 54) / 4 * 1.46 + 41
 
     private func storyCid(_ other: String) -> String {
         [AuthService.shared.uid ?? "", other].sorted().joined(separator: "_")
@@ -640,17 +645,7 @@ struct ChatsView: View {
                     ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.bubble.right",
                                            description: Text("Tap the compose button to start one."))
                 } else {
-                    VStack(spacing: 0) {
-                      // Stories row PINNED above the List (outside it) so EACH card long-presses on
-                      // its own. Inside a List, the whole row lifts as one cell (the bug). (Build 147.)
-                      StoriesRow(meName: profile.me?.name ?? "You", mePhoto: profile.me?.photoUrl,
-                                 storyNS: storyNS,
-                                 onCompose: { showCompose = true },
-                                 onOpen: { g in viewerAnonymous = false; viewerGroup = g },
-                                 onMessage: { g in openStoryChat(g) },
-                                 onProfile: { g in profileGroup = g },
-                                 onOpenAnon: { g in viewerAnonymous = true; viewerGroup = g },
-                                 onOpenUploading: { showUploadViewer = true })
+                    ZStack(alignment: .top) {
                       List(selection: selecting ? $selection : nil) {   // nil when not editing -> taps OPEN the row
                       ForEach(visible) { conv in
                         // Full-row Button instead of a NavigationLink: a NavigationLink in a
@@ -714,7 +709,27 @@ struct ChatsView: View {
                     // membership only, so it won't animate unrelated content changes.
                     .animation(.spring(response: 0.38, dampingFraction: 0.86), value: visible.map(\.id))
                     .environment(\.editMode, .constant(selecting ? .active : .inactive))
-                    }   // VStack (pinned stories row + list) — build 147 layout
+                    // Rows start below the stories row; as the list scrolls, the row above is
+                    // offset by the same amount, so both move as ONE scroll surface.
+                    .contentMargins(.top, storiesRowHeight, for: .scrollContent)
+                    .onScrollGeometryChange(for: CGFloat.self,
+                                            of: { $0.contentOffset.y + $0.contentInsets.top },
+                                            action: { _, y in chatScrollY = y })
+
+                      // Stories row stays OUTSIDE the List so EACH card long-presses on its
+                      // own. Inside a List, the whole row lifts as one cell (the bug). (Build 147.)
+                      StoriesRow(meName: profile.me?.name ?? "You", mePhoto: profile.me?.photoUrl,
+                                 storyNS: storyNS,
+                                 onCompose: { showCompose = true },
+                                 onOpen: { g in viewerAnonymous = false; viewerGroup = g },
+                                 onMessage: { g in openStoryChat(g) },
+                                 onProfile: { g in profileGroup = g },
+                                 onOpenAnon: { g in viewerAnonymous = true; viewerGroup = g },
+                                 onOpenUploading: { showUploadViewer = true })
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { storiesRowHeight = $0 }
+                        .offset(y: -chatScrollY)
+                    }   // ZStack (stories row scrolling in sync above the list)
+                    .clipped()   // the row slides up under the nav bar, not over it
                 }
             }
             .navigationTitle("Chats")
