@@ -107,8 +107,13 @@ enum StoryPrefs {
         guard !id.isEmpty else { return }
         var s = set("likedStories"); if liked { s.insert(id) } else { s.remove(id) }; save("likedStories", s)
     }
-    // seen flags for a bucket's stories (oldest→newest), for StoryRingView.
-    static func seenFlags(_ stories: [Story]) -> [Bool] { stories.map { isStorySeen($0.id) } }
+    // seen flags for a bucket's stories (oldest→newest), for StoryRingView. A story is seen if I
+    // viewed that exact item on THIS device (local flag) OR it's covered by my synced server
+    // watermark (`upTo` = the group's lastViewedAt) — so after a reinstall / on a second device the
+    // arcs match the group's own seen/sort state instead of all showing colorful (split brain).
+    static func seenFlags(_ stories: [Story], upTo watermark: Date? = nil) -> [Bool] {
+        stories.map { isStorySeen($0.id) || $0.createdAt <= (watermark ?? .distantPast) }
+    }
 }
 
 // Horizontal Stories row for the top of the Chats screen.
@@ -192,7 +197,7 @@ struct StoriesRow: View {
                     StoryFriendCard(cover: g.stories.last?.mediaUrl,
                                     name: g.name.isEmpty ? "User" : g.name,
                                     avatar: g.photoUrl,
-                                    seen: StoryPrefs.seenFlags(g.stories),
+                                    seen: StoryPrefs.seenFlags(g.stories, upTo: g.lastViewedAt),
                                     cardW: cardW,
                                     onOpen: { onOpen(g) },
                                     onMessage: { onMessage(g) },
@@ -265,7 +270,7 @@ struct StoriesRow: View {
             } else {
                 card(cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
                      name: "My Story", avatar: mePhoto,
-                     seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []), onBadge: onCompose) {
+                     seen: StoryPrefs.seenFlags(repo.mine?.stories ?? [], upTo: repo.mine?.lastViewedAt), onBadge: onCompose) {
                     if let m = repo.mine { onOpen(m) } else { onCompose() }
                 }
                 // Custom long-press: builds MY menu from MY data right here — a native .contextMenu
@@ -278,7 +283,7 @@ struct StoriesRow: View {
                         cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
                         name: "My Story",
                         avatar: mePhoto,
-                        seen: StoryPrefs.seenFlags(repo.mine?.stories ?? []),
+                        seen: StoryPrefs.seenFlags(repo.mine?.stories ?? [], upTo: repo.mine?.lastViewedAt),
                         sourceFrame: myCardFrame,
                         items: [
                             StoryMenuItem(title: "Add Story", systemImage: "plus",
@@ -639,7 +644,9 @@ struct StoryViewer: View {
                         mediaURL: s.mediaUrl,
                         date: timeAgo(s.createdAt),
                         isLiked: StoryPrefs.isStoryLiked(s.id),   // heart stays red on reopen
-                        isSeen: StoryPrefs.isStorySeen(s.id),   // open the viewer at the first UNSEEN item
+                        // open the viewer at the first UNSEEN item — honor the synced watermark too,
+                        // so after a reinstall it doesn't replay from item 0 (split brain).
+                        isSeen: StoryPrefs.isStorySeen(s.id) || s.createdAt <= (g.lastViewedAt ?? .distantPast),
                         // My own story in the MINE-ONLY viewer: WE draw the caption pinned above the
                         // footer (below), so suppress the library's here. In a mixed feed (no footer,
                         // no custom caption) keep the library's caption or it would show nowhere.
