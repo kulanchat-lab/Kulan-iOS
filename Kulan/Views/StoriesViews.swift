@@ -881,11 +881,15 @@ struct StoryViewer: View {
         let slotH = (avail - countArea) * 0.84             // ~16% top/bottom breathing room
         let slotW = slotH * 0.58                           // narrower cards → side cards peek + shrink
         let blockTop = topInset + (avail - countArea - slotH) / 2
-        // Crossfade window: carousel fades IN over the last 12% of travel, the morph card fades OUT
-        // there. Both are always mounted and driven by `p`, so the whole thing animates smoothly on
-        // a programmatic open/close (withAnimation animates p) — not just during a finger drag.
-        let carouselIn = max(0, (p - 0.88) / 0.12)      // 0 until p=0.88 → 1 at p=1
-        let cardOut = 1 - carouselIn
+        // SMOOTH, NO-JUMP handoff (Telegram):
+        //  • sizeP: the morph card finishes shrinking to the slot by p=0.9, then HOLDS at slot size.
+        //  • carIn: neighbours + counts fade in gradually 0.5→0.9 (behind the opaque morph centre).
+        //  • morphVis: the morph card fades out ONLY over 0.9→1.0 — by then it is exactly the slot
+        //    size + radius + position of the carousel's centre card, so the fade is invisible (the
+        //    old version faded while still ~10% oversized against a static carousel = the jump).
+        let sizeP = min(p / 0.9, 1)
+        let carIn = max(0, min(1, (p - 0.5) / 0.4))
+        let morphVis = 1 - max(0, min(1, (p - 0.9) / 0.1))
         // Feed the carousel from the LIVE repo (not the viewer's immutable snapshot), so a story
         // deleted while viewing doesn't linger as a ghost card. Fall back to the snapshot.
         let liveMyStories = StoriesRepository.shared.mine?.stories ?? myStories
@@ -898,18 +902,18 @@ struct StoryViewer: View {
                               slotW: slotW, slotH: slotH,
                               onActiveTap: { closeViewers() })
                 .padding(.top, blockTop)
-                .opacity(Double(carouselIn))
-                .allowsHitTesting(carouselIn > 0.5)
-            if cardOut > 0.001, let url = morphURL {
+                .opacity(Double(carIn))
+                .allowsHitTesting(carIn > 0.5)
+            if morphVis > 0.001, let url = morphURL {
                 // Start height matches the story CARD (which ends above the black owner footer),
                 // so the morph begins exactly where the card visually is.
                 let startH = scr.height - (mineOnly ? Self.ownerFooterHeight + max(10, bottomInset) : 0)
                 StoryImage(url: url)
-                    .frame(width: lerp(scr.width, slotW, p), height: lerp(startH, slotH, p))
-                    .clipShape(RoundedRectangle(cornerRadius: 26 * p, style: .continuous))
-                    .padding(.top, blockTop * p)
+                    .frame(width: lerp(scr.width, slotW, sizeP), height: lerp(startH, slotH, sizeP))
+                    .clipShape(RoundedRectangle(cornerRadius: 24 * sizeP, style: .continuous))
+                    .padding(.top, blockTop * sizeP)
                     .frame(maxWidth: .infinity)
-                    .opacity(Double(cardOut))
+                    .opacity(Double(morphVis))
                     .allowsHitTesting(false)   // mid-drag frames take no touches
             }
         }
