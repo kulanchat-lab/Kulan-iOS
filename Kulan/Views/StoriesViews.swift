@@ -471,15 +471,17 @@ struct StoryViewer: View {
                         mediaURL: s.mediaUrl,
                         date: timeAgo(s.createdAt),
                         isLiked: StoryPrefs.isStoryLiked(s.id),   // heart stays red on reopen
-                        // Where the viewer opens (first item with isSeen == false):
-                        //  • MY OWN story: land on the NEWEST item — I never mark my own stories seen,
-                        //    so "first unseen" was always the OLDEST, which meant right after posting a
-                        //    new story the viewer opened on the PREVIOUS one ("I see the story I uploaded
-                        //    before"). Mark all-but-the-newest seen so it opens on the one I just posted.
+                        // Where the viewer opens (firstUnseenIndex = first item with isSeen == false,
+                        //  else 0):
+                        //  • MY OWN story: purely the real per-item seen flag (own items ARE marked seen
+                        //    as I watch them — onItemSeen is non-anonymous for my own). So: any unread
+                        //    item -> opens on the FIRST unread (e.g. a just-posted D); everything read ->
+                        //    firstUnseenIndex falls back to 0 -> opens from A again (NOT the last one I
+                        //    watched). No watermark here so it tracks exactly what I actually viewed.
                         //  • A FRIEND's story: first genuinely unseen item, honoring the synced watermark
                         //    too (so after a reinstall it doesn't replay from item 0 — split brain).
                         isSeen: g.isMine
-                            ? (s.id != g.stories.last?.id)
+                            ? StoryPrefs.isStorySeen(s.id)
                             : (StoryPrefs.isStorySeen(s.id) || s.createdAt <= (g.lastViewedAt ?? .distantPast)),
                         // My own story in the MINE-ONLY viewer: WE draw the caption pinned above the
                         // footer (below), so suppress the library's here. In a mixed feed (no footer,
