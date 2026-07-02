@@ -54,6 +54,11 @@ struct ShareStorySheet: View {
                          : "Everyone you'd share with is excluded. Adjust the audience and try again.")
                 }
         }
+        // Consistent SHORT sheet regardless of which flow presented it. The text-story path set no
+        // detent so it opened full-height ("sometimes it's long"); a fitted height keeps it compact
+        // (the people picker is a pushed page, so the sheet never needs to grow for it).
+        .presentationDetents([.height(360), .large])
+        .presentationDragIndicator(.visible)
     }
 
     @ViewBuilder private var audienceList: some View {

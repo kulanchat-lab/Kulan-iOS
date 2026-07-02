@@ -197,9 +197,9 @@ struct StoryEditorView: View {
         .statusBarHidden()
         .alert("Couldn't share", isPresented: $postError) { Button("OK", role: .cancel) {} }
         .sheet(item: $pendingShare) { s in
+            // Detents/drag-indicator are set INSIDE ShareStorySheet now, so both the photo and text
+            // flows get the same compact fitted sheet.
             ShareStorySheet(image: s.data, caption: s.caption, onPosted: { onPosted(); dismiss() })
-                .presentationDetents([.medium, .large])   // small half-sheet (drag up for full)
-                .presentationDragIndicator(.visible)
         }
         .fullScreenCover(isPresented: $showCrop) {
             // Crop from the current cropped result if present, so re-opening crop refines instead of
