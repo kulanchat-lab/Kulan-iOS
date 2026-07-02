@@ -408,6 +408,8 @@ struct StoryViewer: View {
     @State private var dragDown: CGFloat = 0            // swipe-down amount → fade my overlays with the card
     private var me: String { AuthService.shared.uid ?? "" }
     private var currentIsMine: Bool { groups.first { $0.authorUid == currentBucketUid }?.isMine ?? false }
+    private var myStories: [Story] { groups.first { $0.isMine }?.stories ?? [] }
+    @State private var sheetStoryId = ""   // which of MY stories the carousel + viewers list target
     // Home-indicator inset (the story ignoresSafeArea, so overlays must add it back themselves).
     private var bottomInset: CGFloat {
         UIApplication.shared.connectedScenes
@@ -478,7 +480,8 @@ struct StoryViewer: View {
             // INSIDE the sheet. Both layers share `viewersProgress`, so the drag and the release
             // spring stay perfectly in sync.
             if showViewers {
-                StoryViewersBottomSheet(activeStoryId: currentStoryId,
+                viewersBackdrop   // flat 2D morph card during the drag → my-stories carousel when open
+                StoryViewersBottomSheet(activeStoryId: sheetStoryId,
                                         progress: $viewersProgress,
                                         onClose: closeViewers)
             }
@@ -598,26 +601,27 @@ struct StoryViewer: View {
                     // story, so its gesture fires even when the library's UIKit swipe-up doesn't. Taps on
                     // Views/trash still work (minimumDistance gate).
                     .simultaneousGesture(
-                        DragGesture(minimumDistance: 16).onEnded { v in
-                            if v.translation.height < -30 { openViewers() }
+                        DragGesture(minimumDistance: 12).onEnded { v in
+                            if v.translation.height < -20 { openViewers() }   // easier trigger
                         }
                     )
             }
         }
-        // While the sheet is up, taps on the card collapse it back to full screen (Telegram) —
-        // this also shields the story's own tap-to-advance/X from firing underneath.
-        .overlay {
-            if showViewers {
-                Color.clear.contentShape(Rectangle()).onTapGesture { closeViewers() }
+        // Easy open (my story only): swipe up ANYWHERE on the story — the owner-bar-only gesture
+        // was too hard to hit. Mostly-vertical check so the library's horizontal swipes never trigger it.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12).onEnded { v in
+                guard currentIsMine, !showViewers else { return }
+                if v.translation.height < -25, abs(v.translation.height) > abs(v.translation.width) * 1.2 {
+                    openViewers()
+                }
             }
-        }
-        // The Telegram effect, all driven by the ONE shared progress value:
-        .clipShape(RoundedRectangle(cornerRadius: 34 * p, style: .continuous))   // 0 → rounded card
-        .scaleEffect(1 - (1 - viewersFitScale) * p, anchor: .top)               // 100% → fits above sheet
-        .offset(y: p * (topInset + 8))                                          // card top clears the status bar
-        // MUST be OUTSIDE the clip/scale chain: with ignoresSafeArea inside it, the clip shape
-        // took the safe-area frame and cut the story off at the status bar and home indicator
-        // (the white strips bug). Outermost, the whole transformed layer is laid out full-screen.
+        )
+        // NEVER transformed (the library has an internal 3D cube for user-to-user swipes; scaling
+        // it warped the card). While the sheet is up, the flat 2D morph card + carousel in
+        // `viewersBackdrop` replace it visually — this just fades out fast and stops taking touches.
+        .opacity(1 - Double(min(p * 6, 1)))
+        .allowsHitTesting(viewersProgress == 0)
         .ignoresSafeArea()
     }
 
@@ -625,16 +629,46 @@ struct StoryViewer: View {
         UIApplication.shared.connectedScenes
             .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.top }.max() ?? 0
     }
-    // Final card scale derived from the layout (NOT a magic number): whatever exactly fills the
-    // space between the status bar and the open sheet's top edge, with a small gap.
-    private var viewersFitScale: CGFloat {
-        let h = UIScreen.main.bounds.height
-        let sheetH = h * StoryViewersBottomSheet.heightFraction
-        return max(0.3, (h - topInset - 8 - 14 - sheetH) / h)
+
+    // The layer behind the viewers sheet. Strictly 2D (no rotations anywhere):
+    // - while DRAGGING (0 < p < 1): ONE flat card of the current photo interpolates
+    //   full-screen ⇄ the carousel's centre slot (uniform scale + radius + translate).
+    // - once OPEN (p ≈ 1): crossfades into the swipeable carousel of ALL my stories.
+    @ViewBuilder private var viewersBackdrop: some View {
+        let p = viewersProgress
+        let scr = UIScreen.main.bounds
+        let sheetH = scr.height * StoryViewersBottomSheet.heightFraction
+        let avail = scr.height - sheetH - topInset          // free area above the open sheet
+        let slotH = avail * 0.72                            // centred card height (mockup proportions)
+        let slotW = slotH * 0.66
+        let blockTop = topInset + (avail - slotH - 34) / 2  // 34 ≈ the big count row under the card
+        let settled = p > 0.985
+        ZStack(alignment: .top) {
+            MyStoriesCarousel(stories: myStories, activeId: $sheetStoryId,
+                              slotW: slotW, slotH: slotH,
+                              onActiveTap: { closeViewers() })
+                .padding(.top, blockTop)
+                .opacity(settled ? 1 : 0)
+                .animation(.easeInOut(duration: 0.18), value: settled)
+            if !settled, let url = currentStory?.mediaUrl {
+                StoryImage(url: url)
+                    .frame(width: lerp(scr.width, slotW, p), height: lerp(scr.height, slotH, p))
+                    .clipShape(RoundedRectangle(cornerRadius: 26 * p, style: .continuous))
+                    .padding(.top, blockTop * p)
+                    .frame(maxWidth: .infinity)
+                    .allowsHitTesting(false)   // mid-drag frames take no touches
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .contentShape(Rectangle())
+        .onTapGesture { closeViewers() }   // tap the dark area around the cards → back to full screen
+        .ignoresSafeArea()
     }
+    private func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat { a + (b - a) * t }
 
     private func openViewers() {
         guard currentIsMine, !showViewers else { return }
+        sheetStoryId = currentStoryId.isEmpty ? (myStories.last?.id ?? "") : currentStoryId
         showViewers = true   // mount the sheet at progress 0 (offscreen) …
         DispatchQueue.main.async {   // … then slide it up on the next tick so insertion animates
             withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) { viewersProgress = 1 }
@@ -931,8 +965,6 @@ struct SeenBySheet: View {
 }
 
 
-// Telegram-style story viewers sheet: horizontal cards of my stories (with view/❤️ counts),
-// All-Viewers/Contacts segmented control, search, and a viewer list (avatar, name, time, heart).
 // Native-style bottom action sheet: dim scrim + a material action group + a separate Cancel pill,
 // anchored to the bottom (replaces confirmationDialog, which rendered centered over the clear cover).
 struct BottomActionSheet<Content: View>: View {
@@ -967,32 +999,116 @@ struct BottomActionSheet<Content: View>: View {
     }
 }
 
-// Telegram-architecture viewers sheet: a SEPARATE bottom layer holding ONLY the drag handle, sticky tabs,
-// search, and the scrollable viewer list — NO story media. It drives `progress` (0 closed … 1 open); the
-// StoryViewer reads that to scale/round/lift the active story behind it. Both layers share one value → in sync.
+// Carousel of ALL my posted stories, shown above the open viewers sheet (Telegram / user mockup):
+// ONLY the rounded photos — no captions, no avatars, no progress bars. Side cards carry a small
+// eye+heart count inside their bottom edge; the CENTRED card shows its count BIG underneath.
+// Swiping (or tapping a side card) re-centres a story and re-targets the viewers list below.
+struct MyStoriesCarousel: View {
+    let stories: [Story]
+    @Binding var activeId: String
+    let slotW: CGFloat
+    let slotH: CGFloat
+    var onActiveTap: () -> Void = {}    // tap the centred card → collapse back to full screen
+
+    @State private var byStory: [String: [StoryViewerInfo]] = [:]   // per-story viewers (counts)
+    @State private var scrolledID: String?
+
+    var body: some View {
+        let active = byStory[activeId] ?? []
+        let activeReacts = active.filter { !($0.reaction ?? "").isEmpty }.count
+        VStack(spacing: 12) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(stories, id: \.id) { s in card(s) }
+                }
+                .scrollTargetLayout()
+                .padding(.horizontal, max(16, (UIScreen.main.bounds.width - slotW) / 2))   // centre the focused card
+            }
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: $scrolledID)
+            .frame(height: slotH)
+            // The active (centred) card's count, big + centred under the carousel (mockup).
+            countRow(views: active.count, likes: activeReacts, big: true)
+        }
+        .onChange(of: scrolledID) { _, v in if let v { activeId = v } }
+        .onAppear { scrolledID = activeId }
+        .task { await loadAll() }
+    }
+
+    private func card(_ s: Story) -> some View {
+        let vs = byStory[s.id] ?? []
+        let reacts = vs.filter { !($0.reaction ?? "").isEmpty }.count
+        return StoryImage(url: s.mediaUrl)
+            .frame(width: slotW, height: slotH)
+            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .overlay(alignment: .bottom) {
+                // Side cards show a small count inside; the CENTRED card hides it (big count below).
+                countRow(views: vs.count, likes: reacts, big: false)
+                    .padding(.bottom, 10)
+                    .scrollTransition(.interactive) { c, phase in c.opacity(phase.isIdentity ? 0 : 1) }
+            }
+            // Scale driven by the SCROLL itself — centre card full size, neighbours shrink, smooth
+            // during the drag; viewAligned snaps to centre on release. Pure 2D.
+            .scrollTransition(.interactive) { content, phase in
+                content
+                    .scaleEffect(phase.isIdentity ? 1.0 : 0.78)
+                    .opacity(phase.isIdentity ? 1.0 : 0.9)
+            }
+            .id(s.id)
+            .onTapGesture {
+                if s.id == activeId { onActiveTap() }
+                else { withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) { scrolledID = s.id } }
+            }
+    }
+
+    // Eye + views + heart + likes, white over a soft shadow. `big` = the centred card's row below.
+    private func countRow(views: Int, likes: Int, big: Bool) -> some View {
+        HStack(spacing: big ? 7 : 5) {
+            Image(systemName: "eye.fill")
+            Text(compactCount(views))
+            if likes > 0 {
+                Image(systemName: "heart.fill").foregroundStyle(.red).padding(.leading, 4)
+                Text(compactCount(likes))
+            }
+        }
+        .font(big ? .subheadline.weight(.bold) : .caption2.weight(.semibold))
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.5), radius: 3)
+    }
+
+    private func compactCount(_ n: Int) -> String {
+        if n >= 1000 { return String(format: "%.1fK", Double(n) / 1000).replacingOccurrences(of: ".0K", with: "K") }
+        return "\(n)"
+    }
+
+    private func loadAll() async {
+        await withTaskGroup(of: (String, [StoryViewerInfo]).self) { group in
+            for s in stories { group.addTask { (s.id, await StoriesService.shared.fetchViewers(storyId: s.id)) } }
+            for await (id, v) in group { byStory[id] = v }
+        }
+    }
+}
+
+// Telegram-architecture viewers sheet: a SEPARATE bottom layer holding ONLY the drag handle, search,
+// and the scrollable viewer list — NO story media (the carousel above it is its own layer). It drives
+// `progress` (0 closed … 1 open); the StoryViewer's backdrop reads the same value → always in sync.
 struct StoryViewersBottomSheet: View {
-    // Sheet height as a fraction of the screen. The story viewer derives the card's final
-    // scale from this same value, so the two layers always agree on the layout (Telegram
-    // sizing: sheet ≈ bottom third, card fills the space above it).
-    static let heightFraction: CGFloat = 0.38
+    // Sheet height as a fraction of the screen. The story viewer derives the carousel slot
+    // from this same value, so the two layers always agree on the layout (user mockup:
+    // sheet ≈ bottom 58%, carousel fills the space above it).
+    static let heightFraction: CGFloat = 0.58
 
     let activeStoryId: String
     @Binding var progress: CGFloat
     let onClose: () -> Void
 
     @State private var viewers: [StoryViewerInfo] = []
-    @State private var segment = 0          // 0 = All Viewers, 1 = Contacts
     @State private var search = ""
     @State private var loading = true
     @State private var dragStart: CGFloat? = nil
 
-    private var me: String { AuthService.shared.uid ?? "" }
-    private var contactUids: Set<String> {
-        Set(ConversationsRepository.shared.conversations.compactMap { $0.isGroup ? nil : $0.otherUid(me) })
-    }
     private var filtered: [StoryViewerInfo] {
         var v = viewers
-        if segment == 1 { v = v.filter { contactUids.contains($0.id) } }
         let q = search.trimmingCharacters(in: .whitespaces)
         if !q.isEmpty { v = v.filter { $0.name.localizedCaseInsensitiveContains(q) } }
         return v.sorted { $0.viewedAt > $1.viewedAt }
@@ -1017,11 +1133,11 @@ struct StoryViewersBottomSheet: View {
         .task(id: activeStoryId) { await load() }
     }
 
-    // Sticky header (handle + tabs + search). Dragging here drives `progress`; the list below scrolls on its own.
+    // Sticky header (handle + search — no tabs, per the mockup). Dragging here drives `progress`;
+    // the list below scrolls on its own.
     private func stickyHeader(sheetH: CGFloat) -> some View {
         VStack(spacing: 12) {
             Capsule().fill(.white.opacity(0.28)).frame(width: 38, height: 5).padding(.top, 8)
-            HStack(spacing: 8) { Spacer(); tabPill("All Viewers", 0); tabPill("Contacts", 1); Spacer() }
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.6))
                 TextField("", text: $search, prompt: Text("Search").foregroundColor(.white.opacity(0.5)))
@@ -1066,17 +1182,6 @@ struct StoryViewersBottomSheet: View {
             }
             .padding(.bottom, 30)
         }
-    }
-
-    private func tabPill(_ title: String, _ tag: Int) -> some View {
-        let sel = segment == tag
-        return Text(title)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(sel ? .white : .white.opacity(0.5))
-            .padding(.horizontal, 16).padding(.vertical, 7)
-            .background(sel ? Color.white.opacity(0.14) : .clear, in: Capsule())
-            .contentShape(Capsule())
-            .onTapGesture { withAnimation(.easeInOut(duration: 0.18)) { segment = tag } }
     }
 
     private var doubleCheck: some View {
