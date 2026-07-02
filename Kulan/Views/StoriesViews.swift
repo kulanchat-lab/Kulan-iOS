@@ -121,14 +121,17 @@ struct StoriesRow: View {
     }
     private var cardH: CGFloat { cardW * 1.46 }
 
-    // Ordering: UNVIEWED first (original order), then VIEWED — most-recently-viewed first. Re-sorts live
-    // (no reload) the instant a story is opened (markSeenLocally sets lastViewedAt) and the cards animate.
+    // Ordering (WhatsApp): UNVIEWED first, then VIEWED — BOTH sorted by newest post first (never
+    // by when I watched). Re-sorts live (no reload) the instant a person's last unseen story is
+    // watched (markSeenLocally advances the watermark) and the cards animate.
     private var orderedOthers: [StoryGroup] {
         let _ = prefsTick   // re-evaluate after hide/seen toggles
+        func newestFirst(_ a: StoryGroup, _ b: StoryGroup) -> Bool {
+            (a.stories.last?.createdAt ?? .distantPast) > (b.stories.last?.createdAt ?? .distantPast)
+        }
         let visible = repo.others.filter { !StoryPrefs.isHidden($0.authorUid) }
-        let unviewed = visible.filter { $0.hasUnseen }
-        let viewed = visible.filter { !$0.hasUnseen }
-            .sorted { ($0.lastViewedAt ?? .distantPast) > ($1.lastViewedAt ?? .distantPast) }
+        let unviewed = visible.filter { $0.hasUnseen }.sorted(by: newestFirst)
+        let viewed = visible.filter { !$0.hasUnseen }.sorted(by: newestFirst)
         return unviewed + viewed
     }
 
@@ -451,8 +454,15 @@ struct StoryViewer: View {
                 // Open the profile OVER the story (paused) — do NOT close the viewer.
                 if let g = groups.first(where: { $0.authorUid == user.id }) { profileSheet = g }
             },
-            onUserChanged: { uid in currentBucketUid = uid; markSeen(authorUid: uid); loadBarViewers() },
-            onItemSeen: { id in currentStoryId = id; StoryPrefs.markStorySeen(id); markSeenItem(id); loadBarViewers() },
+            // Landing on a person no longer greys their whole ring — seen state advances per ITEM
+            // below (WhatsApp rule: the ring stays colored until every story is watched).
+            onUserChanged: { uid in currentBucketUid = uid; loadBarViewers() },
+            // Anonymous viewing leaves NO trace (Telegram-incognito): no local flags either.
+            onItemSeen: { id in
+                currentStoryId = id
+                if !anonymous { StoryPrefs.markStorySeen(id) }
+                markSeenItem(id); loadBarViewers()
+            },
             onDrag: { d in dragDown = d },   // fade my overlays out as the card is pulled down
             showMore: true, // "…" is a native dropdown menu in the header; its buttons post notifications
             onSwipeUp: { if currentIsMine { showViewers = true } }  // Telegram: swipe up opens your viewers
@@ -614,16 +624,11 @@ struct StoryViewer: View {
         flashSentToast()   // optimistic "Sent" confirmation (WhatsApp-style)
     }
 
-    // Landing on a person clears THEIR ring (not everyone's). Per-photo receipts are sent
-    // separately by markSeenItem, so we no longer receipt photos the viewer never reached.
-    private func markSeen(authorUid: String) {
-        guard !anonymous else { return }
-        StoriesRepository.shared.markSeenLocally(authorUid)   // clear the ring immediately (H8 race fix)
-    }
-
-    // Receipt ONLY the photo actually shown (drives accurate view counts + "Seen by").
+    // Receipt ONLY the photo actually shown (drives accurate view counts + "Seen by"), and
+    // advance the local watermark so the ring/row update instantly (H8 race fix).
     private func markSeenItem(_ storyId: String) {
         guard !anonymous, let s = groups.flatMap(\.stories).first(where: { $0.id == storyId }) else { return }
+        StoriesRepository.shared.markSeenLocally(s.authorUid, upTo: s.createdAt)
         Task { await StoriesService.shared.markViewed(s) }
     }
 

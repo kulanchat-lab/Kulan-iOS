@@ -27,12 +27,13 @@ struct StoryGroup: Identifiable {
 
     var id: String { authorUid }
 
-    // Unseen ⇔ I haven't viewed since the newest story (mirrors Signal's ring logic).
-    // Applies to my own story too now: colorful until I open it (then markSeenLocally greys it).
+    // Unseen ⇔ ANY story I haven't watched yet (WhatsApp/Instagram rule: watching 1 of 5 no
+    // longer greys the whole ring). A story counts as seen if I viewed that exact item on this
+    // device (StoryPrefs flag) OR it's not newer than my synced watermark — `lastViewedAt` holds
+    // the POST time of the newest story of theirs I've watched (covers reinstalls/other devices).
+    // Applies to my own story too: colorful until I open it.
     var hasUnseen: Bool {
-        guard let newest = stories.map(\.createdAt).max() else { return false }
-        guard let lv = lastViewedAt else { return true }
-        return lv < newest
+        stories.contains { !StoryPrefs.isStorySeen($0.id) && $0.createdAt > (lastViewedAt ?? .distantPast) }
     }
 }
 
@@ -150,9 +151,14 @@ final class StoriesService {
     func markViewed(_ story: Story) async {
         let me = uid
         guard !me.isEmpty, story.authorUid != me else { return }
-        try? await db.collection("users").document(me)
-            .collection("storyContexts").document(story.authorUid)
-            .setData(["lastViewedAt": FieldValue.serverTimestamp()], merge: true)
+        // Advance my per-author watermark to this story's POST time — never backwards, one write
+        // per advance. (Was a wall-clock serverTimestamp, which made watching 1 of 5 stories mark
+        // the whole ring seen; the watermark now means "the newest story of theirs I've watched".)
+        if await StoriesRepository.shared.advanceServerWatermark(story.authorUid, to: story.createdAt) {
+            try? await db.collection("users").document(me)
+                .collection("storyContexts").document(story.authorUid)
+                .setData(["lastViewedAt": Timestamp(date: story.createdAt)], merge: true)
+        }
 
         let receiptsOn = UserDefaults.standard.object(forKey: "storyViewReceipts") as? Bool ?? true
         if receiptsOn {
@@ -255,12 +261,26 @@ final class StoriesRepository {
         }
     }
 
-    // Optimistically clear the unseen ring the instant a bucket is viewed, so it doesn't stay
-    // "unseen" while the serverTimestamp write races the forced reload (H8).
-    @MainActor func markSeenLocally(_ authorUid: String) {
-        let now = Date()
-        if let i = others.firstIndex(where: { $0.authorUid == authorUid }) { others[i].lastViewedAt = now }
-        if mine?.authorUid == authorUid { mine?.lastViewedAt = now }
+    // Optimistically advance my LOCAL per-author watermark to the story just shown, so the
+    // ring/row re-sort instantly instead of waiting for the server write (H8). Monotonic: the
+    // watermark is the POST time of the newest story I've watched — never wall clock — so a
+    // person with newer unwatched stories keeps their colored ring.
+    @MainActor func markSeenLocally(_ authorUid: String, upTo storyCreatedAt: Date) {
+        if let i = others.firstIndex(where: { $0.authorUid == authorUid }) {
+            others[i].lastViewedAt = max(others[i].lastViewedAt ?? .distantPast, storyCreatedAt)
+        }
+        if mine?.authorUid == authorUid {
+            mine?.lastViewedAt = max(mine?.lastViewedAt ?? .distantPast, storyCreatedAt)
+        }
+    }
+
+    // Server-side watermark dedupe: true = this view advances the synced watermark (caller then
+    // writes it), false = already covered (no write). Seeded from storyContexts on load.
+    private var serverWatermarks: [String: Date] = [:]
+    @MainActor func advanceServerWatermark(_ authorUid: String, to date: Date) -> Bool {
+        guard date > (serverWatermarks[authorUid] ?? .distantPast) else { return false }
+        serverWatermarks[authorUid] = date
+        return true
     }
 
     func load(force: Bool = false) async {
@@ -302,12 +322,32 @@ final class StoriesRepository {
              ProfileStore.shared.me?.name ?? "You",
              ProfileStore.shared.me?.photoUrl)
         }
+        // Authors NOT in my chats (a story can reach me from someone I've never messaged,
+        // e.g. beta test accounts): fall back to their profile doc for name/photo instead of
+        // rendering "User". Rules allow any signed-in user to read users/{uid}. Fetched
+        // concurrently, only for the (rare) unknown authors.
+        let known = Set(convs.map { $0.otherUid(me) })
+        let unknownAuthors = Set(all.map(\.authorUid)).subtracting(known).subtracting([me])
+        var profiles: [String: (String, String?)] = [:]
+        if !unknownAuthors.isEmpty {
+            await withTaskGroup(of: (String, String, String?)?.self) { group in
+                for u in unknownAuthors {
+                    group.addTask { [db] in
+                        guard let f = try? await db.collection("users").document(u).getDocument().data()
+                        else { return nil }
+                        return (u, f["name"] as? String ?? "", f["photoUrl"] as? String)
+                    }
+                }
+                for await r in group { if let (u, n, p) = r { profiles[u] = (n, p) } }
+            }
+        }
+
         func display(_ uid: String) -> (String, String?) {
             if uid == me { return (myName, myPhoto) }
             if let c = convs.first(where: { $0.otherUid(me) == uid }) {
                 return (c.name(for: me), c.photoUrl(for: me))
             }
-            return ("", nil)
+            return profiles[uid] ?? ("", nil)
         }
 
         // Don't show stories from anyone in a blocked relationship (C3, read side).
@@ -331,7 +371,26 @@ final class StoriesRepository {
             return ($0.stories.last?.createdAt ?? .distantPast) > ($1.stories.last?.createdAt ?? .distantPast)
         }
 
-        await MainActor.run { self.mine = myGroup; self.others = groups }
+        await MainActor.run {
+            // Seed the server-watermark dedupe map (merge forward — a view that just happened
+            // locally may be newer than the snapshot we read).
+            for (author, ts) in lastViewed {
+                self.serverWatermarks[author] = max(self.serverWatermarks[author] ?? .distantPast, ts)
+            }
+            // Apply the freshest watermark to each group so a reload can never REGRESS a ring
+            // to unseen while the view write is still in flight (H8, watermark edition).
+            var mg = myGroup
+            if let m = mg, let w = self.serverWatermarks[m.authorUid] {
+                mg?.lastViewedAt = max(m.lastViewedAt ?? .distantPast, w)
+            }
+            var gs = groups
+            for i in gs.indices {
+                if let w = self.serverWatermarks[gs[i].authorUid] {
+                    gs[i].lastViewedAt = max(gs[i].lastViewedAt ?? .distantPast, w)
+                }
+            }
+            self.mine = mg; self.others = gs
+        }
     }
 
     // ===== TEMPORARY demo stories (real images) for testing the viewer/carousel/rings =====
