@@ -210,13 +210,11 @@ struct StoriesRow: View {
             if stories.uploading {
                 uploadingCard.transition(.opacity)
                     .contentShape(Rectangle())
-                    // Existing active stories? Open the NORMAL viewer (they play in sequence while the
-                    // new one keeps uploading in the background) — forcing the upload placeholder here
-                    // hid the others and caused a glitchy jump when the upload finished mid-view.
-                    // The live upload viewer is only for the FIRST story (nothing else to show).
-                    .onTapGesture {
-                        if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } else { onOpenUploading() }
-                    }
+                    // Tapping the still-uploading card ALWAYS opens the live upload viewer (shows the
+                    // story I just posted, with its progress, until it finishes). If I have older
+                    // posted stories, that viewer offers a "‹" / swipe-right to step back into them
+                    // while the upload keeps running in the background.
+                    .onTapGesture { onOpenUploading() }
             } else {
                 card(cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
                      name: "My Story", avatar: mePhoto,
@@ -1012,7 +1010,9 @@ struct StoryViewer: View {
 struct UploadingStoryViewer: View {
     var meName: String
     var mePhoto: String?
+    var hasOlder: Bool = false          // I already have posted stories behind this uploading one
     var onClose: () -> Void
+    var onSeeOlder: () -> Void = {}     // tap/swipe LEFT → browse my already-posted (older) stories
     var onFinished: () -> Void          // upload succeeded → open the real story viewer
     @State private var stories = StoriesService.shared
 
@@ -1028,6 +1028,23 @@ struct UploadingStoryViewer: View {
                             .frame(height: 130).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                             .allowsHitTesting(false),
                         alignment: .top)
+            }
+            // Left affordance: while this newest story uploads, tap the "‹" (or swipe right) to step
+            // back into my already-posted older stories — the upload keeps running in the background.
+            if hasOlder {
+                HStack {
+                    Button(action: onSeeOlder) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .frame(width: 54)
+                            .frame(maxHeight: .infinity)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
+                .padding(.vertical, 96)   // clear the top header + the bottom upload status bar
             }
             VStack {
                 HStack(spacing: 10) {
@@ -1060,6 +1077,15 @@ struct UploadingStoryViewer: View {
                 .background(Color.black)
             }
         }
+        // Swipe RIGHT anywhere → same as tapping the "‹": go back to my older posted stories.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24).onEnded { v in
+                guard hasOlder,
+                      v.translation.width > 60,
+                      abs(v.translation.width) > abs(v.translation.height) else { return }
+                onSeeOlder()
+            }
+        )
         .onChange(of: stories.uploading) { _, up in
             guard !up else { return }   // upload finished
             if stories.uploadError == nil { onFinished() } else { onClose() }
@@ -1076,6 +1102,7 @@ struct UploadingStoryHandoff: View {
     var meName: String
     var mePhoto: String?
     var onClose: () -> Void                       // dismiss the cover (both phases)
+    var onSeeOlder: () -> Void = {}               // "‹" from the uploading viewer → my older stories
     var onProfile: (StoryGroup) -> Void = { _ in }
     @State private var finished: StoryGroup?      // set on completion → real viewer, same screen
     @State private var feedTick = 0               // re-feed identity after an in-viewer delete
@@ -1094,7 +1121,9 @@ struct UploadingStoryHandoff: View {
                     .transition(.opacity)
             } else {
                 UploadingStoryViewer(meName: meName, mePhoto: mePhoto,
+                                     hasOlder: !(StoriesRepository.shared.mine?.stories.isEmpty ?? true),
                                      onClose: onClose,
+                                     onSeeOlder: onSeeOlder,
                                      onFinished: {
                                          // Repo refreshes before `uploading` flips, so `mine` is fresh here.
                                          if let mine = StoriesRepository.shared.mine { finished = mine }

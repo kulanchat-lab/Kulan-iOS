@@ -800,6 +800,13 @@ struct ChatsView: View {
                         showUploadViewer = false
                         Task { await StoriesRepository.shared.load(force: true) }   // refresh seen rings
                     },
+                    // "‹"/swipe-right from the uploading viewer → dismiss it and open my already-posted
+                    // older stories in the normal viewer (the upload keeps running in the background).
+                    onSeeOlder: {
+                        guard let m = StoriesRepository.shared.mine, !m.stories.isEmpty else { return }
+                        showUploadViewer = false
+                        DispatchQueue.main.async { viewerAnonymous = false; viewerGroup = m }
+                    },
                     onProfile: { grp in profileGroup = grp })
             }
             .sheet(item: $profileGroup) { g in
