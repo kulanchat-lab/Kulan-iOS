@@ -119,32 +119,6 @@ enum StoryPrefs {
 // Horizontal Stories row for the top of the Chats screen.
 struct SeenByTarget: Identifiable { let id: String }
 
-// Custom per-card story context menu payload. Native `.contextMenu` is NOT used on the story
-// cards: iOS recycles the row's backing views when the cards re-sort, and the recycled menu
-// registration can fire another card's menu (My Story menu on a friend card and vice versa —
-// hit twice despite stable ids + stable-container fixes). Each card long-presses → builds THIS
-// payload from ITS OWN data at that moment → one presenter renders it. No registration to leak.
-private struct StoryMenu: Identifiable {
-    let id = UUID()
-    let cover: String?          // cover image url (nil/empty → avatar placeholder)
-    let name: String
-    let avatar: String?
-    let seen: [Bool]            // ring arcs, so the in-place replica matches the real card
-    let sourceFrame: CGRect     // the pressed card's GLOBAL frame → lift in place (native look)
-    let items: [StoryMenuItem]
-}
-
-private struct StoryMenuItem: Identifiable {
-    let id = UUID()
-    let title: String
-    let systemImage: String
-    let destructive: Bool
-    let action: () -> Void
-    init(title: String, systemImage: String, destructive: Bool, action: @escaping () -> Void) {
-        self.title = title; self.systemImage = systemImage; self.destructive = destructive; self.action = action
-    }
-}
-
 struct StoriesRow: View {
     @State private var repo = StoriesRepository.shared
     @State private var stories = StoriesService.shared   // observe the live upload state
@@ -160,9 +134,6 @@ struct StoriesRow: View {
     var onOpenUploading: () -> Void = {}   // tap the still-uploading card → live upload viewer
     @State private var prefsTick = 0   // re-render after hide/notify toggles
     @State private var hideTarget: StoryGroup?   // "Hide Stories?" confirmation target
-    @State private var storyMenu: StoryMenu?          // custom long-press context menu target
-    @State private var pendingAction: (() -> Void)?   // action to run AFTER the cover fully dismisses
-    @State private var myCardFrame: CGRect = .zero    // My Story card's global frame → in-place menu
 
     private let storySpacing: CGFloat = 10
     private let storyHPad: CGFloat = 12
@@ -204,7 +175,6 @@ struct StoriesRow: View {
                                     onProfile: { onProfile(g) },
                                     onHide: { hideTarget = g },
                                     onOpenAnon: { onOpenAnon(g) },
-                                    onLongPress: { presentMenu($0) },
                                     storyNS: storyNS,
                                     groupID: g.id)
                         .equatable()
@@ -228,29 +198,7 @@ struct StoriesRow: View {
         } message: { g in
             Text("New story updates from \(g.name.isEmpty ? "this person" : g.name) won't appear at the top of the stories list anymore.")
         }
-        .fullScreenCover(item: $storyMenu, onDismiss: {
-            // Run the picked action only after the cover is fully gone (avoids nested-cover
-            // conflicts when the action itself presents the story viewer).
-            let a = pendingAction; pendingAction = nil; a?()
-        }) { menu in
-            StoryContextMenuOverlay(menu: menu, cardW: cardW, cardH: cardH) { action in
-                dismissMenu(action)   // action == nil for a backdrop tap
-            }
-            .presentationBackground(.clear)   // see-through cover over the chat list
-        }
         .task { await repo.load() }
-    }
-
-    // Present/dismiss the custom menu WITHOUT the cover's default bottom-slide, so the overlay's
-    // own spring+scale is the only animation (matches the iOS context-menu feel).
-    private func presentMenu(_ m: StoryMenu) {
-        var t = Transaction(); t.disablesAnimations = true
-        withTransaction(t) { storyMenu = m }
-    }
-    private func dismissMenu(_ action: (() -> Void)?) {
-        pendingAction = action
-        var t = Transaction(); t.disablesAnimations = true
-        withTransaction(t) { storyMenu = nil }   // onDismiss: fires pendingAction after it's gone
     }
 
     @ViewBuilder private var myCard: some View {
@@ -273,27 +221,16 @@ struct StoriesRow: View {
                      seen: StoryPrefs.seenFlags(repo.mine?.stories ?? [], upTo: repo.mine?.lastViewedAt), onBadge: onCompose) {
                     if let m = repo.mine { onOpen(m) } else { onCompose() }
                 }
-                // Custom long-press: builds MY menu from MY data right here — a native .contextMenu
-                // registration could fire on a recycled friend card after re-sorts (the mixup bug).
-                // highPriority (not simultaneous) so a successful hold CANCELS the card's tap.
-                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { myCardFrame = $0 }
-                .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    presentMenu(StoryMenu(
-                        cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
-                        name: "My Story",
-                        avatar: mePhoto,
-                        seen: StoryPrefs.seenFlags(repo.mine?.stories ?? [], upTo: repo.mine?.lastViewedAt),
-                        sourceFrame: myCardFrame,
-                        items: [
-                            StoryMenuItem(title: "Add Story", systemImage: "plus",
-                                          destructive: false, action: onCompose),
-                            StoryMenuItem(title: "Posted Stories", systemImage: "circle.dashed",
-                                          destructive: false) {
-                                if let m = repo.mine, !m.stories.isEmpty { onOpen(m) }
-                            }
-                        ]))
-                })
+                // NATIVE context menu (build 181 look): My Story menu, lifting just the rounded card.
+                .contextMenu {
+                    Button { onCompose() } label: { Label("Add Story", systemImage: "plus") }
+                    Button { if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } }
+                        label: { Label("Posted Stories", systemImage: "circle.dashed") }
+                } preview: {
+                    coverImage(repo.mine?.stories.last?.mediaUrl ?? mePhoto, name: "My Story", avatar: mePhoto)
+                        .frame(width: cardW, height: cardH)
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                }
                 .matchedTransitionSource(id: repo.mine?.id ?? "my-story", in: storyNS)   // hero grow source
                 .transition(.opacity)
             }
@@ -394,7 +331,6 @@ private struct StoryFriendCard: View, Equatable {
     let onProfile: () -> Void
     let onHide: () -> Void
     var onOpenAnon: () -> Void = {}   // "View Anonymously" — opens the story without a seen receipt
-    let onLongPress: (StoryMenu) -> Void   // signals up to StoriesRow (this struct is separate)
     let storyNS: Namespace.ID    // hero zoom: card ⇄ viewer
     let groupID: String          // matches the viewer's zoom sourceID
 
@@ -403,7 +339,6 @@ private struct StoryFriendCard: View, Equatable {
             && l.seen == r.seen && l.cardW == r.cardW && l.groupID == r.groupID
     }
 
-    @State private var cardFrame: CGRect = .zero   // global frame → the menu lifts THIS card in place
     private var cardH: CGFloat { cardW * 1.46 }
 
     var body: some View {
@@ -424,25 +359,20 @@ private struct StoryFriendCard: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { cardFrame = $0 }
-        // Custom long-press: builds THIS friend's menu from THIS card's data at press time —
-        // strict ownership, nothing recycled. highPriority so a successful hold cancels the tap.
-        .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            onLongPress(StoryMenu(
-                cover: cover, name: name, avatar: avatar,
-                seen: seen, sourceFrame: cardFrame,
-                items: [
-                    StoryMenuItem(title: "View Anonymously", systemImage: "eye.slash",
-                                  destructive: false, action: onOpenAnon),
-                    StoryMenuItem(title: "Send Message", systemImage: "message",
-                                  destructive: false, action: onMessage),
-                    StoryMenuItem(title: "Open Profile", systemImage: "person.crop.circle",
-                                  destructive: false, action: onProfile),
-                    StoryMenuItem(title: "Hide Stories", systemImage: "archivebox",
-                                  destructive: true, action: onHide)
-                ]))
-        })
+        // NATIVE iOS context menu (build 181 look). Each card owns its menu built from its OWN
+        // props, and the explicit `preview:` lifts just the rounded photo. The row is OUTSIDE the
+        // chat List now (which was what collapsed per-card menus into one), so per-card native menus
+        // work; the stable `.id(authorUid)` at the call site keeps each menu bound to its person.
+        .contextMenu {
+            Button { onOpenAnon() } label: { Label("View Anonymously", systemImage: "eye.slash") }
+            Button { onMessage() } label: { Label("Send Message", systemImage: "message") }
+            Button { onProfile() } label: { Label("Open Profile", systemImage: "person.crop.circle") }
+            Button(role: .destructive) { onHide() } label: { Label("Hide Stories", systemImage: "archivebox") }
+        } preview: {
+            coverView
+                .frame(width: cardW, height: cardH)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        }
         .matchedTransitionSource(id: groupID, in: storyNS)   // hero grow source
     }
 
@@ -455,125 +385,6 @@ private struct StoryFriendCard: View, Equatable {
     }
 }
 
-// Custom long-press menu presented the NATIVE way (per user request): the pressed card lifts
-// IN ITS OWN PLACE (replica at the exact captured global frame, everything else dims) and the
-// menu drops in right below it, leading-aligned with leading icons — visually the classic iOS
-// context menu. Only the presentation is custom; the per-card payload keeps menu mixups impossible.
-private struct StoryContextMenuOverlay: View {
-    let menu: StoryMenu
-    let cardW: CGFloat
-    let cardH: CGFloat
-    let onDismiss: (_ action: (() -> Void)?) -> Void   // nil action = cancel
-
-    @State private var shown = false          // drives the spring-in / animate-out
-    private let menuW: CGFloat = 268
-
-    var body: some View {
-        let screen = UIScreen.main.bounds
-        // Fallback (frame never captured): centre the lift roughly where the row lives.
-        let src = menu.sourceFrame == .zero
-            ? CGRect(x: (screen.width - cardW) / 2, y: 140, width: cardW, height: cardH + 24)
-            : menu.sourceFrame
-        let menuX = min(max(12, src.minX), screen.width - menuW - 12)
-        // Menu normally sits just under the card; if that would run off the bottom, place it ABOVE.
-        let menuBelowY = src.maxY + 10
-        let menuAboveY = src.minY - 10 - 140   // ~140 ≈ a 3-row menu height
-        let menuY = menuBelowY + 150 > screen.height ? max(12, menuAboveY) : menuBelowY
-        ZStack(alignment: .topLeading) {
-            // Dim everything strongly (like the native context menu) so the bright story photos
-            // clearly darken and the lifted card visibly stands out — a weak dim over vivid photos
-            // barely showed, so the pressed card didn't pop the way build 181's native lift did.
-            Color.black.opacity(shown ? 0.6 : 0)
-                .contentShape(Rectangle())
-                .onTapGesture { close(nil) }
-
-            // The pressed card, lifted in place at its exact on-screen position — stays fully bright
-            // (drawn OVER the dim) with a strong soft shadow so it floats above the darkened row.
-            cardReplica(width: src.width)
-                .scaleEffect(shown ? 1.08 : 1.0)
-                .shadow(color: .black.opacity(shown ? 0.55 : 0), radius: 28, y: 14)
-                .position(x: src.midX, y: src.midY)
-
-            // Menu under (or above) the card, leading-aligned, clamped to the screen.
-            menuCard
-                .scaleEffect(shown ? 1 : 0.3, anchor: .topLeading)
-                .opacity(shown ? 1 : 0)
-                .offset(x: menuX, y: menuY)
-        }
-        // The whole overlay ignores the safe area so `sourceFrame` (captured in full-screen .global
-        // coords) lines up 1:1 — without this the ZStack lays out inset below the status bar and the
-        // lifted card + menu rendered ~47pt too low (a faint double image over the real card).
-        .ignoresSafeArea()
-        // Force the DARK system-menu appearance regardless of app theme, so .regularMaterial renders
-        // as the dark grey iOS context-menu surface and labels are white (matches build 181's native
-        // menu exactly).
-        .environment(\.colorScheme, .dark)
-        .onAppear {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { shown = true }
-        }
-    }
-
-    // Faithful copy of a story card: cover + avatar/ring + name label (drawn over the dim).
-    private func cardReplica(width: CGFloat) -> some View {
-        VStack(spacing: 6) {
-            ZStack(alignment: .bottomLeading) {
-                Group {
-                    if let cover = menu.cover, !cover.isEmpty {
-                        StoryImage(url: cover)
-                    } else {
-                        ZStack {
-                            Color.secondary.opacity(0.2)
-                            AvatarView(name: menu.name, photoUrl: menu.avatar, size: width * 0.62)
-                        }
-                    }
-                }
-                .frame(width: width, height: width * 1.46)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                AvatarView(name: menu.name, photoUrl: menu.avatar, size: 32)
-                    .overlay { if !menu.seen.isEmpty { StoryRingView(seen: menu.seen).frame(width: 37, height: 37) } }
-                    .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
-                    .padding(8)
-            }
-            Text(menu.name).font(.system(size: 12)).lineLimit(1).frame(width: width)
-                .foregroundStyle(.white)
-        }
-        .frame(width: width)
-    }
-
-    private var menuCard: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(menu.items.enumerated()), id: \.element.id) { idx, item in
-                Button { close(item.action) } label: {
-                    HStack(spacing: 14) {
-                        Image(systemName: item.systemImage)
-                            .font(.system(size: 17))
-                            .foregroundStyle(item.destructive ? Color.red : Color.primary)
-                            .frame(width: 24)
-                        Text(item.title)
-                            .font(.system(size: 17))
-                            .foregroundStyle(item.destructive ? Color.red : Color.primary)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(height: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                if idx < menu.items.count - 1 {
-                    Divider().overlay(Color.primary.opacity(0.08))
-                }
-            }
-        }
-        .frame(width: menuW)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
-    }
-
-    private func close(_ action: (() -> Void)?) {
-        withAnimation(.easeOut(duration: 0.16)) { shown = false }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) { onDismiss(action) }
-    }
-}
 
 // MARK: - Story Viewer (Instagram-style)
 
