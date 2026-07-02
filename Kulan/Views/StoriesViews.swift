@@ -190,10 +190,12 @@ struct StoriesRow: View {
             get: { stories.uploadError != nil },
             set: { if !$0 { stories.uploadError = nil } }
         )) { Button("OK", role: .cancel) {} } message: { Text(stories.uploadError ?? "") }
-        .confirmationDialog("Hide Stories?",
-                            isPresented: Binding(get: { hideTarget != nil }, set: { if !$0 { hideTarget = nil } }),
-                            titleVisibility: .visible, presenting: hideTarget) { g in
-            Button("Hide Stories", role: .destructive) { StoryPrefs.toggleHidden(g.authorUid); prefsTick += 1; hideTarget = nil }
+        // Native ALERT, not confirmationDialog: over the stories row the dialog rendered as an
+        // anchored popover (arrow pointing at the row); an alert is the standard centered modal.
+        .alert("Hide Stories?",
+               isPresented: Binding(get: { hideTarget != nil }, set: { if !$0 { hideTarget = nil } }),
+               presenting: hideTarget) { g in
+            Button("Hide Stories", role: .destructive) { StoryPrefs.setHidden(g.authorUid, true); prefsTick += 1; hideTarget = nil }
             Button("Cancel", role: .cancel) { hideTarget = nil }
         } message: { g in
             Text("New story updates from \(g.name.isEmpty ? "this person" : g.name) won't appear at the top of the stories list anymore.")
