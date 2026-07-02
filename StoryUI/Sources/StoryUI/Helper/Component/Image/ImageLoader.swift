@@ -183,8 +183,10 @@ private extension ImageLoader {
        addSubview(backgroundImageView)
        addSubview(blurView)   // heavy Gaussian blur over the fill copy
 
-       // Foreground: the photo at its TRUE aspect ratio — aspect-FIT so a square/landscape is never cropped.
-       imageView.contentMode = .scaleAspectFit
+       // Foreground: fill the whole screen like Instagram/WhatsApp stories (aspect-FILL, center-cropped)
+       // so there's no empty letterbox gap and the reply bar floats over real photo at the very bottom.
+       // The blurred backdrop above stays as a harmless fallback (fully covered for normal ratios).
+       imageView.contentMode = .scaleAspectFill
        imageView.clipsToBounds = true
        addSubview(imageView)
 
