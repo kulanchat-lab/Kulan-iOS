@@ -176,6 +176,16 @@ struct StoryDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .resumeStory)) { _ in
             hostPaused = false; if !keyboardManager.isKeyboardOpen { playVideo() }
         }
+        // Host's viewers carousel centred a different one of MY stories → jump the (frozen) viewer to
+        // that item, so when the sheet collapses the story underneath matches the carousel/morph (no
+        // photo-swap flash at the end of the close). Only affects the currently-shown bucket.
+        .onReceive(NotificationCenter.default.publisher(for: .init("jumpToStoryItem"))) { note in
+            guard viewModel.currentStoryUser == model.id,
+                  let id = note.object as? String,
+                  let idx = model.stories.firstIndex(where: { $0.id == id }),
+                  idx != getCurrentIndex() else { return }
+            timerProgress = CGFloat(idx)
+        }
         // Seamless per-item delete (host trash tap). Compute the adjacent index FIRST, then drop the item from
         // THIS bucket in-place and slide to it — the user never sees a blank frame. The host removes it from the
         // database off the back of storyItemDeleted. Only the currently-shown bucket reacts.

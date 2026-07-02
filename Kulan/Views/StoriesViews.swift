@@ -434,6 +434,14 @@ struct StoryViewer: View {
             .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.bottom }.max() ?? 0
     }
     private var currentStory: Story? { groups.flatMap(\.stories).first { $0.id == currentStoryId } }
+    // Which of my stories the viewers sheet should target. Usually the item on screen; but for the
+    // first ~50ms after opening, `currentStoryId` is still "" (the library's first timer tick hasn't
+    // fired) — fall back to the item the viewer OPENED on (first unseen, else the first), matching
+    // firstUnseenIndex, NOT the newest, so a fast swipe-up doesn't grab the wrong story.
+    private var targetStoryId: String {
+        if !currentStoryId.isEmpty { return currentStoryId }
+        return myStories.first(where: { !StoryPrefs.isStorySeen($0.id) })?.id ?? myStories.first?.id ?? ""
+    }
     // Any sheet shown over the story → pause it (share, forward, "…" menu, delete confirm). The
     // VIEWERS sheet is handled separately via `viewersProgress` (below) so the story is frozen the
     // instant the sheet starts to rise, even mid-drag — otherwise it kept playing and, on reaching
@@ -596,6 +604,12 @@ struct StoryViewer: View {
         .onChange(of: viewersProgress > 0.01) { _, open in
             NotificationCenter.default.post(name: open ? .init("pauseStory") : .init("resumeStory"), object: nil)
         }
+        // Carousel centred a different one of my stories while the sheet is up → advance the frozen
+        // story underneath to match, so collapsing lands on that story with no photo-swap flash.
+        .onChange(of: sheetStoryId) { _, id in
+            guard showViewers, currentIsMine, !id.isEmpty else { return }
+            NotificationCenter.default.post(name: .init("jumpToStoryItem"), object: id)
+        }
         .presentationBackground(.clear)   // see-through cover so the Chats list shows behind during swipe-down
     }
 
@@ -673,7 +687,7 @@ struct StoryViewer: View {
                         openDragging = true
                         openDragStart = viewersProgress
                         if !showViewers {
-                            sheetStoryId = currentStoryId.isEmpty ? (myStories.last?.id ?? "") : currentStoryId
+                            sheetStoryId = targetStoryId
                             showViewers = true
                         }
                         viewersProgress = max(0, min(1, openDragStart - v.translation.height / sheetH))
@@ -835,7 +849,7 @@ struct StoryViewer: View {
         // "swipe up does nothing for 0.42s after closing".
         guard currentIsMine else { return }
         if !showViewers {
-            sheetStoryId = currentStoryId.isEmpty ? (myStories.last?.id ?? "") : currentStoryId
+            sheetStoryId = targetStoryId
             showViewers = true   // mount at progress 0 (offscreen) …
         }
         DispatchQueue.main.async {   // … then raise it on the next tick so the insertion animates
