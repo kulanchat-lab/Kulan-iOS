@@ -873,9 +873,14 @@ struct StoryViewer: View {
         let scr = UIScreen.main.bounds
         let sheetH = scr.height * StoryViewersBottomSheet.heightFraction
         let avail = scr.height - sheetH - topInset          // free area above the open sheet
-        let slotH = avail * 0.72                            // centred card height (mockup proportions)
-        let slotW = slotH * 0.66
-        let blockTop = topInset + (avail - slotH - 34) / 2  // 34 ≈ the big count row under the card
+        // Card block = the centred card + the big count row (~40) below it, centred vertically in
+        // the free space with the status bar cleared. Smaller than before (was avail*0.72, which
+        // made the cards touch the top and the side cards overflow the screen edge). The narrower
+        // slot also makes the neighbours sit clearly off-centre so their scale-down actually reads.
+        let countArea: CGFloat = 40
+        let slotH = (avail - countArea) * 0.84             // ~16% top/bottom breathing room
+        let slotW = slotH * 0.58                           // narrower cards → side cards peek + shrink
+        let blockTop = topInset + (avail - countArea - slotH) / 2
         // Crossfade window: carousel fades IN over the last 12% of travel, the morph card fades OUT
         // there. Both are always mounted and driven by `p`, so the whole thing animates smoothly on
         // a programmatic open/close (withAnimation animates p) — not just during a finger drag.
@@ -1276,7 +1281,7 @@ struct MyStoriesCarousel: View {
                 }
                 .scrollTargetBehavior(.viewAligned)
                 .scrollPosition(id: $scrolledID, anchor: .center)
-                .frame(height: slotH * 1.06)   // headroom so the 1.05-scaled centre card isn't clipped
+                .frame(height: slotH)   // centre card fills the slot exactly (sides scale DOWN within it)
                 .onAppear {
                     // Belt-and-braces: also scrollTo (no animation) in case the seeded scrollPosition
                     // isn't honored before the horizontal content is measured.
@@ -1309,13 +1314,14 @@ struct MyStoriesCarousel: View {
                     .padding(.bottom, 10)
                     .scrollTransition(.interactive) { c, phase in c.opacity(phase.isIdentity ? 0 : 1) }
             }
-            // Scale tied to the SCROLL: centre card emphasised at 1.05, sides interpolate down toward
-            // 0.88 as they leave centre (phase.value is a continuous −1…0…+1). Smooth, finger-proportional.
+            // Scale tied to the SCROLL: centre card fills the slot (1.0), sides interpolate DOWN to
+            // 0.8 as they leave centre (phase.value is a continuous −1…0…+1) — a clear focus
+            // hierarchy like the mockup, with the centre card never overflowing its slot (top-cut).
             .scrollTransition(.interactive(timingCurve: .easeInOut)) { content, phase in
                 content
-                    .scaleEffect(1.05 - 0.17 * abs(phase.value))
-                    .opacity(1.0 - 0.25 * abs(phase.value))
-                    .saturation(1.0 - 0.35 * abs(phase.value))
+                    .scaleEffect(1.0 - 0.20 * abs(phase.value))
+                    .opacity(1.0 - 0.28 * abs(phase.value))
+                    .saturation(1.0 - 0.4 * abs(phase.value))
             }
             .id(s.id)
             .onTapGesture {
