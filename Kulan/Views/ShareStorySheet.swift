@@ -59,6 +59,9 @@ struct ShareStorySheet: View {
         // page, so the sheet never needs to grow for it. Drag up to .large if desired.
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        // SOLID background — the default translucent material let the story photo show through the
+        // sheet ("looks different"); this makes it a normal opaque grouped-list sheet.
+        .presentationBackground(Color(.systemGroupedBackground))
     }
 
     @ViewBuilder private var audienceList: some View {
