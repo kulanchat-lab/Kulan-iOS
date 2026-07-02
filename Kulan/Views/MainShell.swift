@@ -777,18 +777,17 @@ struct ChatsView: View {
                 // into it on close (matchedTransitionSource on the cards + this zoom transition).
                 .navigationTransition(.zoom(sourceID: g.id, in: storyNS))
             }
-            // Live viewer for the still-uploading story: shows the local image + upload bar; when the
-            // upload finishes it hands off to the real story viewer automatically.
+            // Live viewer for the still-uploading story. When the upload finishes, the handoff swaps
+            // to the real story viewer IN-PLACE inside this same cover — dismissing and re-presenting
+            // (the old flow) flashed the chat list between the two covers.
             .fullScreenCover(isPresented: $showUploadViewer) {
-                UploadingStoryViewer(
+                UploadingStoryHandoff(
                     meName: profile.me?.name ?? "You", mePhoto: profile.me?.photoUrl,
-                    onClose: { showUploadViewer = false },
-                    onFinished: {
+                    onClose: {
                         showUploadViewer = false
-                        if let mine = StoriesRepository.shared.mine {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { viewerGroup = mine }
-                        }
-                    })
+                        Task { await StoriesRepository.shared.load(force: true) }   // refresh seen rings
+                    },
+                    onProfile: { grp in profileGroup = grp })
             }
             .sheet(item: $profileGroup) { g in
                 NavigationStack {

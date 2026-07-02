@@ -381,6 +381,7 @@ struct StoryViewer: View {
     @State private var currentStoryId = ""
     @State private var barViewers: [StoryViewerInfo] = []
     @State private var showViewers = false
+    @State private var viewersProgress: CGFloat = 0   // 0 sheet closed … 1 open; drives BOTH layers
     @State private var confirmDelete = false
     @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
     @State private var forwardImg: StoryImagePayload?   // … → Forward (chat picker)
@@ -822,6 +823,45 @@ struct UploadingStoryViewer: View {
             if stories.uploadError == nil { onFinished() } else { onClose() }
         }
         .onAppear { if !stories.uploading { onFinished() } }   // finished before we even opened
+    }
+}
+
+// ONE full-screen cover across the whole upload: shows the uploading viewer while the upload
+// runs, then swaps IN-PLACE (crossfade) to the real story viewer when it completes. The old
+// flow dismissed the upload cover and presented the story viewer as a second cover — that
+// popped the user to the chat list (black flash) and re-navigated back in.
+struct UploadingStoryHandoff: View {
+    var meName: String
+    var mePhoto: String?
+    var onClose: () -> Void                       // dismiss the cover (both phases)
+    var onProfile: (StoryGroup) -> Void = { _ in }
+    @State private var finished: StoryGroup?      // set on completion → real viewer, same screen
+    @State private var feedTick = 0               // re-feed identity after an in-viewer delete
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()   // constant backdrop so the crossfade never blinks
+            if let mine = finished {
+                StoryViewer(group: mine, onClose: onClose, onProfile: onProfile,
+                            onDeletedRemaining: { fresh in
+                                // Deleted one item but more remain — instant re-feed, no animation.
+                                var t = Transaction(); t.disablesAnimations = true
+                                withTransaction(t) { finished = fresh; feedTick += 1 }
+                            })
+                    .id(feedTick)
+                    .transition(.opacity)
+            } else {
+                UploadingStoryViewer(meName: meName, mePhoto: mePhoto,
+                                     onClose: onClose,
+                                     onFinished: {
+                                         // Repo refreshes before `uploading` flips, so `mine` is fresh here.
+                                         if let mine = StoriesRepository.shared.mine { finished = mine }
+                                         else { onClose() }
+                                     })
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: finished == nil)
     }
 }
 
