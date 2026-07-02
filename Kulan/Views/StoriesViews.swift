@@ -466,7 +466,7 @@ private struct StoryContextMenuOverlay: View {
     let onDismiss: (_ action: (() -> Void)?) -> Void   // nil action = cancel
 
     @State private var shown = false          // drives the spring-in / animate-out
-    private let menuW: CGFloat = 252
+    private let menuW: CGFloat = 268
 
     var body: some View {
         let screen = UIScreen.main.bounds
@@ -481,7 +481,7 @@ private struct StoryContextMenuOverlay: View {
         let menuY = menuBelowY + 150 > screen.height ? max(12, menuAboveY) : menuBelowY
         ZStack(alignment: .topLeading) {
             // Dim everything; the replica below stays bright = the native "source stays lit" look.
-            Color.black.opacity(shown ? 0.28 : 0)
+            Color.black.opacity(shown ? 0.44 : 0)
                 .contentShape(Rectangle())
                 .onTapGesture { close(nil) }
 
@@ -501,6 +501,10 @@ private struct StoryContextMenuOverlay: View {
         // coords) lines up 1:1 — without this the ZStack lays out inset below the status bar and the
         // lifted card + menu rendered ~47pt too low (a faint double image over the real card).
         .ignoresSafeArea()
+        // Force the DARK system-menu appearance regardless of app theme, so .regularMaterial renders
+        // as the dark grey iOS context-menu surface and labels are white (matches build 181's native
+        // menu exactly).
+        .environment(\.colorScheme, .dark)
         .onAppear {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { shown = true }
         }
