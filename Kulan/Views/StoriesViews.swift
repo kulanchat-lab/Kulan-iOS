@@ -1213,16 +1213,15 @@ struct MyStoriesCarousel: View {
     var onActiveTap: () -> Void = {}    // tap the centred card → collapse back to full screen
 
     @State private var byStory: [String: [StoryViewerInfo]] = [:]   // per-story viewers (counts)
-    // Seed the scroll position with the active story as the INITIAL state value (not in onAppear),
-    // so `scrollPosition(id:)` centres on B/D on the very first layout — no one-frame flash of A.
-    @State private var scrolledID: String?
     // The card the GEOMETRY says is centred (nearest to the screen centre). This — not scrollPosition's
     // snap id — is the source of truth for the big count, the morph, and activeId, so the visually
     // biggest card is ALWAYS the "active" one.
     @State private var centeredID: String?
+    // Tap a side card → request a scroll to it (handled by the ScrollViewReader via onChange).
+    @State private var scrollRequest: String?
     // Ignore geometry readings until the initial scroll has landed on the opened-on story. On the very
     // first layout the row sits at offset 0 with the FIRST card centred, so an early reading would flip
-    // activeId to A (wrong count/photo flash, or a permanent stick if the seed scroll is dropped).
+    // activeId to A (wrong count/photo, or a permanent stick).
     @State private var settled = false
 
     init(stories: [Story], activeId: Binding<String>, slotW: CGFloat, slotH: CGFloat,
@@ -1232,7 +1231,6 @@ struct MyStoriesCarousel: View {
         self.slotW = slotW
         self.slotH = slotH
         self.onActiveTap = onActiveTap
-        self._scrolledID = State(initialValue: activeId.wrappedValue)
         self._centeredID = State(initialValue: activeId.wrappedValue)
     }
 
@@ -1251,27 +1249,34 @@ struct MyStoriesCarousel: View {
                     .padding(.horizontal, max(16, (UIScreen.main.bounds.width - slotW) / 2))
                 }
                 .scrollTargetBehavior(.viewAligned)
-                .scrollPosition(id: $scrolledID, anchor: .center)
                 .frame(height: slotH)   // centre card fills the slot exactly (sides scale DOWN within it)
                 .onAppear {
-                    // Land on the viewed story reliably. The seeded scrollPosition can be ignored before
-                    // the horizontal content is measured, so also scrollTo now AND on the next runloop
-                    // tick (after layout) — otherwise it flashed/stuck on the first card (A) not B.
-                    // Capture the opened-on id up front so a premature centre reading can't redirect us.
+                    // Centre on the story I was viewing. NO .scrollPosition(id:) binding: that binding
+                    // snapped itself to the FIRST card during the initial layout and then dragged the
+                    // scroll back to A, undoing scrollTo — which is exactly why the top image always
+                    // showed A. Drive the centre purely with scrollTo: immediately, next runloop tick,
+                    // and once more after layout settles, so it reliably lands on the opened-on story.
                     let target = activeId
-                    var t = Transaction(); t.disablesAnimations = true
-                    withTransaction(t) { proxy.scrollTo(target, anchor: .center) }
-                    DispatchQueue.main.async {
-                        var t2 = Transaction(); t2.disablesAnimations = true
-                        withTransaction(t2) { proxy.scrollTo(target, anchor: .center) }
-                        // Now that the row is centred on the opened-on story, let geometry drive the
-                        // active card. (Before this, the first-layout reading would wrongly pick A.)
-                        settled = true
+                    func center() {
+                        var t = Transaction(); t.disablesAnimations = true
+                        withTransaction(t) { proxy.scrollTo(target, anchor: .center) }
                     }
+                    center()
+                    DispatchQueue.main.async { center() }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        center()
+                        settled = true   // now geometry may drive the active card as I swipe
+                    }
+                }
+                // Tap a side card → smoothly recentre on it.
+                .onChange(of: scrollRequest) { _, v in
+                    guard let v else { return }
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) { proxy.scrollTo(v, anchor: .center) }
+                    scrollRequest = nil
                 }
                 // If the caller retargets (rare), follow it.
                 .onChange(of: activeId) { _, v in
-                    guard v != centeredID else { return }
+                    guard settled, v != centeredID else { return }
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) { proxy.scrollTo(v, anchor: .center) }
                 }
             }
@@ -1325,7 +1330,7 @@ struct MyStoriesCarousel: View {
             .id(s.id)
             .onTapGesture {
                 if s.id == activeId { onActiveTap() }
-                else { withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) { scrolledID = s.id } }
+                else { scrollRequest = s.id }
             }
     }
 
@@ -1487,6 +1492,10 @@ struct StoryViewersBottomSheet: View {
             .padding(.bottom, 30)
         }
         .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, y in listOffset = y }
+        // No rubber-band bounce at the top: the bounce fought the collapse-drag below (the list sprang
+        // while the sheet also moved = the "shaking" when pulling DOWN to close). Without it the drag
+        // owns the downward motion cleanly, matching the smooth upward open.
+        .scrollBounceBehavior(.basedOnSize)
         // Lock the list while the sheet isn't fully open so a collapse-drag owns the motion.
         .scrollDisabled(progress < 1)
         // Pulling the list down at its top collapses the sheet (Telegram hand-off).
