@@ -396,7 +396,6 @@ struct StoryViewer: View {
     @State private var dragDown: CGFloat = 0            // swipe-down amount → fade my overlays with the card
     private var me: String { AuthService.shared.uid ?? "" }
     private var currentIsMine: Bool { groups.first { $0.authorUid == currentBucketUid }?.isMine ?? false }
-    private var myStories: [Story] { groups.first { $0.isMine }?.stories ?? [] }
     // Home-indicator inset (the story ignoresSafeArea, so overlays must add it back themselves).
     private var bottomInset: CGFloat {
         UIApplication.shared.connectedScenes
@@ -455,51 +454,22 @@ struct StoryViewer: View {
     }
 
     var body: some View {
-        StoryView(
-            stories: models,
-            selectedIndex: startIndex,
-            isPresented: $isPresented,
-            userClosure: { story, message, emoji, isLiked in
-                handle(storyId: story.id, message: message, emoji: emoji, isLiked: isLiked)
-            },
-            onProfile: { user in
-                // Open the profile OVER the story (paused) — do NOT close the viewer.
-                if let g = groups.first(where: { $0.authorUid == user.id }) { profileSheet = g }
-            },
-            // Landing on a person no longer greys their whole ring — seen state advances per ITEM
-            // below (WhatsApp rule: the ring stays colored until every story is watched).
-            onUserChanged: { uid in currentBucketUid = uid; loadBarViewers() },
-            // Anonymous viewing leaves NO trace (Telegram-incognito): no local flags either.
-            onItemSeen: { id in
-                currentStoryId = id
-                if !anonymous { StoryPrefs.markStorySeen(id) }
-                markSeenItem(id); loadBarViewers()
-            },
-            onDrag: { d in dragDown = d },   // fade my overlays out as the card is pulled down
-            showMore: true, // "…" is a native dropdown menu in the header; its buttons post notifications
-            onSwipeUp: { if currentIsMine { showViewers = true } }  // Telegram: swipe up opens your viewers
-        )
-        .ignoresSafeArea()
-        // My own story: Telegram owner bar (Views + reactions + delete) instead of a reply bar.
-        .overlay(alignment: .bottom) {
-            if currentIsMine {
-                ownerBar
-                    .opacity(dragDown > 6 ? 0 : 1).animation(.easeOut(duration: 0.15), value: dragDown > 6)
-                    .contentShape(Rectangle())
-                    // Reliable swipe-up to open viewers: this owner bar is a SwiftUI overlay ON TOP of the
-                    // story, so its gesture fires even when the library's UIKit swipe-up doesn't. Taps on
-                    // Views/trash still work (minimumDistance gate).
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 16).onEnded { v in
-                            if v.translation.height < -30 { showViewers = true }
-                        }
-                    )
+        ZStack {
+            // Solid black canvas revealed behind the story as it scales down into a card (Telegram).
+            // Invisible at rest so the see-through swipe-down dismiss (clear cover) keeps working.
+            Color.black.ignoresSafeArea()
+                .opacity(Double(min(viewersProgress * 3, 1)))
+            storyLayer
+            // The viewers sheet is a SIBLING layer, NOT a system .sheet: a system sheet lives in
+            // its own presentation layer and cannot drive a continuous transform on the story
+            // behind it — that limitation is what pushed the old design to render story cards
+            // INSIDE the sheet. Both layers share `viewersProgress`, so the drag and the release
+            // spring stay perfectly in sync.
+            if showViewers {
+                StoryViewersBottomSheet(activeStoryId: currentStoryId,
+                                        progress: $viewersProgress,
+                                        onClose: closeViewers)
             }
-        }
-        // Viewers (image 2): carousel of my posted stories on top (centre large, neighbours peek, view/❤️
-        // counts) + search + viewer list below. Swiping the carousel re-centres a story and its viewer list.
-        .sheet(isPresented: $showViewers) {
-            StoryViewersSheet(stories: myStories, selectedId: currentStoryId)
         }
         .sheet(item: $shareImg) { p in ActivityView(items: [p.image]) }
         .sheet(item: $forwardImg) { p in StoryForwardSheet(image: p.image, onSent: { flashSentToast() }) }
@@ -574,6 +544,92 @@ struct StoryViewer: View {
             NotificationCenter.default.post(name: up ? .init("pauseStory") : .init("resumeStory"), object: nil)
         }
         .presentationBackground(.clear)   // see-through cover so the Chats list shows behind during swipe-down
+    }
+
+    // The Active Story layer: media + header + progress bars + owner bar, exactly as before.
+    // The viewers sheet's `viewersProgress` drives its transform (full screen 0 → floating card 1);
+    // NO story media ever renders inside the sheet itself (the old architecture mistake).
+    private var storyLayer: some View {
+        let p = viewersProgress
+        return StoryView(
+            stories: models,
+            selectedIndex: startIndex,
+            isPresented: $isPresented,
+            userClosure: { story, message, emoji, isLiked in
+                handle(storyId: story.id, message: message, emoji: emoji, isLiked: isLiked)
+            },
+            onProfile: { user in
+                // Open the profile OVER the story (paused) — do NOT close the viewer.
+                if let g = groups.first(where: { $0.authorUid == user.id }) { profileSheet = g }
+            },
+            // Landing on a person no longer greys their whole ring — seen state advances per ITEM
+            // below (WhatsApp rule: the ring stays colored until every story is watched).
+            onUserChanged: { uid in currentBucketUid = uid; loadBarViewers() },
+            // Anonymous viewing leaves NO trace (Telegram-incognito): no local flags either.
+            onItemSeen: { id in
+                currentStoryId = id
+                if !anonymous { StoryPrefs.markStorySeen(id) }
+                markSeenItem(id); loadBarViewers()
+            },
+            onDrag: { d in dragDown = d },   // fade my overlays out as the card is pulled down
+            showMore: true, // "…" is a native dropdown menu in the header; its buttons post notifications
+            onSwipeUp: { if currentIsMine { openViewers() } }  // Telegram: swipe up opens your viewers
+        )
+        .ignoresSafeArea()
+        // My own story: Telegram owner bar (Views + reactions + delete) instead of a reply bar.
+        // Lives INSIDE the transformed layer, so it shrinks with the card (Telegram's mini count bar).
+        .overlay(alignment: .bottom) {
+            if currentIsMine {
+                ownerBar
+                    .opacity(dragDown > 6 ? 0 : 1).animation(.easeOut(duration: 0.15), value: dragDown > 6)
+                    .contentShape(Rectangle())
+                    // Reliable swipe-up to open viewers: this owner bar is a SwiftUI overlay ON TOP of the
+                    // story, so its gesture fires even when the library's UIKit swipe-up doesn't. Taps on
+                    // Views/trash still work (minimumDistance gate).
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 16).onEnded { v in
+                            if v.translation.height < -30 { openViewers() }
+                        }
+                    )
+            }
+        }
+        // While the sheet is up, taps on the card collapse it back to full screen (Telegram) —
+        // this also shields the story's own tap-to-advance/X from firing underneath.
+        .overlay {
+            if showViewers {
+                Color.clear.contentShape(Rectangle()).onTapGesture { closeViewers() }
+            }
+        }
+        // The Telegram effect, all driven by the ONE shared progress value:
+        .clipShape(RoundedRectangle(cornerRadius: 34 * p, style: .continuous))   // 0 → rounded card
+        .scaleEffect(1 - (1 - viewersFitScale) * p, anchor: .top)               // 100% → fits above sheet
+        .offset(y: p * (topInset + 8))                                          // card top clears the status bar
+    }
+
+    private var topInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.top }.max() ?? 0
+    }
+    // Final card scale derived from the layout (NOT a magic number): whatever exactly fills the
+    // space between the status bar and the open sheet's top edge, with a small gap.
+    private var viewersFitScale: CGFloat {
+        let h = UIScreen.main.bounds.height
+        let sheetH = h * StoryViewersBottomSheet.heightFraction
+        return max(0.3, (h - topInset - 8 - 14 - sheetH) / h)
+    }
+
+    private func openViewers() {
+        guard currentIsMine, !showViewers else { return }
+        showViewers = true   // mount the sheet at progress 0 (offscreen) …
+        DispatchQueue.main.async {   // … then slide it up on the next tick so insertion animates
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) { viewersProgress = 1 }
+        }
+    }
+    private func closeViewers() {
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.9)) { viewersProgress = 0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
+            if viewersProgress == 0 { showViewers = false }   // unmount only if a re-open didn't interrupt
+        }
     }
 
     private func flashSentToast(_ text: String = "Sent") {
@@ -665,7 +721,7 @@ struct StoryViewer: View {
     private var ownerBar: some View {
         let reactions = barViewers.filter { !($0.reaction ?? "").isEmpty }.count
         return HStack(spacing: 12) {
-            Button { showViewers = true } label: {
+            Button { openViewers() } label: {
                 HStack(spacing: 8) {
                     if !barViewers.isEmpty {
                         HStack(spacing: -8) {
@@ -861,6 +917,11 @@ struct BottomActionSheet<Content: View>: View {
 // search, and the scrollable viewer list — NO story media. It drives `progress` (0 closed … 1 open); the
 // StoryViewer reads that to scale/round/lift the active story behind it. Both layers share one value → in sync.
 struct StoryViewersBottomSheet: View {
+    // Sheet height as a fraction of the screen. The story viewer derives the card's final
+    // scale from this same value, so the two layers always agree on the layout (Telegram
+    // sizing: sheet ≈ bottom third, card fills the space above it).
+    static let heightFraction: CGFloat = 0.38
+
     let activeStoryId: String
     @Binding var progress: CGFloat
     let onClose: () -> Void
@@ -885,7 +946,7 @@ struct StoryViewersBottomSheet: View {
 
     var body: some View {
         GeometryReader { geo in
-            let sheetH = geo.size.height * 0.60     // sheet occupies the bottom ~60%
+            let sheetH = geo.size.height * Self.heightFraction
             VStack(spacing: 0) {
                 stickyHeader(sheetH: sheetH)        // drag handle + tabs + search (does NOT scroll)
                 viewerList                          // the only scrolling part
@@ -1010,237 +1071,6 @@ struct StoryViewersBottomSheet: View {
         if viewers.isEmpty { loading = true }
         let v = await StoriesService.shared.fetchViewers(storyId: id)
         if id == activeStoryId { viewers = v; loading = false }
-    }
-}
-
-struct StoryViewersSheet: View {
-    let stories: [Story]
-    let selectedId: String
-    @Environment(\.dismiss) private var dismiss
-    @State private var selected: String = ""
-    @State private var scrolledID: String?      // carousel-centered card → drives which story's viewers show
-    @State private var byStory: [String: [StoryViewerInfo]] = [:]
-    @State private var segment = 0          // 0 = All Viewers, 1 = Contacts
-    @State private var search = ""
-    @State private var loading = true
-
-    private var me: String { AuthService.shared.uid ?? "" }
-    private var contactUids: Set<String> {
-        Set(ConversationsRepository.shared.conversations.compactMap { $0.isGroup ? nil : $0.otherUid(me) })
-    }
-    private var viewers: [StoryViewerInfo] {
-        var v = byStory[selected] ?? []
-        if segment == 1 { v = v.filter { contactUids.contains($0.id) } }
-        let q = search.trimmingCharacters(in: .whitespaces)
-        if !q.isEmpty { v = v.filter { $0.name.localizedCaseInsensitiveContains(q) } }
-        v.sort { $0.viewedAt > $1.viewedAt }     // most recent viewer first
-        return v
-    }
-
-    var body: some View {
-        // ONE scrolling surface (Telegram): carousel of your story cards on top, then the tabs + search
-        // PINNED, then the viewer list. Scrolling the carousel up reveals the full list. Full height +
-        // opaque background so the live story underneath never shows through — that double-image was the
-        // "owner appears twice" bug, NOT the carousel itself.
-        // Telegram (image_9): top is a horizontal carousel of ALL my posted stories (centered card large,
-        // others flank smaller, with view/❤️ counts) → PINNED All Viewers/Contacts + Search → viewer list.
-        // Full-height, opaque black so the live story underneath never shows (no duplicate).
-        ScrollView {
-            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                storyCarousel
-                Section {
-                    if loading {
-                        ProgressView().padding(.top, 40).frame(maxWidth: .infinity)
-                    } else if viewers.isEmpty {
-                        ContentUnavailableView("No views yet", systemImage: "eye",
-                                               description: Text("When people view this story, they'll show up here."))
-                            .padding(.top, 30)
-                    } else {
-                        ForEach(viewers) { v in
-                            viewerRow(v)
-                            Divider().overlay(Color.white.opacity(0.08)).padding(.leading, 72)
-                        }
-                    }
-                } header: { listControls }
-            }
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .overlay(alignment: .topTrailing) {
-            Button { dismiss() } label: {
-                Image(systemName: "xmark").font(.body.weight(.semibold)).foregroundStyle(.white)
-                    .frame(width: 38, height: 38).background(.black.opacity(0.4), in: Circle())
-            }
-            .padding(.trailing, 14).padding(.top, 10)
-        }
-        .presentationDetents([.large])
-        .presentationBackground(.black)
-        .onChange(of: scrolledID) { _, v in if let v { selected = v } }   // centered card → its viewers
-        .task { await loadAll() }
-    }
-
-    // Horizontal carousel: centred card LARGE, neighbours peek + shrink. Native scroll = continuous
-    // finger-follow + snap-to-centre + no bounce. The centred story's count shows BIG below (reference #595).
-    private var storyCarousel: some View {
-        let active = byStory[selected] ?? []
-        let activeReacts = active.filter { !($0.reaction ?? "").isEmpty }.count
-        return VStack(spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 14) {
-                    ForEach(stories, id: \.id) { s in storyCard(s) }
-                }
-                .scrollTargetLayout()
-                .padding(.horizontal, max(16, (UIScreen.main.bounds.width - 184) / 2))   // centre the focused card
-                .padding(.top, 10)
-            }
-            .scrollTargetBehavior(.viewAligned)
-            .scrollPosition(id: $scrolledID)
-            .frame(height: 300)
-            // The active (centre) card's count, big + centred under the carousel.
-            countRow(views: active.count, likes: activeReacts, big: true)
-                .padding(.bottom, 6)
-        }
-    }
-
-    private func storyCard(_ s: Story) -> some View {
-        let vs = byStory[s.id] ?? []
-        let reacts = vs.filter { !($0.reaction ?? "").isEmpty }.count
-        let w: CGFloat = 184, h: CGFloat = 300
-        return StoryImage(url: s.mediaUrl)
-            .frame(width: w, height: h)
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))   // EXACT match to the story cards (24)
-            .overlay(alignment: .bottom) {
-                // Side cards show a small count; the CENTRED card hides it (the big count is shown below).
-                countRow(views: vs.count, likes: reacts, big: false)
-                    .padding(.bottom, 10)
-                    .scrollTransition(.interactive) { c, phase in
-                        c.opacity(phase.isIdentity ? 0 : 1)
-                    }
-            }
-            // Scale driven by the SCROLL itself (not a GeometryReader) — centre card full size, neighbours
-            // shrink, interpolated smoothly during the drag. viewAligned snaps to centre on release, so there's
-            // no glitch / duplicate / stuck-between-positions bug.
-            .scrollTransition(.interactive) { content, phase in
-                content
-                    .scaleEffect(phase.isIdentity ? 1.0 : 0.76)
-                    .opacity(phase.isIdentity ? 1.0 : 0.9)
-            }
-            .id(s.id)
-            .onTapGesture { withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) { scrolledID = s.id } }
-    }
-
-    // Eye + views + heart + likes, white over a soft shadow (reference). `big` = the centred-card count below.
-    private func countRow(views: Int, likes: Int, big: Bool) -> some View {
-        HStack(spacing: big ? 7 : 5) {
-            Image(systemName: "eye.fill")
-            Text(compactCount(views))
-            if likes > 0 {
-                Image(systemName: "heart.fill").foregroundStyle(.red).padding(.leading, 4)
-                Text(compactCount(likes))
-            }
-        }
-        .font(big ? .subheadline.weight(.bold) : .caption2.weight(.semibold))
-        .foregroundStyle(.white)
-        .shadow(color: .black.opacity(0.5), radius: 3)
-    }
-
-    private func compactCount(_ n: Int) -> String {
-        if n >= 1000 { return String(format: "%.1fK", Double(n) / 1000).replacingOccurrences(of: ".0K", with: "K") }
-        return "\(n)"
-    }
-
-    // Pinned controls: All Viewers / Contacts + Search. Opaque bg so rows don't show through when pinned.
-    private var listControls: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 8) {   // Telegram pill tabs (centered), not a segmented control
-                Spacer()
-                tabPill("All Viewers", 0)
-                tabPill("Contacts", 1)
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.6))
-                TextField("", text: $search, prompt: Text("Search").foregroundColor(.white.opacity(0.5)))
-                    .foregroundStyle(.white)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(Color.white.opacity(0.12), in: Capsule())
-            .padding(.horizontal, 16)
-        }
-        .padding(.top, 8).padding(.bottom, 10)
-        .background(Color.black)
-    }
-
-
-    // Telegram pill tab: filled capsule when selected, dimmed plain text otherwise.
-    private func tabPill(_ title: String, _ tag: Int) -> some View {
-        let selected = segment == tag
-        return Text(title)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(selected ? .white : .white.opacity(0.5))
-            .padding(.horizontal, 16).padding(.vertical, 7)
-            .background(selected ? Color.white.opacity(0.14) : .clear, in: Capsule())
-            .contentShape(Capsule())
-            .onTapGesture { withAnimation(.easeInOut(duration: 0.18)) { segment = tag } }
-    }
-
-    // Telegram's grey "seen" read-check shown before each viewer's timestamp (two offset checkmarks).
-    private var doubleCheck: some View {
-        ZStack(alignment: .leading) {
-            Image(systemName: "checkmark")
-            Image(systemName: "checkmark").offset(x: 4)
-        }
-        .font(.system(size: 9, weight: .bold))
-    }
-
-    private func viewerRow(_ v: StoryViewerInfo) -> some View {
-        HStack(spacing: 12) {
-            AvatarView(name: v.name, photoUrl: v.photoUrl, size: 46)
-                .overlay(alignment: .bottomTrailing) {
-                    // Reaction shown as a small badge on the avatar (reference), not a big emoji on the right.
-                    if let r = v.reaction, !r.isEmpty {
-                        Text(r).font(.system(size: 11))
-                            .frame(width: 19, height: 19)
-                            .background(Circle().fill(Color(.systemRed)))
-                            .overlay(Circle().stroke(Color.black, lineWidth: 2))
-                            .offset(x: 3, y: 3)
-                    }
-                }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(v.name).font(.body.weight(.semibold)).foregroundStyle(.white)
-                HStack(spacing: 5) {
-                    doubleCheck                                    // grey read-check, like Telegram
-                    Text(dateFmt(v.viewedAt))
-                }
-                .font(.caption).foregroundStyle(.white.opacity(0.5))
-            }
-            Spacer()
-            Menu {
-                Button { } label: { Label("Send message", systemImage: "message") }
-                Button { } label: { Label("View profile", systemImage: "person.crop.circle") }
-            } label: {
-                Image(systemName: "ellipsis").font(.body).foregroundStyle(.white.opacity(0.55))
-                    .frame(width: 38, height: 38).contentShape(Rectangle())
-            }
-        }
-        .padding(.horizontal, 16).padding(.vertical, 9)
-    }
-
-    private func dateFmt(_ d: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "dd/MM/yy 'at' h:mm a"
-        return f.string(from: d)
-    }
-
-    private func loadAll() async {
-        selected = selectedId.isEmpty ? (stories.last?.id ?? "") : selectedId
-        scrolledID = selected   // open the carousel centered on the story you swiped up from
-        await withTaskGroup(of: (String, [StoryViewerInfo]).self) { group in
-            for s in stories { group.addTask { (s.id, await StoriesService.shared.fetchViewers(storyId: s.id)) } }
-            for await (id, v) in group { byStory[id] = v }
-        }
-        loading = false
     }
 }
 
