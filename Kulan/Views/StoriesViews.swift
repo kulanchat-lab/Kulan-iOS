@@ -621,15 +621,18 @@ struct StoryViewer: View {
                 storyContent
             }
         }
-        // Easy open (my story only): swipe up ANYWHERE on the story — the owner-bar-only gesture
-        // was too hard to hit. Mostly-vertical check so the library's horizontal swipes never trigger it.
+        // Easy open (MY story only): swipe up anywhere → open viewers. On a FRIEND's story this drag
+        // did nothing useful but still competed with the library's swipe-down pan, so close worked
+        // only intermittently. `including: .subviews` for friends disables MY drag while keeping the
+        // library's own gestures (swipe-down, tap-to-advance); `.all` for my own enables both.
         .simultaneousGesture(
-            DragGesture(minimumDistance: 12).onEnded { v in
+            DragGesture(minimumDistance: 16).onEnded { v in
                 guard currentIsMine, !showViewers else { return }
-                if v.translation.height < -25, abs(v.translation.height) > abs(v.translation.width) * 1.2 {
+                if v.translation.height < -30, abs(v.translation.height) > abs(v.translation.width) * 1.4 {
                     openViewers()
                 }
-            }
+            },
+            including: (currentIsMine && !showViewers) ? .all : .subviews
         )
         // NEVER transformed (the library has an internal 3D cube for user-to-user swipes; scaling
         // it warped the card). While the sheet is up, the flat 2D morph card + carousel in
