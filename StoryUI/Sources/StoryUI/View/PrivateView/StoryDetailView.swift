@@ -281,14 +281,18 @@ private extension StoryDetailView {
     @ViewBuilder
     func messageView(with index: Int) -> some View {
         let story = getStory(with: index)
-        
-        MessageView(
+        // Reply-bar (friend) stories sit on a SOLID BLACK footer bar (Instagram), not floating over
+        // the photo — the media ends at the top of this bar. Own/plain stories render an empty reply
+        // area (they use the app's own black footer), so they get a clear background here.
+        let isReplyBar = story.config.storyType != .plain()
+        return MessageView(
             story: story,
             showEmoji: $showEmoji,
             userClosure: userClosure
         )
         .padding()
         .padding(.bottom, winInsets.bottom)   // keep the reply bar above the home indicator (host no longer insets)
+        .background(isReplyBar ? AnyView(Color.black.ignoresSafeArea(edges: .bottom)) : AnyView(Color.clear))
         .animation(.easeOut(duration: keyboardManager.animationDuration), value: messageViewPosition)
         .offset(y: messageViewPosition)
     }
