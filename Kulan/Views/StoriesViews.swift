@@ -66,15 +66,20 @@ struct StoryImage: View {
 enum StoryPrefs {
     // In-memory cache so we don't re-parse the UserDefaults string on every call (seenFlags is called
     // per card per render — re-parsing each time made hide/unhide feel laggy).
+    // LOCKED: hasUnseen (→ isStorySeen) now also runs inside StoriesRepository.rebuild() on
+    // background cooperative threads — three listeners fire together at launch, and concurrent
+    // cache-miss writes to this static dictionary corrupted it (SIGSEGV on every cold start, 177).
     private static var cache: [String: Set<String>] = [:]
+    private static let lock = NSLock()
     private static func set(_ key: String) -> Set<String> {
+        lock.lock(); defer { lock.unlock() }
         if let c = cache[key] { return c }
         let s = Set((UserDefaults.standard.string(forKey: key) ?? "").split(separator: " ").map(String.init))
         cache[key] = s
         return s
     }
     private static func save(_ key: String, _ s: Set<String>) {
-        cache[key] = s   // update cache synchronously → instant reads
+        lock.lock(); cache[key] = s; lock.unlock()   // update cache synchronously → instant reads
         UserDefaults.standard.set(s.joined(separator: " "), forKey: key)
     }
     static func isHidden(_ uid: String) -> Bool { set("hiddenStories").contains(uid) }
