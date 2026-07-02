@@ -45,6 +45,20 @@ final class CallKitManager: NSObject {
     // MARK: - Incoming (idempotent per callId so two paths can't make two UUIDs)
     func reportIncoming(callId: String, name: String, video: Bool = false, completion: (() -> Void)? = nil) {
         if activeCallId == callId, activeUUID != nil { completion?(); return }
+        // A DIFFERENT call is already live/ringing: iOS requires reporting something for a VoIP
+        // push, but this second caller must NOT steal activeUUID (End would then target the wrong
+        // system call). Report a transient call and end it immediately (busy).
+        if activeUUID != nil {
+            let uuid = UUID()
+            let update = CXCallUpdate()
+            update.remoteHandle = CXHandle(type: .generic, value: name)
+            update.hasVideo = video
+            provider.reportNewIncomingCall(with: uuid, update: update) { [provider] _ in
+                provider.reportCall(with: uuid, endedAt: nil, reason: .unanswered)
+                completion?()
+            }
+            return
+        }
         let uuid = UUID()
         activeUUID = uuid
         activeCallId = callId

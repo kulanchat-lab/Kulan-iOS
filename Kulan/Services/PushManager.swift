@@ -142,10 +142,17 @@ enum Push {
         }
     }
 
-    /// Stop push to this device: drop its FCM token so the Cloud Function skips it.
+    /// Stop push to this device: drop its FCM token so the Cloud Function skips it,
+    /// AND its VoIP token — otherwise a logged-out phone keeps getting CallKit ring
+    /// pushes for an account that isn't signed in here anymore (ghost rings).
     static func unregister() {
-        guard let uid = Auth.auth().currentUser?.uid, let token = Messaging.messaging().fcmToken else { return }
-        Firestore.firestore().collection("users").document(uid)
-            .updateData(["fcmTokens": FieldValue.arrayRemove([token])])
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        let doc = Firestore.firestore().collection("users").document(uid)
+        if let token = Messaging.messaging().fcmToken {
+            doc.updateData(["fcmTokens": FieldValue.arrayRemove([token])])
+        }
+        if let voip = latestVoipToken {
+            doc.updateData(["voipTokens": FieldValue.arrayRemove([voip])])
+        }
     }
 }

@@ -269,6 +269,7 @@ struct AccountSettingsView: View {
         .alert("Sign out?", isPresented: $showSignOut) {
             Button("Cancel", role: .cancel) {}
             Button("Sign Out", role: .destructive) {
+                Push.unregister()   // BEFORE signOut (needs auth): stop message + CallKit ring pushes to this phone
                 try? Auth.auth().signOut(); dismiss(); onSignOut()
             }
         } message: {

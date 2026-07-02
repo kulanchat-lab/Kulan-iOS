@@ -447,8 +447,14 @@ final class CallService: NSObject {
     /// subsequent CallKit answer connects. No ringing here — CallKit shows the ring.
     func prepareIncoming(callId: String, name: String, uid: String, photo: String?, video: Bool = false) {
         // Busy: a VoIP push arriving mid-call must NOT overwrite the live call's identity/state (C3).
+        // CRITICAL: only busy a DIFFERENT call. When the app is foreground, the Firestore listener
+        // rings first and this push arrives seconds later FOR THE SAME CALL — busying it here made
+        // the call end itself after ~2s of ringing (and the repeated instant-kills got our VoIP
+        // pushes throttled by Apple → "sometimes doesn't ring, sometimes late").
         guard state == .idle else {
-            db.collection("calls").document(callId).updateData(["status": "ended", "endReason": EndReason.busy.rawValue])
+            if callId != self.callId {
+                db.collection("calls").document(callId).updateData(["status": "ended", "endReason": EndReason.busy.rawValue])
+            }
             return
         }
         self.isVideo = video
