@@ -32,69 +32,75 @@ struct ShareStorySheet: View {
     // page (no nested sheet — those get recreated by iOS and can drop state).
     var body: some View {
         NavigationStack {
-            List {
-                Section("Who can see your story") {
-                    optionRow(0, "person.fill", "My contacts")
-                    optionRow(1, "person.fill.xmark", "My contacts except")
-                    optionRow(2, "person.crop.circle.badge.checkmark", "Only share with")
-                }
-                if mode == 1 {
-                    Section {
-                        NavigationLink {
-                            AudiencePicker(title: "Exclude", contacts: contacts, selected: $excluded)
-                        } label: {
-                            HStack {
-                                Text("Excluded people")
-                                Spacer()
-                                Text("\(excluded.count)").foregroundStyle(.secondary)
-                            }
-                        }
+            audienceList
+                .safeAreaInset(edge: .bottom) { postButton }
+                .navigationTitle("Share Story")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { dismiss() } label: { Image(systemName: "xmark") }
                     }
                 }
-                if mode == 2 {
-                    Section {
-                        NavigationLink {
-                            AudiencePicker(title: "Only share with", contacts: contacts, selected: $included)
-                        } label: {
-                            HStack {
-                                Text("Selected people")
-                                Spacer()
-                                Text("\(included.count)").foregroundStyle(.secondary)
-                            }
-                        }
+                // Persist every audience change IMMEDIATELY (not only on Post), so no recreation of
+                // this sheet's content can ever bounce the selection back.
+                .onChange(of: mode) { _, v in UserDefaults.standard.set(v, forKey: "storyAudMode") }
+                .onChange(of: excluded) { _, v in UserDefaults.standard.set(Array(v), forKey: "storyAudExcluded") }
+                .onChange(of: included) { _, v in UserDefaults.standard.set(Array(v), forKey: "storyAudIncluded") }
+                .alert("No one will see this", isPresented: $emptyAudienceAlert) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(mode == 2
+                         ? "Pick at least one person under \"Only share with,\" or choose \"My contacts.\""
+                         : "Everyone you'd share with is excluded. Adjust the audience and try again.")
+                }
+        }
+    }
+
+    @ViewBuilder private var audienceList: some View {
+        List {
+            Section("Who can see your story") {
+                optionRow(0, "person.fill", "My contacts")
+                optionRow(1, "person.fill.xmark", "My contacts except")
+                optionRow(2, "person.crop.circle.badge.checkmark", "Only share with")
+            }
+            if mode == 1 {
+                Section {
+                    NavigationLink {
+                        AudiencePicker(title: "Exclude", contacts: contacts, selected: $excluded)
+                    } label: {
+                        pickerRowLabel("Excluded people", count: excluded.count)
                     }
                 }
             }
-            .safeAreaInset(edge: .bottom) {
-                Button { post() } label: {
-                    Text("Post Story").font(.headline).foregroundStyle(.white)
-                        .frame(maxWidth: .infinity).frame(height: 52)
-                        .background(.blue, in: Capsule())
+            if mode == 2 {
+                Section {
+                    NavigationLink {
+                        AudiencePicker(title: "Only share with", contacts: contacts, selected: $included)
+                    } label: {
+                        pickerRowLabel("Selected people", count: included.count)
+                    }
                 }
-                .buttonStyle(StoryPressStyle())
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(.bar)
-            }
-            .navigationTitle("Share Story")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                }
-            }
-            // Persist every audience change IMMEDIATELY (not only on Post), so no recreation of
-            // this sheet's content can ever bounce the selection back.
-            .onChange(of: mode) { _, v in UserDefaults.standard.set(v, forKey: "storyAudMode") }
-            .onChange(of: excluded) { _, v in UserDefaults.standard.set(Array(v), forKey: "storyAudExcluded") }
-            .onChange(of: included) { _, v in UserDefaults.standard.set(Array(v), forKey: "storyAudIncluded") }
-            .alert("No one will see this", isPresented: $emptyAudienceAlert) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text(mode == 2
-                     ? "Pick at least one person under \"Only share with,\" or choose \"My contacts.\""
-                     : "Everyone you'd share with is excluded. Adjust the audience and try again.")
             }
         }
+    }
+
+    private func pickerRowLabel(_ title: String, count: Int) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text("\(count)").foregroundStyle(.secondary)
+        }
+    }
+
+    private var postButton: some View {
+        Button { post() } label: {
+            Text("Post Story").font(.headline).foregroundStyle(.white)
+                .frame(maxWidth: .infinity).frame(height: 52)
+                .background(.blue, in: Capsule())
+        }
+        .buttonStyle(StoryPressStyle())
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.bar)
     }
 
     private func optionRow(_ m: Int, _ icon: String, _ title: String) -> some View {
