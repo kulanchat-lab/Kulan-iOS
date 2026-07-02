@@ -569,7 +569,6 @@ struct StoryViewer: View {
             showMore: true, // "…" is a native dropdown menu in the header; its buttons post notifications
             onSwipeUp: { if currentIsMine { openViewers() } }  // Telegram: swipe up opens your viewers
         )
-        .ignoresSafeArea()
         // My own story: Telegram owner bar (Views + reactions + delete) instead of a reply bar.
         // Lives INSIDE the transformed layer, so it shrinks with the card (Telegram's mini count bar).
         .overlay(alignment: .bottom) {
@@ -598,6 +597,10 @@ struct StoryViewer: View {
         .clipShape(RoundedRectangle(cornerRadius: 34 * p, style: .continuous))   // 0 → rounded card
         .scaleEffect(1 - (1 - viewersFitScale) * p, anchor: .top)               // 100% → fits above sheet
         .offset(y: p * (topInset + 8))                                          // card top clears the status bar
+        // MUST be OUTSIDE the clip/scale chain: with ignoresSafeArea inside it, the clip shape
+        // took the safe-area frame and cut the story off at the status bar and home indicator
+        // (the white strips bug). Outermost, the whole transformed layer is laid out full-screen.
+        .ignoresSafeArea()
     }
 
     private var topInset: CGFloat {
