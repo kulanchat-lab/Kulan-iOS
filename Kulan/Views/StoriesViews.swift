@@ -1102,10 +1102,11 @@ struct UploadingStoryHandoff: View {
     var meName: String
     var mePhoto: String?
     var onClose: () -> Void                       // dismiss the cover (both phases)
-    var onSeeOlder: () -> Void = {}               // "‹" from the uploading viewer → my older stories
     var onProfile: (StoryGroup) -> Void = { _ in }
     @State private var finished: StoryGroup?      // set on completion → real viewer, same screen
+    @State private var browsingOld: StoryGroup?   // "‹"/swipe-right → my older stories, SAME cover
     @State private var feedTick = 0               // re-feed identity after an in-viewer delete
+    @State private var repo = StoriesRepository.shared   // observed so `hasOlder` is live if mine loads late
 
     var body: some View {
         ZStack {
@@ -1119,11 +1120,21 @@ struct UploadingStoryHandoff: View {
                             })
                     .id(feedTick)
                     .transition(.opacity)
+            } else if let old = browsingOld {
+                // My already-posted older stories, shown in THIS cover (no cover-switch — presenting
+                // a second fullScreenCover while this one dismissed dropped the user to the chat list).
+                // The upload keeps running; closing returns to chat (the new story lands in the row).
+                StoryViewer(group: old, onClose: onClose, onProfile: onProfile)
+                    .transition(.opacity)
             } else {
                 UploadingStoryViewer(meName: meName, mePhoto: mePhoto,
-                                     hasOlder: !(StoriesRepository.shared.mine?.stories.isEmpty ?? true),
+                                     hasOlder: !(repo.mine?.stories.isEmpty ?? true),
                                      onClose: onClose,
-                                     onSeeOlder: onSeeOlder,
+                                     onSeeOlder: {
+                                         // Step back into older posted stories WITHOUT leaving this cover.
+                                         guard let m = repo.mine, !m.stories.isEmpty else { return }
+                                         withAnimation(.easeInOut(duration: 0.2)) { browsingOld = m }
+                                     },
                                      onFinished: {
                                          // Repo refreshes before `uploading` flips, so `mine` is fresh here.
                                          if let mine = StoriesRepository.shared.mine { finished = mine }
@@ -1209,6 +1220,10 @@ struct MyStoriesCarousel: View {
     // snap id — is the source of truth for the big count, the morph, and activeId, so the visually
     // biggest card is ALWAYS the "active" one.
     @State private var centeredID: String?
+    // Ignore geometry readings until the initial scroll has landed on the opened-on story. On the very
+    // first layout the row sits at offset 0 with the FIRST card centred, so an early reading would flip
+    // activeId to A (wrong count/photo flash, or a permanent stick if the seed scroll is dropped).
+    @State private var settled = false
 
     init(stories: [Story], activeId: Binding<String>, slotW: CGFloat, slotH: CGFloat,
          onActiveTap: @escaping () -> Void = {}) {
@@ -1249,6 +1264,9 @@ struct MyStoriesCarousel: View {
                     DispatchQueue.main.async {
                         var t2 = Transaction(); t2.disablesAnimations = true
                         withTransaction(t2) { proxy.scrollTo(target, anchor: .center) }
+                        // Now that the row is centred on the opened-on story, let geometry drive the
+                        // active card. (Before this, the first-layout reading would wrongly pick A.)
+                        settled = true
                     }
                 }
                 // If the caller retargets (rare), follow it.
@@ -1264,6 +1282,7 @@ struct MyStoriesCarousel: View {
         // This drives activeId (→ the viewers list + morph below), so the biggest card and the count
         // can never disagree, and a mid-scroll release always resolves to the truly centred story.
         .onPreferenceChange(CenteredCardKey.self) { dists in
+            guard settled else { return }   // don't let the first-layout reading flip us to A
             guard let nearest = dists.min(by: { $0.dist < $1.dist })?.id else { return }
             if nearest != centeredID {
                 centeredID = nearest
