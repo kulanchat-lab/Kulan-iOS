@@ -767,29 +767,33 @@ struct StoryViewer: View {
     private var storyLayer: some View {
         let p = viewersProgress
         return VStack(spacing: 0) {
-            storyContent
-                // Own-story caption, pinned just above the footer (identical card layout whether
-                // a caption exists or not — the library's own caption is suppressed for mine).
-                .overlay(alignment: .bottom) {
-                    if mineOnly, let c = currentStory?.caption, !c.isEmpty {
-                        Text(c)
-                            .font(.body).foregroundStyle(.white)
-                            .lineLimit(4)   // don't let a long caption climb over the whole photo (IG/WA cap)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 16).padding(.top, 26).padding(.bottom, 14)
-                            .background(LinearGradient(colors: [.clear, .black.opacity(0.45)],
-                                                       startPoint: .top, endPoint: .bottom))
-                            .opacity(dragDown > 6 ? 0 : 1)
-                            .animation(.easeOut(duration: 0.15), value: dragDown > 6)
-                            .allowsHitTesting(false)
-                    }
-                }
-                .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: mineOnly ? 24 : 0,
-                                                  bottomTrailingRadius: mineOnly ? 24 : 0,
-                                                  style: .continuous))
             if mineOnly {
+                // My own story: a CARD (rounded bottom corners) + solid black footer below. The clip
+                // is ONLY applied here — clipping a FRIEND's full-bleed story broke the library's
+                // swipe-down-to-dismiss (the pan translates the card, but the clip pinned it to its
+                // frame so it couldn't visibly move → "scroll down to close doesn't work").
+                storyContent
+                    .overlay(alignment: .bottom) {
+                        if let c = currentStory?.caption, !c.isEmpty {
+                            Text(c)
+                                .font(.body).foregroundStyle(.white)
+                                .lineLimit(4)   // don't let a long caption climb over the whole photo (IG/WA cap)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 16).padding(.top, 26).padding(.bottom, 14)
+                                .background(LinearGradient(colors: [.clear, .black.opacity(0.45)],
+                                                           startPoint: .top, endPoint: .bottom))
+                                .opacity(dragDown > 6 ? 0 : 1)
+                                .animation(.easeOut(duration: 0.15), value: dragDown > 6)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 24, bottomTrailingRadius: 24,
+                                                      style: .continuous))
                 ownerFooter
                     .opacity(dragDown > 6 ? 0 : 1).animation(.easeOut(duration: 0.15), value: dragDown > 6)
+            } else {
+                // Friend's story: full-bleed, NO clip → the library's swipe-down dismiss works.
+                storyContent
             }
         }
         // Easy open (my story only): swipe up ANYWHERE on the story — the owner-bar-only gesture
