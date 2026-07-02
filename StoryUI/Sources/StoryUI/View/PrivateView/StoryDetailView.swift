@@ -323,9 +323,10 @@ private extension StoryDetailView {
                     .multilineTextAlignment(.leading)
                     .lineLimit(captionExpanded ? 12 : 3)   // cap expansion so a long caption can't overrun the header
                     .padding(.horizontal, 16)
-                    // Sit ABOVE the bottom bar. On plain stories (my own = the "N Views"/trash owner bar) lift
-                    // it higher so the caption never overlaps those controls.
-                    .padding(.bottom, Constant.MessageView.height + (plain ? 54 : 0) + winInsets.bottom + 22)
+                    // Sit clearly ABOVE the solid reply-bar footer. That footer is MessageView.height
+                    // + its own 32pt padding + the home-indicator inset; the old value omitted the
+                    // 32pt, so the caption slid behind the reply bar and got cut off ("going down").
+                    .padding(.bottom, Constant.MessageView.height + 32 + winInsets.bottom + (plain ? 40 : 18))
                     .contentShape(Rectangle())
                     .onTapGesture {   // tap expands/collapses; consumes the tap so it doesn't advance the story
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { captionExpanded.toggle() }
