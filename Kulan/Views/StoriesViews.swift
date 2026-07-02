@@ -660,6 +660,17 @@ struct StoryViewer: View {
         .overlay {
             if confirmDelete {
                 BottomActionSheet(onCancel: { confirmDelete = false }) {
+                    // Native action-sheet header: small grey title + message, divider, then the action.
+                    VStack(spacing: 4) {
+                        Text("Delete this story?")
+                            .font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                        Text("It will also be deleted for everyone who received it.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 24).padding(.vertical, 14)
+                    Divider()
                     // Seamless delete: the viewer slides to the adjacent item itself; we just remove from the db.
                     sheetButton("Delete", destructive: true) {
                         confirmDelete = false
@@ -867,9 +878,9 @@ struct StoryViewer: View {
     @ViewBuilder private func sheetButton(_ title: String, destructive: Bool = false, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.body.weight(destructive ? .semibold : .regular))
+                .font(.system(size: 20))   // native action-sheet option size (20pt regular)
                 .foregroundStyle(destructive ? Color.red : Color.primary)
-                .frame(maxWidth: .infinity).frame(height: 56)
+                .frame(maxWidth: .infinity).frame(height: 57)
                 .contentShape(Rectangle())
         }
     }
@@ -1183,8 +1194,10 @@ struct BottomActionSheet<Content: View>: View {
                 VStack(spacing: 0) { content }
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 Button(action: onCancel) {
-                    Text("Cancel").font(.body.weight(.semibold)).foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity).frame(height: 56).contentShape(Rectangle())
+                    Text("Cancel")
+                        .font(.system(size: 20, weight: .semibold))   // native action-sheet Cancel
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity).frame(height: 57).contentShape(Rectangle())
                 }
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }

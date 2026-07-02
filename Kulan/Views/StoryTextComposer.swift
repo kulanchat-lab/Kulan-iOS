@@ -85,9 +85,12 @@ struct StoryTextComposer: View {
             }
         .onAppear { focused = true }
         // X with text typed → confirm before throwing the status away (don't lose it on a stray tap).
-        .confirmationDialog("Discard this status?", isPresented: $showDiscard, titleVisibility: .visible) {
+        // A native ALERT, not confirmationDialog: over this full-screen cover the dialog rendered
+        // as a centered popover, and popovers HIDE role-cancel buttons — the user only saw
+        // "Discard" with no way out. Alerts always show both buttons.
+        .alert("Discard this status?", isPresented: $showDiscard) {
             Button("Discard", role: .destructive) { onClose() }
-            Button("Keep editing", role: .cancel) { focused = true }
+            Button("Keep Editing", role: .cancel) { focused = true }
         }
     }
 
