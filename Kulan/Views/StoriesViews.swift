@@ -1169,22 +1169,33 @@ struct MyStoriesCarousel: View {
                 // Side cards show a small count inside; the CENTRED card hides it (big count below).
                 countRow(views: vs.count, likes: reacts, big: false)
                     .padding(.bottom, 10)
-                    .scrollTransition(.interactive) { c, phase in c.opacity(phase.isIdentity ? 0 : 1) }
+                    .visualEffect { content, proxy in
+                        content.opacity(Self.centreDistance(proxy) < 0.35 ? 0 : 1)
+                    }
             }
-            // Scale tied to the SCROLL: centre card fills the slot (1.0), sides interpolate DOWN to
-            // 0.8 as they leave centre (phase.value is a continuous −1…0…+1) — a clear focus
-            // hierarchy like the mockup, with the centre card never overflowing its slot (top-cut).
-            .scrollTransition(.interactive(timingCurve: .easeInOut)) { content, phase in
-                content
-                    .scaleEffect(1.0 - 0.20 * abs(phase.value))
-                    .opacity(1.0 - 0.28 * abs(phase.value))
-                    .saturation(1.0 - 0.4 * abs(phase.value))
+            // GEOMETRY-based scale (scrollTransition's phase barely moved for the visible neighbours,
+            // so all cards looked the same size). Each card measures its own distance from the SCREEN
+            // centre: t=0 centred → scale 1.0 (large), t=1 one slot away → scale 0.72 (clearly smaller),
+            // matching the mockup's focus hierarchy. Recomputes live as the row scrolls.
+            .visualEffect { content, proxy in
+                let t = Self.centreDistance(proxy)
+                return content
+                    .scaleEffect(1.0 - 0.28 * t)
+                    .opacity(1.0 - 0.3 * t)
+                    .saturation(1.0 - 0.45 * t)
             }
             .id(s.id)
             .onTapGesture {
                 if s.id == activeId { onActiveTap() }
                 else { withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) { scrolledID = s.id } }
             }
+    }
+
+    // 0 when the card is centred on screen, → 1 one slot-width away (clamped). Drives the cover-flow scale.
+    private static func centreDistance(_ proxy: GeometryProxy) -> CGFloat {
+        let screenMid = UIScreen.main.bounds.width / 2
+        let mid = proxy.frame(in: .global).midX
+        return min(abs(mid - screenMid) / (UIScreen.main.bounds.width * 0.42), 1)
     }
 
     // Eye + views + heart + likes, white over a soft shadow. `big` = the centred card's row below.
