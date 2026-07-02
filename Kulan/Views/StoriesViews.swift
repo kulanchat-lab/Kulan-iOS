@@ -413,6 +413,8 @@ struct StoryViewer: View {
     @State private var viewersProgress: CGFloat = 0   // 0 sheet closed … 1 open; drives BOTH layers
     @State private var openDragging = false           // finger is actively dragging the sheet OPEN
     @State private var openDragStart: CGFloat = 0     // progress at drag start
+    @State private var dismissDrag: CGFloat = 0       // app-level swipe-DOWN on my own story (the clip
+                                                      // makes the library's own swipe-down inert)
     @State private var confirmDelete = false
     @State private var shareImg: StoryImagePayload?     // … → Share (system sheet)
     @State private var forwardImg: StoryImagePayload?   // … → Forward (chat picker)
@@ -634,11 +636,18 @@ struct StoryViewer: View {
         .simultaneousGesture(
             DragGesture(minimumDistance: 10)
                 .onChanged { v in
-                    guard currentIsMine, viewersProgress < 1 || openDragging else { return }
-                    // Engage on a mostly-upward drag; then track continuously.
+                    guard currentIsMine else { return }
+                    let vertical = abs(v.translation.height) > abs(v.translation.width)
+                    // Swipe DOWN on my own story → app-level dismiss (the rounded-card clip makes the
+                    // library's own swipe-down inert, so it can't close). Follow the finger.
+                    if !openDragging, viewersProgress == 0, v.translation.height > 6, vertical {
+                        dismissDrag = v.translation.height
+                        return
+                    }
+                    // Swipe UP → open viewers in real time.
+                    guard viewersProgress < 1 || openDragging else { return }
                     if !openDragging {
-                        guard v.translation.height < -6,
-                              abs(v.translation.height) > abs(v.translation.width) else { return }
+                        guard v.translation.height < -6, vertical else { return }
                         openDragging = true
                         openDragStart = viewersProgress
                         if !showViewers {
@@ -650,6 +659,12 @@ struct StoryViewer: View {
                     viewersProgress = max(0, min(1, openDragStart - v.translation.height / sheetH))
                 }
                 .onEnded { v in
+                    // Finish an app-level swipe-down dismiss on my own story.
+                    if dismissDrag > 0 {
+                        if dismissDrag > 110 || v.predictedEndTranslation.height > 320 { onClose() }
+                        else { withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dismissDrag = 0 } }
+                        return
+                    }
                     guard openDragging else { return }
                     openDragging = false
                     let sheetH = UIScreen.main.bounds.height * StoryViewersBottomSheet.heightFraction
@@ -667,6 +682,10 @@ struct StoryViewer: View {
         // `viewersBackdrop` replace it visually. Keep a hair of opacity + hit-testing DURING an open
         // drag so the gesture keeps tracking the finger even after the story has visually faded.
         .opacity(max(openDragging ? 0.02 : 0, 1 - Double(min(p * 6, 1))))
+        // App-level swipe-down: move + shrink + fade the card as it's pulled down (Instagram feel).
+        .scaleEffect(1 - min(dismissDrag / 2400, 0.1))
+        .offset(y: dismissDrag)
+        .opacity(dismissDrag > 0 ? Double(max(0.3, 1 - dismissDrag / 500)) : 1)
         .allowsHitTesting(viewersProgress == 0 || openDragging)
         .ignoresSafeArea()
     }
