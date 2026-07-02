@@ -1386,6 +1386,7 @@ struct StoryViewersBottomSheet: View {
     @State private var search = ""
     @State private var loading = true
     @State private var dragStart: CGFloat? = nil
+    @State private var listOffset: CGFloat = 0   // the viewer list's scroll offset (0 = top)
 
     private var filtered: [StoryViewerInfo] {
         var v = viewers
@@ -1398,8 +1399,8 @@ struct StoryViewersBottomSheet: View {
         GeometryReader { geo in
             let sheetH = geo.size.height * Self.heightFraction
             VStack(spacing: 0) {
-                stickyHeader(sheetH: sheetH)        // drag handle + tabs + search (does NOT scroll)
-                viewerList                          // the only scrolling part
+                stickyHeader(sheetH: sheetH)        // drag handle + search
+                viewerList(sheetH: sheetH)          // list scrolls; drag its top to collapse the sheet
             }
             .frame(height: sheetH)
             .background(
@@ -1421,8 +1422,40 @@ struct StoryViewersBottomSheet: View {
         return 22 * (1 - 1 / (1 + (p - 1) * 3))   // asymptotes to ~22pt
     }
 
-    // Sticky header (handle + search — no tabs, per the mockup). Dragging here drives `progress`;
-    // the list below scrolls on its own.
+    // ONE unified drag (Telegram): dragging the handle/search OR the list (when the list is at its
+    // top and you pull down) drives the sheet up/down. `fromList` gates the list case so mid-list
+    // scrolling isn't hijacked. The list is scroll-disabled while the sheet isn't fully open, so once
+    // a collapse starts the list locks and the drag owns the motion.
+    private func sheetDrag(sheetH: CGFloat, fromList: Bool) -> some Gesture {
+        DragGesture(minimumDistance: fromList ? 8 : 4)
+            .onChanged { v in
+                if fromList {
+                    let atTop = listOffset <= 0.5
+                    // Take over only when already collapsing, or at the top pulling DOWN.
+                    guard progress < 1 || (atTop && v.translation.height > 0) else { return }
+                }
+                if dragStart == nil { dragStart = progress }
+                // Track the finger 1:1; allow a little past 1.0 so overshoot() rubber-bands; clamp bottom at 0.
+                progress = max(0, min(1.14, (dragStart ?? 1) - v.translation.height / sheetH))
+            }
+            .onEnded { v in
+                guard dragStart != nil else { return }   // fromList drag that never engaged
+                dragStart = nil
+                // Where the sheet would COME TO REST given the fling: predictedEndTranslation is the
+                // ADDITIONAL travel from here, so subtract only that.
+                let extra = (v.predictedEndTranslation.height - v.translation.height) / sheetH
+                let projected = progress - extra
+                let close = projected < 0.6 || v.predictedEndTranslation.height > 240
+                if close { onClose() }
+                else {
+                    withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.78, blendDuration: 0.2)) {
+                        progress = 1
+                    }
+                }
+            }
+    }
+
+    // Sticky header (handle + search). Dragging here drives the sheet.
     private func stickyHeader(sheetH: CGFloat) -> some View {
         VStack(spacing: 12) {
             Capsule().fill(.white.opacity(0.28)).frame(width: 38, height: 5).padding(.top, 8)
@@ -1437,37 +1470,10 @@ struct StoryViewersBottomSheet: View {
         }
         .padding(.bottom, 10)
         .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 4)
-                .onChanged { v in
-                    if dragStart == nil { dragStart = progress }
-                    // Track the finger 1:1. Allow a little past 1.0 so overshoot() can rubber-band;
-                    // clamp the bottom at 0.
-                    progress = max(0, min(1.14, (dragStart ?? 1) - v.translation.height / sheetH))
-                }
-                .onEnded { v in
-                    dragStart = nil
-                    // Where the sheet would COME TO REST given the fling (Telegram-style). progress
-                    // already reflects the current finger position; predictedEndTranslation is the
-                    // ADDITIONAL travel from here, so subtract only that (the old code also
-                    // subtracted the full translation again, triple-counting a slow drag → the sheet
-                    // snapped shut on a tiny downward nudge).
-                    let extra = (v.predictedEndTranslation.height - v.translation.height) / sheetH
-                    let projected = progress - extra
-                    let close = projected < 0.6 || v.predictedEndTranslation.height > 240
-                    if close {
-                        onClose()
-                    } else {
-                        // Interactive spring settles the overshoot back to exactly 1.0.
-                        withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.78, blendDuration: 0.2)) {
-                            progress = 1
-                        }
-                    }
-                }
-        )
+        .gesture(sheetDrag(sheetH: sheetH, fromList: false))
     }
 
-    private var viewerList: some View {
+    private func viewerList(sheetH: CGFloat) -> some View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 if loading {
@@ -1485,6 +1491,11 @@ struct StoryViewersBottomSheet: View {
             }
             .padding(.bottom, 30)
         }
+        .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { _, y in listOffset = y }
+        // Lock the list while the sheet isn't fully open so a collapse-drag owns the motion.
+        .scrollDisabled(progress < 1)
+        // Pulling the list down at its top collapses the sheet (Telegram hand-off).
+        .simultaneousGesture(sheetDrag(sheetH: sheetH, fromList: true))
     }
 
     private var doubleCheck: some View {
