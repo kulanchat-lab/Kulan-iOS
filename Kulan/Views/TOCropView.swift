@@ -18,13 +18,23 @@ struct TOCropView: UIViewControllerRepresentable {
         vc.aspectRatioLockEnabled = false
         vc.toolbarPosition = .bottom
 
-        // Real Apple liquid glass behind the crop toolbar (the library ships a solid dark bar).
+        // Float the whole cropper on a translucent black background so the toolbar's liquid glass
+        // has the CROP IMAGE behind it to refract (the library reserves a solid strip for the bar,
+        // which is why an unbacked UIGlassEffect just read as a flat dark slab). ~92% black keeps
+        // the crop chrome legible while letting a hint of the image bleed through the glass.
+        vc.view.backgroundColor = UIColor.black.withAlphaComponent(0.92)
+        // Real Apple liquid glass as the toolbar background (the library ships a solid dark bar).
         if #available(iOS 26.0, *) {
             let tb = vc.toolbar
             tb.backgroundColor = .clear
+            for sub in tb.subviews where sub is UIVisualEffectView { sub.removeFromSuperview() }   // avoid stacking on re-entry
             let glass = UIVisualEffectView(effect: UIGlassEffect())
             glass.isUserInteractionEnabled = false
             glass.translatesAutoresizingMaskIntoConstraints = false
+            // Rounded TOP corners → a floating liquid-glass bar (Apple guideline), not an edge slab.
+            glass.layer.cornerRadius = 22
+            glass.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+            glass.clipsToBounds = true
             tb.insertSubview(glass, at: 0)
             NSLayoutConstraint.activate([
                 glass.leadingAnchor.constraint(equalTo: tb.leadingAnchor),
