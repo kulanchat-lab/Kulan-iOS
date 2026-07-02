@@ -648,9 +648,16 @@ struct StoryViewer: View {
                         mediaURL: s.mediaUrl,
                         date: timeAgo(s.createdAt),
                         isLiked: StoryPrefs.isStoryLiked(s.id),   // heart stays red on reopen
-                        // open the viewer at the first UNSEEN item — honor the synced watermark too,
-                        // so after a reinstall it doesn't replay from item 0 (split brain).
-                        isSeen: StoryPrefs.isStorySeen(s.id) || s.createdAt <= (g.lastViewedAt ?? .distantPast),
+                        // Where the viewer opens (first item with isSeen == false):
+                        //  • MY OWN story: land on the NEWEST item — I never mark my own stories seen,
+                        //    so "first unseen" was always the OLDEST, which meant right after posting a
+                        //    new story the viewer opened on the PREVIOUS one ("I see the story I uploaded
+                        //    before"). Mark all-but-the-newest seen so it opens on the one I just posted.
+                        //  • A FRIEND's story: first genuinely unseen item, honoring the synced watermark
+                        //    too (so after a reinstall it doesn't replay from item 0 — split brain).
+                        isSeen: g.isMine
+                            ? (s.id != g.stories.last?.id)
+                            : (StoryPrefs.isStorySeen(s.id) || s.createdAt <= (g.lastViewedAt ?? .distantPast)),
                         // My own story in the MINE-ONLY viewer: WE draw the caption pinned above the
                         // footer (below), so suppress the library's here. In a mixed feed (no footer,
                         // no custom caption) keep the library's caption or it would show nowhere.
