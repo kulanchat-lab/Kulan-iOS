@@ -564,6 +564,9 @@ struct StoryViewer: View {
     private var me: String { AuthService.shared.uid ?? "" }
     private var currentIsMine: Bool { groups.first { $0.authorUid == currentBucketUid }?.isMine ?? false }
     private var myStories: [Story] { groups.first { $0.isMine }?.stories ?? [] }
+    // My-story viewers are always fed my bucket ALONE, so this is stable for the whole session
+    // (no mid-swipe layout jumps) — it drives the card+footer layout below.
+    private var mineOnly: Bool { groups.count == 1 && (groups.first?.isMine ?? false) }
     @State private var sheetStoryId = ""   // which of MY stories the carousel + viewers list target
     // Home-indicator inset (the story ignoresSafeArea, so overlays must add it back themselves).
     private var bottomInset: CGFloat {
@@ -716,12 +719,42 @@ struct StoryViewer: View {
         .presentationBackground(.clear)   // see-through cover so the Chats list shows behind during swipe-down
     }
 
-    // The Active Story layer: media + header + progress bars + owner bar, exactly as before.
-    // The viewers sheet's `viewersProgress` drives its transform (full screen 0 → floating card 1);
-    // NO story media ever renders inside the sheet itself (the old architecture mistake).
+    // The Active Story layer: media + header + progress bars + owner bar/footer.
+    // My own story renders as a CARD: bottom corners clipped (24 continuous) with a solid black
+    // footer bar (Views + trash) BELOW it — the old gradient bar bled over the story to the
+    // screen edge. Friends' stories stay full-bleed with the library's reply bar.
     private var storyLayer: some View {
         let p = viewersProgress
-        return StoryView(
+        return VStack(spacing: 0) {
+            storyContent
+                .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: mineOnly ? 24 : 0,
+                                                  bottomTrailingRadius: mineOnly ? 24 : 0,
+                                                  style: .continuous))
+            if mineOnly {
+                ownerFooter
+                    .opacity(dragDown > 6 ? 0 : 1).animation(.easeOut(duration: 0.15), value: dragDown > 6)
+            }
+        }
+        // Easy open (my story only): swipe up ANYWHERE on the story — the owner-bar-only gesture
+        // was too hard to hit. Mostly-vertical check so the library's horizontal swipes never trigger it.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12).onEnded { v in
+                guard currentIsMine, !showViewers else { return }
+                if v.translation.height < -25, abs(v.translation.height) > abs(v.translation.width) * 1.2 {
+                    openViewers()
+                }
+            }
+        )
+        // NEVER transformed (the library has an internal 3D cube for user-to-user swipes; scaling
+        // it warped the card). While the sheet is up, the flat 2D morph card + carousel in
+        // `viewersBackdrop` replace it visually — this just fades out fast and stops taking touches.
+        .opacity(1 - Double(min(p * 6, 1)))
+        .allowsHitTesting(viewersProgress == 0)
+        .ignoresSafeArea()
+    }
+
+    private var storyContent: some View {
+        StoryView(
             stories: models,
             selectedIndex: startIndex,
             isPresented: $isPresented,
@@ -745,39 +778,20 @@ struct StoryViewer: View {
             showMore: true, // "…" is a native dropdown menu in the header; its buttons post notifications
             onSwipeUp: { if currentIsMine { openViewers() } }  // Telegram: swipe up opens your viewers
         )
-        // My own story: Telegram owner bar (Views + reactions + delete) instead of a reply bar.
-        // Lives INSIDE the transformed layer, so it shrinks with the card (Telegram's mini count bar).
+        // Exotic safety net: my story inside a MIXED feed (not the normal flow) still gets the
+        // old gradient overlay bar, since the footer layout is only applied to mine-only feeds.
         .overlay(alignment: .bottom) {
-            if currentIsMine {
+            if currentIsMine && !mineOnly {
                 ownerBar
                     .opacity(dragDown > 6 ? 0 : 1).animation(.easeOut(duration: 0.15), value: dragDown > 6)
                     .contentShape(Rectangle())
-                    // Reliable swipe-up to open viewers: this owner bar is a SwiftUI overlay ON TOP of the
-                    // story, so its gesture fires even when the library's UIKit swipe-up doesn't. Taps on
-                    // Views/trash still work (minimumDistance gate).
                     .simultaneousGesture(
                         DragGesture(minimumDistance: 12).onEnded { v in
-                            if v.translation.height < -20 { openViewers() }   // easier trigger
+                            if v.translation.height < -20 { openViewers() }
                         }
                     )
             }
         }
-        // Easy open (my story only): swipe up ANYWHERE on the story — the owner-bar-only gesture
-        // was too hard to hit. Mostly-vertical check so the library's horizontal swipes never trigger it.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 12).onEnded { v in
-                guard currentIsMine, !showViewers else { return }
-                if v.translation.height < -25, abs(v.translation.height) > abs(v.translation.width) * 1.2 {
-                    openViewers()
-                }
-            }
-        )
-        // NEVER transformed (the library has an internal 3D cube for user-to-user swipes; scaling
-        // it warped the card). While the sheet is up, the flat 2D morph card + carousel in
-        // `viewersBackdrop` replace it visually — this just fades out fast and stops taking touches.
-        .opacity(1 - Double(min(p * 6, 1)))
-        .allowsHitTesting(viewersProgress == 0)
-        .ignoresSafeArea()
     }
 
     private var topInset: CGFloat {
@@ -806,8 +820,11 @@ struct StoryViewer: View {
                 .opacity(settled ? 1 : 0)
                 .animation(.easeInOut(duration: 0.18), value: settled)
             if !settled, let url = currentStory?.mediaUrl {
+                // Start height matches the story CARD (which ends above the black owner footer),
+                // so the morph begins exactly where the card visually is.
+                let startH = scr.height - (mineOnly ? Self.ownerFooterHeight + max(10, bottomInset) : 0)
                 StoryImage(url: url)
-                    .frame(width: lerp(scr.width, slotW, p), height: lerp(scr.height, slotH, p))
+                    .frame(width: lerp(scr.width, slotW, p), height: lerp(startH, slotH, p))
                     .clipShape(RoundedRectangle(cornerRadius: 26 * p, style: .continuous))
                     .padding(.top, blockTop * p)
                     .frame(maxWidth: .infinity)
@@ -922,7 +939,8 @@ struct StoryViewer: View {
     }
 
     // Telegram owner bar: overlapping viewer avatars + "N Views" + ❤️ reactions (tap → sheet) + delete.
-    private var ownerBar: some View {
+    // Views/reactions/delete controls, shared by the gradient overlay bar and the solid footer.
+    private var ownerControls: some View {
         let reactions = barViewers.filter { !($0.reaction ?? "").isEmpty }.count
         return HStack(spacing: 12) {
             Button { openViewers() } label: {
@@ -952,6 +970,10 @@ struct StoryViewer: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    private var ownerBar: some View {
+        ownerControls
         // Smooth, gradual shadow: a tall gradient that eases clear -> black so it blends softly into the photo
         // (no hard edge), with the controls on the solid part at the bottom.
         .padding(.horizontal, 18).padding(.top, 64).padding(.bottom, max(22, bottomInset + 10))
@@ -961,6 +983,25 @@ struct StoryViewer: View {
             .init(color: .black.opacity(0.85),   location: 0.78),
             .init(color: .black,                 location: 1.0)
         ], startPoint: .top, endPoint: .bottom))
+    }
+
+    // Solid black footer BELOW the rounded story card (target design): the story canvas is a card
+    // with clipped bottom corners, and the Views + trash controls live on their own black bar —
+    // no more gradient bleeding over the story to the screen edge.
+    static let ownerFooterHeight: CGFloat = 52
+    private var ownerFooter: some View {
+        ownerControls
+            .padding(.horizontal, 18)
+            .frame(maxWidth: .infinity)
+            .frame(height: Self.ownerFooterHeight)
+            .padding(.bottom, max(10, bottomInset))
+            .background(Color.black)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 12).onEnded { v in
+                    if v.translation.height < -20 { openViewers() }   // swipe up here opens viewers too
+                }
+            )
     }
 
     private func loadBarViewers() {

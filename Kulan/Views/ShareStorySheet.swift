@@ -68,14 +68,23 @@ struct ShareStorySheet: View {
             }
             .sheet(isPresented: $showExclude) { AudiencePicker(title: "Exclude", contacts: contacts, selected: $excluded) }
             .sheet(isPresented: $showInclude) { AudiencePicker(title: "Only share with", contacts: contacts, selected: $included) }
+            // Persist every audience change IMMEDIATELY (not only on Post): iOS can recreate this
+            // half-sheet's content when the nested picker closes, which re-initialised the @State
+            // from UserDefaults and silently bounced the selection back to "My contacts".
+            .onChange(of: mode) { _, v in UserDefaults.standard.set(v, forKey: "storyAudMode") }
+            .onChange(of: excluded) { _, v in UserDefaults.standard.set(Array(v), forKey: "storyAudExcluded") }
+            .onChange(of: included) { _, v in UserDefaults.standard.set(Array(v), forKey: "storyAudIncluded") }
         }
     }
 
     private func optionRow(_ m: Int, _ icon: String, _ title: String, _ subtitle: String?) -> some View {
         Button {
+            // First tap SELECTS (checkmark moves, visibly). The picker only auto-opens when the
+            // list is empty; tapping the already-selected row again opens it to edit.
+            let wasSelected = (mode == m)
             mode = m
-            if m == 1 { showExclude = true }
-            if m == 2 { showInclude = true }
+            if m == 1, wasSelected || excluded.isEmpty { showExclude = true }
+            if m == 2, wasSelected || included.isEmpty { showInclude = true }
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: icon).font(.system(size: 16)).foregroundStyle(.primary)
