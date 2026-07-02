@@ -480,15 +480,18 @@ private struct StoryContextMenuOverlay: View {
         let menuAboveY = src.minY - 10 - 140   // ~140 ≈ a 3-row menu height
         let menuY = menuBelowY + 150 > screen.height ? max(12, menuAboveY) : menuBelowY
         ZStack(alignment: .topLeading) {
-            // Dim everything; the replica below stays bright = the native "source stays lit" look.
-            Color.black.opacity(shown ? 0.44 : 0)
+            // Dim everything strongly (like the native context menu) so the bright story photos
+            // clearly darken and the lifted card visibly stands out — a weak dim over vivid photos
+            // barely showed, so the pressed card didn't pop the way build 181's native lift did.
+            Color.black.opacity(shown ? 0.6 : 0)
                 .contentShape(Rectangle())
                 .onTapGesture { close(nil) }
 
-            // The pressed card, lifted in place at its exact on-screen position.
+            // The pressed card, lifted in place at its exact on-screen position — stays fully bright
+            // (drawn OVER the dim) with a strong soft shadow so it floats above the darkened row.
             cardReplica(width: src.width)
-                .scaleEffect(shown ? 1.05 : 1.0)
-                .shadow(color: .black.opacity(shown ? 0.30 : 0), radius: 18, y: 10)
+                .scaleEffect(shown ? 1.08 : 1.0)
+                .shadow(color: .black.opacity(shown ? 0.55 : 0), radius: 28, y: 14)
                 .position(x: src.midX, y: src.midY)
 
             // Menu under (or above) the card, leading-aligned, clamped to the screen.
