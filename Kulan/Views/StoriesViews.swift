@@ -1143,6 +1143,15 @@ struct SeenBySheet: View {
 }
 
 
+// Each card reports (id, distance-from-screen-centre) so the carousel can pick the truly centred
+// card from GEOMETRY — the same measure that scales the cards — instead of trusting scrollPosition's
+// snap id (which lagged the visual centre by a card, so the big card and the count disagreed).
+private struct CardDist: Equatable { let id: String; let dist: CGFloat }
+private struct CenteredCardKey: PreferenceKey {
+    static var defaultValue: [CardDist] = []
+    static func reduce(value: inout [CardDist], nextValue: () -> [CardDist]) { value.append(contentsOf: nextValue()) }
+}
+
 // Carousel of ALL my posted stories, shown above the open viewers sheet (Telegram / user mockup):
 // ONLY the rounded photos — no captions, no avatars, no progress bars. Side cards carry a small
 // eye+heart count inside their bottom edge; the CENTRED card shows its count BIG underneath.
@@ -1158,6 +1167,10 @@ struct MyStoriesCarousel: View {
     // Seed the scroll position with the active story as the INITIAL state value (not in onAppear),
     // so `scrollPosition(id:)` centres on B/D on the very first layout — no one-frame flash of A.
     @State private var scrolledID: String?
+    // The card the GEOMETRY says is centred (nearest to the screen centre). This — not scrollPosition's
+    // snap id — is the source of truth for the big count, the morph, and activeId, so the visually
+    // biggest card is ALWAYS the "active" one.
+    @State private var centeredID: String?
 
     init(stories: [Story], activeId: Binding<String>, slotW: CGFloat, slotH: CGFloat,
          onActiveTap: @escaping () -> Void = {}) {
@@ -1167,10 +1180,12 @@ struct MyStoriesCarousel: View {
         self.slotH = slotH
         self.onActiveTap = onActiveTap
         self._scrolledID = State(initialValue: activeId.wrappedValue)
+        self._centeredID = State(initialValue: activeId.wrappedValue)
     }
 
     var body: some View {
-        let active = byStory[activeId] ?? []
+        let focusedID = centeredID ?? activeId
+        let active = byStory[focusedID] ?? []
         let activeReacts = active.filter { !($0.reaction ?? "").isEmpty }.count
         VStack(spacing: 12) {
             ScrollViewReader { proxy in
@@ -1186,22 +1201,37 @@ struct MyStoriesCarousel: View {
                 .scrollPosition(id: $scrolledID, anchor: .center)
                 .frame(height: slotH)   // centre card fills the slot exactly (sides scale DOWN within it)
                 .onAppear {
-                    // Belt-and-braces: also scrollTo (no animation) in case the seeded scrollPosition
-                    // isn't honored before the horizontal content is measured.
+                    // Land on the viewed story reliably. The seeded scrollPosition can be ignored before
+                    // the horizontal content is measured, so also scrollTo now AND on the next runloop
+                    // tick (after layout) — otherwise it flashed/stuck on the first card (A) not B.
+                    // Capture the opened-on id up front so a premature centre reading can't redirect us.
+                    let target = activeId
                     var t = Transaction(); t.disablesAnimations = true
-                    withTransaction(t) { proxy.scrollTo(activeId, anchor: .center) }
+                    withTransaction(t) { proxy.scrollTo(target, anchor: .center) }
+                    DispatchQueue.main.async {
+                        var t2 = Transaction(); t2.disablesAnimations = true
+                        withTransaction(t2) { proxy.scrollTo(target, anchor: .center) }
+                    }
                 }
                 // If the caller retargets (rare), follow it.
                 .onChange(of: activeId) { _, v in
-                    guard v != scrolledID else { return }
+                    guard v != centeredID else { return }
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) { proxy.scrollTo(v, anchor: .center) }
                 }
             }
-            // The active (centred) card's count, big + centred under the carousel (mockup).
+            // The GEOMETRICALLY-centred card's count, big + centred under the carousel (mockup).
             countRow(views: active.count, likes: activeReacts, big: true)
         }
-        // Scroll drives activeId → the viewers list below follows the centred story.
-        .onChange(of: scrolledID) { _, v in if let v { activeId = v } }
+        // Collect every card's live distance-from-centre and pick the nearest as the centred story.
+        // This drives activeId (→ the viewers list + morph below), so the biggest card and the count
+        // can never disagree, and a mid-scroll release always resolves to the truly centred story.
+        .onPreferenceChange(CenteredCardKey.self) { dists in
+            guard let nearest = dists.min(by: { $0.dist < $1.dist })?.id else { return }
+            if nearest != centeredID {
+                centeredID = nearest
+                if activeId != nearest { activeId = nearest }
+            }
+        }
         .task { await loadAll() }
     }
 
@@ -1211,6 +1241,11 @@ struct MyStoriesCarousel: View {
         return StoryImage(url: s.mediaUrl)
             .frame(width: slotW, height: slotH)
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            // Report this card's live distance from the screen centre for centred-card detection.
+            .background(GeometryReader { geo in
+                Color.clear.preference(key: CenteredCardKey.self,
+                                       value: [CardDist(id: s.id, dist: Self.centreDistance(geo))])
+            })
             .overlay(alignment: .bottom) {
                 // Side cards show a small count inside; the CENTRED card hides it (big count below).
                 countRow(views: vs.count, likes: reacts, big: false)
