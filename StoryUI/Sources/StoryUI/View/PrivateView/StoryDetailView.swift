@@ -89,6 +89,11 @@ struct StoryDetailView: View {
                     getStoryView(with: index, story: story)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding(.bottom, footerH)
+                        // Flatten the card (photo + UIKit blur backdrop) into ONE layer first: a bare
+                        // .clipShape does NOT clip the ImageLoader's UIVisualEffectView (its backdrop
+                        // composites separately and spills past the mask, so the bottom stayed square).
+                        // compositingGroup forces a single layer the round-corner mask can actually cut.
+                        .compositingGroup()
                         .clipShape(BottomRoundedShape(radius: isReplyBar ? 24 : 0))   // match the own-story card (24)
                         .overlay(
                             tapStory()

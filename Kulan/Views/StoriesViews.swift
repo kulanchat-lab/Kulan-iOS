@@ -436,8 +436,11 @@ struct StoryViewer: View {
             .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.bottom }.max() ?? 0
     }
     private var currentStory: Story? { groups.flatMap(\.stories).first { $0.id == currentStoryId } }
-    // Any sheet shown over the story → pause it (viewers list, share, forward, "…" menu, delete confirm).
-    private var sheetUp: Bool { showViewers || shareImg != nil || forwardImg != nil || confirmDelete || profileSheet != nil }
+    // Any sheet shown over the story → pause it (share, forward, "…" menu, delete confirm). The
+    // VIEWERS sheet is handled separately via `viewersProgress` (below) so the story is frozen the
+    // instant the sheet starts to rise, even mid-drag — otherwise it kept playing and, on reaching
+    // the last item, auto-dismissed the whole viewer (taking the sheet with it).
+    private var sheetUp: Bool { shareImg != nil || forwardImg != nil || confirmDelete || profileSheet != nil }
 
     init(group: StoryGroup, anonymous: Bool = false, onClose: @escaping () -> Void,
          onProfile: @escaping (StoryGroup) -> Void = { _ in },
@@ -588,6 +591,11 @@ struct StoryViewer: View {
         .onChange(of: sheetUp) { _, up in
             NotificationCenter.default.post(name: up ? .init("pauseStory") : .init("resumeStory"), object: nil)
         }
+        // Viewers sheet: pause the moment it starts opening (progress > 0), resume only once fully
+        // closed. This keeps the story frozen the entire time the sheet is up (fixes the auto-close).
+        .onChange(of: viewersProgress > 0.01) { _, open in
+            NotificationCenter.default.post(name: open ? .init("pauseStory") : .init("resumeStory"), object: nil)
+        }
         .presentationBackground(.clear)   // see-through cover so the Chats list shows behind during swipe-down
     }
 
@@ -728,7 +736,11 @@ struct StoryViewer: View {
             },
             onDrag: { d in dragDown = d },   // fade my overlays out as the card is pulled down
             showMore: true, // "…" is a native dropdown menu in the header; its buttons post notifications
-            onSwipeUp: { }  // handled by the real-time drag on storyLayer (don't double-trigger)
+            onSwipeUp: { },  // handled by the real-time drag on storyLayer (don't double-trigger)
+            // My OWN story: the app owns swipe-up (real-time viewers open) AND swipe-down (app-level
+            // dismiss). Disable the library's own down/up pans so two systems don't move the same
+            // card at once (that was the swipe-down "shaking"). Friends keep the library's dismiss.
+            dismissEnabled: !mineOnly
         )
         // Exotic safety net: my story inside a MIXED feed (not the normal flow) still gets the
         // old gradient overlay bar, since the footer layout is only applied to mine-only feeds.

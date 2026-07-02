@@ -20,6 +20,7 @@ struct StoryPager: UIViewControllerRepresentable {
     let onCommit: () -> Void               // pulled past threshold -> dismiss
     let onCancel: () -> Void               // released short -> overlays restore
     let onSwipeUp: () -> Void              // up-swipe -> host opens the views sheet (Telegram)
+    var dismissEnabled: Bool = true        // false -> skip the library's down/up pans (host owns them)
 
     func makeUIViewController(context: Context) -> UIPageViewController {
         let pager = UIPageViewController(transitionStyle: .scroll, navigationOrientation: .horizontal)
@@ -157,15 +158,19 @@ struct StoryPager: UIViewControllerRepresentable {
             dismissBlur.isHidden = true
             pager.view.insertSubview(dismissBackdrop, at: 0)
             pager.view.insertSubview(dismissBlur, aboveSubview: dismissBackdrop)
-            let pan = DirectionalPanGestureRecognizer(direction: .down, target: self, action: #selector(handleDismiss(_:)))
-            pan.delegate = self
-            pager.view.addGestureRecognizer(pan)
-            scroll?.panGestureRecognizer.require(toFail: pan)
-            // Up-swipe opens the views sheet (Telegram). Direction-locked so it never fights the cube or dismiss.
-            let upPan = DirectionalPanGestureRecognizer(direction: .up, target: self, action: #selector(handleSwipeUp(_:)))
-            upPan.delegate = self
-            pager.view.addGestureRecognizer(upPan)
-            scroll?.panGestureRecognizer.require(toFail: upPan)
+            // When the host owns swipe-down/up (own story: app-level dismiss + real-time viewers open),
+            // do NOT add the library's own down/up pans — two systems moving the same card = the shake.
+            if parent.dismissEnabled {
+                let pan = DirectionalPanGestureRecognizer(direction: .down, target: self, action: #selector(handleDismiss(_:)))
+                pan.delegate = self
+                pager.view.addGestureRecognizer(pan)
+                scroll?.panGestureRecognizer.require(toFail: pan)
+                // Up-swipe opens the views sheet (Telegram). Direction-locked so it never fights the cube or dismiss.
+                let upPan = DirectionalPanGestureRecognizer(direction: .up, target: self, action: #selector(handleSwipeUp(_:)))
+                upPan.delegate = self
+                pager.view.addGestureRecognizer(upPan)
+                scroll?.panGestureRecognizer.require(toFail: upPan)
+            }
             // NO UIKit cube display-link: the cube is now the StoryUI library's SwiftUI rotation3DEffect
             // (getAngle in StoryDetailView). The old CADisplayLink applyCube fought it and caused the
             // shake/black, so it's disabled — the pager just provides the horizontal slide.
