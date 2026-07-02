@@ -197,7 +197,13 @@ struct StoriesRow: View {
             if stories.uploading {
                 uploadingCard.transition(.opacity)
                     .contentShape(Rectangle())
-                    .onTapGesture { onOpenUploading() }   // tappable even while uploading → live viewer
+                    // Existing active stories? Open the NORMAL viewer (they play in sequence while the
+                    // new one keeps uploading in the background) — forcing the upload placeholder here
+                    // hid the others and caused a glitchy jump when the upload finished mid-view.
+                    // The live upload viewer is only for the FIRST story (nothing else to show).
+                    .onTapGesture {
+                        if let m = repo.mine, !m.stories.isEmpty { onOpen(m) } else { onOpenUploading() }
+                    }
             } else {
                 card(cover: repo.mine?.stories.last?.mediaUrl ?? mePhoto,
                      name: "My Story", avatar: mePhoto,
