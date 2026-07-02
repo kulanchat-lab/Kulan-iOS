@@ -39,9 +39,11 @@ jobs:
                                    'limit': 1}).json()
           bid = r['data'][0]['id']
           print('build id:', bid)
-          bb = requests.get(f'https://api.appstoreconnect.apple.com/v1/builds/{bid}/buildBundles',
-                            headers=H, params={'fields[buildBundles]': 'dSYMUrl,bundleType'}).json()
-          url = next(b['attributes']['dSYMUrl'] for b in bb['data'] if b['attributes'].get('dSYMUrl'))
+          bb = requests.get(f'https://api.appstoreconnect.apple.com/v1/builds/{bid}',
+                            headers=H, params={'include': 'buildBundles',
+                                               'fields[buildBundles]': 'dSYMUrl,bundleType'}).json()
+          url = next(b['attributes']['dSYMUrl'] for b in bb.get('included', [])
+                     if b['attributes'].get('dSYMUrl'))
           print('dSYM url found, downloading…')
           open('dsym.zip', 'wb').write(requests.get(url).content)
           PY
