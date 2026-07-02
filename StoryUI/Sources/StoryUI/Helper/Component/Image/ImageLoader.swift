@@ -90,6 +90,17 @@ final class ImageLoader: UIView {
     private func apply(_ image: UIImage?) {
         imageView.image = image
         backgroundImageView.image = image
+        // Text stories are rendered at the EXACT device aspect ratio, so they should fill the screen
+        // with the full-colour gradient and NO blur. When the image's aspect essentially matches the
+        // screen (only text stories do — real photos differ), fill edge-to-edge; otherwise keep the
+        // aspect-FIT + blurred backdrop that real photos want.
+        if let image, image.size.width > 0 {
+            let imgAspect = image.size.height / image.size.width
+            let scr = UIScreen.main.bounds
+            let scrAspect = scr.height / max(1, scr.width)
+            let matchesScreen = abs(imgAspect - scrAspect) / scrAspect < 0.03
+            imageView.contentMode = matchesScreen ? .scaleAspectFill : .scaleAspectFit
+        }
     }
 
     private func showShimmer(_ show: Bool) {
