@@ -1,0 +1,58 @@
+name: Symbolicate Crash
+# Decode a TestFlight crash: fetch the build's dSYM from App Store Connect and
+# run atos on the given image offsets (from the .ips faulting-thread frames).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'TestFlight build number (e.g. 177)'
+        required: true
+      addresses:
+        description: 'Space-separated Kulan image offsets in hex (e.g. 0x1d92f4 0x14021)'
+        required: true
+
+jobs:
+  symbolicate:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Fetch dSYM and symbolicate
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          VERSION: ${{ inputs.version }}
+          ADDRESSES: ${{ inputs.addresses }}
+        run: |
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography requests
+          python3 - <<'PY'
+          import jwt, time, os, requests
+          key = os.environ['ASC_API_KEY_P8']
+          token = jwt.encode(
+              {'iss': os.environ['ASC_ISSUER_ID'], 'iat': int(time.time()),
+               'exp': int(time.time()) + 1200, 'aud': 'appstoreconnect-v1'},
+              key, algorithm='ES256', headers={'kid': os.environ['ASC_KEY_ID']})
+          H = {'Authorization': f'Bearer {token}'}
+          r = requests.get('https://api.appstoreconnect.apple.com/v1/builds', headers=H,
+                           params={'filter[app]': '6782635793',
+                                   'filter[version]': os.environ['VERSION'],
+                                   'limit': 1}).json()
+          bid = r['data'][0]['id']
+          print('build id:', bid)
+          bb = requests.get(f'https://api.appstoreconnect.apple.com/v1/builds/{bid}/buildBundles',
+                            headers=H, params={'fields[buildBundles]': 'dSYMUrl,bundleType'}).json()
+          url = next(b['attributes']['dSYMUrl'] for b in bb['data'] if b['attributes'].get('dSYMUrl'))
+          print('dSYM url found, downloading…')
+          open('dsym.zip', 'wb').write(requests.get(url).content)
+          PY
+          unzip -q dsym.zip -d dsyms
+          find dsyms -name '*.dSYM' -maxdepth 4
+          DWARF=$(find dsyms -path '*.dSYM/Contents/Resources/DWARF/*' | head -1)
+          echo "DWARF: $DWARF"
+          echo "================ SYMBOLICATED ================"
+          for a in $ADDRESSES; do
+            addr=$(printf '0x%x' $(( 0x100000000 + a )))
+            echo -n "$a  ->  "
+            atos -o "$DWARF" -arch arm64 -l 0x100000000 "$addr"
+          done
+          echo "=============================================="
