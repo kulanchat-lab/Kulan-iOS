@@ -9,15 +9,17 @@ import SwiftUI
 import AVKit
 
 struct ImageView: UIViewRepresentable {
-    
+
     var imageURL: String?
+    var bottomCornerRadius: CGFloat = 0   // round the card's bottom corners in UIKit (clips the blur)
     let imageIsLoaded: () -> Void
-   
+
     func makeUIView(context: UIViewRepresentableContext<ImageView>) -> ImageLoader {
         return ImageLoader()
     }
-    
+
     func updateUIView(_ uiView: ImageLoader, context: Context) {
+        uiView.bottomCornerRadius = bottomCornerRadius
         uiView.loadImageWithUrl(imageURL, imageIsLoaded: imageIsLoaded)
     }
 }

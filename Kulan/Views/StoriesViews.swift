@@ -704,11 +704,11 @@ struct StoryViewer: View {
         // it warped the card). While the sheet is up, the flat 2D morph card + carousel in
         // `viewersBackdrop` replace it visually. Keep a hair of opacity + hit-testing DURING an open
         // drag so the gesture keeps tracking the finger even after the story has visually faded.
-        // Crossfade timing: the story (WITH its chrome) HOLDS full until the morph card has faded in
-        // opaque over it (0→0.08 dissolves the chrome), THEN fades out behind it (0.08→0.18) just as
-        // the morph begins to shrink — so the photo stays bright throughout and only the chrome
-        // dissolves. Reversed on close (the chrome fades back in as the morph card grows away).
-        .opacity(max(openDragging ? 0.02 : 0, 1 - Double(max(0, min(1, (p - 0.08) / 0.10)))))
+        // Crossfade timing: the story (WITH its chrome) stays fully visible while the opaque morph
+        // card fades in over it (0→0.08 dissolves the chrome), then is gone by the time the card
+        // starts to shrink — so the photo stays bright throughout and only the chrome dissolves.
+        // Reversed on close (the chrome fades back in as the morph card grows away).
+        .opacity(max(openDragging ? 0.02 : 0, 1 - Double(min(p / 0.08, 1))))
         // App-level swipe-down: move + shrink + fade the card as it's pulled down (Instagram feel).
         .scaleEffect(1 - min(dismissDrag / 2400, 0.1))
         .offset(y: dismissDrag)
@@ -785,17 +785,16 @@ struct StoryViewer: View {
         let slotW = slotH * 0.58                           // narrower cards → side cards peek + shrink
         let blockTop = topInset + (avail - countArea - slotH) / 2
         // SMOOTH, NO-JUMP handoff (Telegram), staged so opening morphs "story → only image" and
-        // closing morphs "only image → story":
-        //  • morphVis: the clean morph card fades IN over 0→0.08 (over the still-full story, so the
-        //    progress bars / header / footer DISSOLVE while the photo stays put — the transition the
-        //    user asked for), holds, then fades out 0.9→1.0 into the live carousel centre card.
-        //  • sizeP: the card starts shrinking ONLY after that crossfade (0.18→0.9), so the photo
-        //    never shrinks while two copies are cross-dissolving (no ghosting) — it holds full-screen
-        //    through the chrome dissolve, then scales down to the slot.
+        // closing morphs "only image → story", as one continuous motion:
+        //  • morphVis: the clean morph card fades IN OPAQUE over 0→0.05 (over the still-full story, so
+        //    the progress bars / header / footer DISSOLVE while the photo stays bright), holds, then
+        //    fades out 0.9→1.0 into the live carousel centre card.
+        //  • sizeP: the card scales down starting the instant the chrome has gone (0.08), tracking the
+        //    finger continuously all the way to the slot at 0.9 — no dead "hold" before it responds.
         //  • carIn: neighbours + counts fade in gradually 0.5→0.9 (behind the opaque morph centre).
-        let sizeP = max(0, min(1, (p - 0.18) / (0.9 - 0.18)))
+        let sizeP = max(0, min(1, (p - 0.08) / (0.9 - 0.08)))
         let carIn = max(0, min(1, (p - 0.5) / 0.4))
-        let morphVis = min(p / 0.08, 1) * (1 - max(0, min(1, (p - 0.9) / 0.1)))
+        let morphVis = min(p / 0.05, 1) * (1 - max(0, min(1, (p - 0.9) / 0.1)))
         // Feed the carousel from the LIVE repo (not the viewer's immutable snapshot), so a story
         // deleted while viewing doesn't linger as a ghost card. Fall back to the snapshot.
         let liveMyStories = StoriesRepository.shared.mine?.stories ?? myStories

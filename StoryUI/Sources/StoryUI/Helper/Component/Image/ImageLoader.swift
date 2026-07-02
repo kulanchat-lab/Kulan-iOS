@@ -62,6 +62,10 @@ final class ImageLoader: UIView {
 
     // MARK: Public Properties
     var imageURL: URL?
+    // Round ONLY the bottom two corners of the whole card (photo + blur backdrop) in UIKit. A SwiftUI
+    // .clipShape doesn't clip the UIVisualEffectView blur (it composites separately and spills past the
+    // mask), so the friend reply-bar card stayed square; a UIKit corner mask clips the blur reliably.
+    var bottomCornerRadius: CGFloat = 0 { didSet { applyCornerMask() } }
     // Foreground: the photo at its TRUE aspect ratio — never stretched/cropped (Instagram/WhatsApp).
     var imageView = UIImageView()
     // Background: a zoomed + blurred copy of the same photo that fills the empty top/bottom.
@@ -86,12 +90,24 @@ final class ImageLoader: UIView {
         imageView.frame = bounds
         shimmer.frame = bounds
         updateContentMode()
+        applyCornerMask()
+    }
+
+    // Round the bottom two corners of THIS view (which clips every subview, blur included).
+    private func applyCornerMask() {
+        layer.cornerRadius = bottomCornerRadius
+        layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        layer.masksToBounds = bottomCornerRadius > 0
     }
 
     // Fill edge-to-edge (no blur) when the image's aspect essentially matches THIS VIEW's frame —
     // e.g. a full-bleed text/colour status. Real photos differ → aspect-FIT + blurred backdrop.
     // Keyed off `bounds` (the actual render frame, which accounts for the reply-bar card padding),
     // NOT the physical screen, so a photo isn't cropped inside a shorter card.
+    // Remembered fit/fill choice, so a swipe-down's tiny bounds fluctuations can't flip it (that
+    // flip-flop resized the photo every frame = the "shaking"). Reset only when the image changes.
+    private var decidedFill: Bool? = nil
+
     private func updateContentMode() {
         guard let img = imageView.image, img.size.width > 0, bounds.width > 1 else { return }
         let imgAspect = img.size.height / img.size.width
@@ -99,14 +115,23 @@ final class ImageLoader: UIView {
         // Fill when the image is at least as TALL as the view. Text/colour statuses are rendered
         // taller than any phone, so they always fill full-bleed on every device (fixes the
         // cross-device blur-bars bug); real photos are almost always shorter than the screen →
-        // aspect-FIT + blurred backdrop. (A rare portrait-panorama taller than the screen fills,
-        // which is acceptable.)
-        imageView.contentMode = imgAspect >= viewAspect - 0.02 ? .scaleAspectFill : .scaleAspectFit
+        // aspect-FIT + blurred backdrop. HYSTERESIS: once decided, only flip when the aspect crosses
+        // a wide dead-band, so a swipe-down (bounds jitter) never oscillates fit<->fill.
+        let fill: Bool
+        if let prev = decidedFill {
+            fill = prev ? (imgAspect >= viewAspect - 0.20)    // stay FILL unless clearly shorter
+                        : (imgAspect >= viewAspect + 0.05)    // stay FIT  unless clearly taller
+        } else {
+            fill = imgAspect >= viewAspect - 0.02
+        }
+        decidedFill = fill
+        imageView.contentMode = fill ? .scaleAspectFill : .scaleAspectFit
     }
 
     private func apply(_ image: UIImage?) {
         imageView.image = image
         backgroundImageView.image = image
+        decidedFill = nil          // new image → decide fresh
         updateContentMode()
     }
 
