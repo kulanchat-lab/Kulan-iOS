@@ -175,8 +175,9 @@ struct SettingsView: View {
                     }
                 }
 
-                // TESTFLIGHT AND DEBUG, NEVER THE APP STORE — the same gate as "Demo story people"
-                // in Story settings, and for the same reason.
+                // TESTFLIGHT AND DEBUG, NEVER THE APP STORE. This is the only demo switch left in
+                // Settings: the "Demo story people" one in Story settings, which was gated the same
+                // way and for the same reason, was removed on 2026-09-05.
                 //
                 // Six chats that live only in this phone's memory, added to the list above your
                 // real ones so the website screenshots can be taken without signing out of your own
@@ -1335,21 +1336,28 @@ struct AboutView: View {
 
 // MARK: - Story Settings
 
-// Stories settings, user's reference layout: View Receipts on top, the red opt-out below.
+// Stories settings: the audience list with its "+ New" button, then View Receipts. The red opt-out
+// that used to sit under them was removed on 2026-09-05 — see the deletion note in the properties.
 struct StorySettingsView: View {
     @AppStorage("storyViewReceipts") private var viewReceipts = true
+    /// Read here and no longer written here: the two sections below still hang on it, but the
+    /// buttons that set it are gone. See the second deletion note underneath.
     @AppStorage("storiesOptedOut") private var optedOut = false
-    /// Demo people in the story row. Read by `StoriesRepository.injectDemoStories`. The row that
-    /// shows this switch is gated on `DemoStoryMedia.isAvailable` (debug or TestFlight, never the
-    /// App Store) — it cannot be `#if DEBUG`, because TestFlight is a Release build and that is the
-    /// only kind of build he can run.
-    @AppStorage("demoStoryUsers") private var demoStoryUsers = false
     // DELETED HERE: the "3D Cube Transition" toggle and the `story.personTransition` defaults key it
     // wrote. Both transitions were kept switchable on his 2026-08-11 instruction so he could compare
     // them; on 2026-08-12 he compared them and ruled — the cube is the only one, and the flat slide
     // "should no longer exist anywhere in the person-to-person story transition". A setting whose
     // off position no longer exists is not a setting.
-    @State private var confirmOff = false
+    //
+    // DELETED HERE TOO, on his 2026-09-05 word ("remove 2 things in settings stories, remove
+    // completely"): the "Demo story people" switch with its `demoStoryUsers` binding and its
+    // testers-only footer, and the red "Turn Off Stories" button with its confirmation alert, its
+    // "Turn On Stories" partner and their shared footer.
+    //
+    // Neither defaults key was deleted, because neither belongs to this screen alone.
+    // `demoStoryUsers` is still read by `StoriesRepository.injectDemoStories`, and `storiesOptedOut`
+    // is still read by the stories tab, the chat list's story row and the contact page. Only the way
+    // in from here is gone, so nothing on this screen writes either key any more.
     @State private var audiences = StoryAudienceStore.shared
     @State private var contacts: [StoryContact] = []
     @State private var creating = false
@@ -1412,41 +1420,12 @@ struct StorySettingsView: View {
                     Text("Story updates automatically disappear after 24 hours. Choose who can view your story, or make a new one with specific viewers.")
                 }
             }
-            // TESTFLIGHT AND DEBUG, NEVER THE APP STORE — see `DemoStoryMedia.isAvailable`.
-            //
-            // Four people whose stories are drawn and encoded on this phone (see `demoGroups`).
-            // Nothing about them touches Firebase and nobody else can ever see them. They exist
-            // because the story bugs worth testing are video bugs, and testing those needs a friend
-            // with video stories, which a real account does not reliably have.
-            if DemoStoryMedia.isAvailable {
-                Section {
-                    Toggle("Demo story people", isOn: $demoStoryUsers).tint(.orange)
-                        .onChange(of: demoStoryUsers) { _, _ in
-                            StoriesRepository.shared.refreshForDemo()
-                        }
-                } footer: {
-                    Text("Testers only. Adds four local people with video and photo stories to the story row, for checking the story viewer. They are drawn on this device, never uploaded, and nobody else can see them.")
-                }
-            }
             if !optedOut {
                 Section {
                     Toggle("View Receipts", isOn: $viewReceipts).tint(.green)
                 } footer: {
                     Text("See and share when stories are viewed. If disabled, you won't see when others view your stories.")
                 }
-            }
-            Section {
-                if optedOut {
-                    Button("Turn On Stories") {
-                        withAnimation { optedOut = false }
-                    }
-                } else {
-                    Button("Turn Off Stories", role: .destructive) { confirmOff = true }
-                }
-            } footer: {
-                Text(optedOut
-                     ? "Stories are off. Turn them back on to share and view stories again."
-                     : "If you opt out of stories you will no longer be able to share or view stories.")
             }
         }
         .navigationTitle("Stories")
@@ -1460,12 +1439,6 @@ struct StorySettingsView: View {
         // Cancel/Done pair and is no longer inside this screen's navigation.
         .sheet(isPresented: $editingGlowers) {
             NavigationStack { GlowersPrivacyView() }
-        }
-        .alert("Turn off stories?", isPresented: $confirmOff) {
-            Button("Cancel", role: .cancel) {}
-            Button("Turn Off", role: .destructive) { withAnimation { optedOut = true } }
-        } message: {
-            Text("The stories row disappears and you won't share or view stories. Any story you already posted still expires on its own after 24 hours.")
         }
     }
 }
