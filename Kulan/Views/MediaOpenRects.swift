@@ -229,7 +229,17 @@ private struct MediaViewAnchor: UIViewRepresentable {
         v.key = key
         return v
     }
-    func updateUIView(_ uiView: UIView, context: Context) { (uiView as? Anchor)?.key = key }
+    func updateUIView(_ uiView: UIView, context: Context) {
+        guard let anchor = uiView as? Anchor else { return }
+        // A real key change goes through `didSet`, which releases the old one and registers.
+        anchor.key = key
+        // AND AN UNCHANGED KEY IS THE CASE THAT WAS MISSING. `didSet` is silent when the string is
+        // the same, and a card that is simply re-rendered — which every one of these does the
+        // moment `MediaSourceVisibility` publishes — had no way to notice that the registry had
+        // stopped naming it. This is the most frequent of the three reclaim hooks and the reason
+        // the other two are belts rather than the fix. See `Anchor.reclaimIfLost`.
+        anchor.reclaimIfLost()
+    }
 
     final class Anchor: UIView {
         var key: String = "" {
@@ -245,6 +255,42 @@ private struct MediaViewAnchor: UIViewRepresentable {
         // Registered on every window change too: SwiftUI reuses these views as the row re-orders, so
         // "it was registered once at birth" is not good enough.
         override func didMoveToWindow() { super.didMoveToWindow(); register() }
+
+        /// ⛔ AND A WINDOW CHANGE IS NOT THE ONLY WAY THIS VIEW MOVES — owner, 2026-09-09: "going
+        /// back to position works correctly for the top friends stories, but Glowing stories, and
+        /// when I click all Glowing stories, and when I enter all friends stories, those are not
+        /// working well."
+        ///
+        /// ⚠️ THE UIKit CARD IN THE STRIP IS AN OBJECT THE ROW OWNS FOR THE CARD'S WHOLE LIFE; THIS
+        /// IS A VIEW SwiftUI MAY REPLACE OR REPARENT AT ANY TIME. `StoryRowLongPress.install` had to
+        /// learn the same lesson on these very grids and its note states the mechanism: "SwiftUI is
+        /// free to swap the strip's backing scroll view, or to reparent this anchor between hosts
+        /// WITHOUT dropping its window (didMoveToSuperview fires, didMoveToWindow does not)". There,
+        /// the recogniser stayed wired to a dead host and the press was dead for the life of the
+        /// screen. Here the failure is the mirror image: the registry holds ONE WEAK VIEW per key,
+        /// so if the anchor that owns the key stops being the one on screen — swapped out, or left
+        /// behind by a reparent — `views[key]` answers with a view that has no window, and nothing
+        /// ever asks the live anchor to take the key back. `liveViewRect` then honestly says nil,
+        /// `heroEndpoints` gives up, and the pull-down close has nowhere to fly: on these screens
+        /// that is not a drift, it is nothing happening at all.
+        ///
+        /// So the anchor RECLAIMS its key whenever the registry has stopped naming a live view for
+        /// it. Layout, because that is the one callback SwiftUI cannot move this view without;
+        /// superview change, because that is the case the note above names by hand.
+        ///
+        /// ⚠️ IT CAN ONLY EVER REPLACE A DEAD ANSWER WITH A LIVE ONE. `liveView` already tests the
+        /// window, so an incumbent that is genuinely on screen keeps the key and two anchors can
+        /// never fight over it — which is the trap `releaseView` above was written for, in the other
+        /// direction. A dictionary lookup per layout pass, and nothing written unless it is needed.
+        override func didMoveToSuperview() { super.didMoveToSuperview(); reclaimIfLost() }
+        override func layoutSubviews() { super.layoutSubviews(); reclaimIfLost() }
+
+        /// Not private: `updateUIView` calls it too, and that is the hook that fires most often.
+        func reclaimIfLost() {
+            guard !key.isEmpty, window != nil, MediaOpenRects.liveView(key) == nil else { return }
+            MediaOpenRects.captureView(key, self)
+        }
+
         // ⚠️ NOTHING IS NEEDED ON DEALLOC. The registry holds these weakly and every reader tests
         // `window != nil` first, so a view that has gone away already answers honestly. The case
         // that needed fixing is the one where the view is very much alive and simply not what the

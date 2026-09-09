@@ -850,9 +850,17 @@ struct StoriesTabView: View {
     /// from the page flew back to the card on the TAB, which is behind it and usually off screen.
     /// The all-Glowing page was given a prefix of its own when it was built and does not have this;
     /// the all-friends page was not, and that asymmetry is the whole bug.
+    ///
+    /// ⛔ AND THE KEY IS PINNED WHENEVER THE PAGE GAVE US ONE. An unpinned door lets the viewer
+    /// republish the source key as each person comes up, which is right for the STRIP — it scrolls
+    /// itself to whoever is on screen, so the card to land on is always the freshly published one.
+    /// A grid does not scroll to the active person, so paging past a friend whose card is below the
+    /// fold would republish a key with no visible card behind it and the pull-down would go dead.
+    /// The page hands us its own namespaced key precisely because its cards are all on one screen.
     private func openStoryFromRow(_ g: StoryGroup, sourceKey: String? = nil) {
         let others = StoriesRepository.shared.others.filter { !StoryPrefs.isHidden($0.authorUid) }
-        StoryDoor.open(g, among: g.isMine ? [g] + others : others, from: sourceKey ?? g.id, pinned: false,
+        StoryDoor.open(g, among: g.isMine ? [g] + others : others, from: sourceKey ?? g.id,
+                       pinned: sourceKey != nil,
                        // These came out of `StoriesRepository.others`, whose query is "recipientUids
                        // contains me" — so being here IS the author's audience choice, and the reply
                        // bar follows it rather than testing my chat list a second time.

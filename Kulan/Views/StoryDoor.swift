@@ -58,8 +58,50 @@ import StoryUI
     /// can scroll to them. Two spellings of one fact, written in the same breath and never apart.
     var activeAuthorUid: String?
 
+    /// ⛔ THE NAMESPACE THE DOOR'S CARDS ARE REGISTERED UNDER — owner, 2026-09-09: "going back to
+    /// position works correctly for the top friends stories… when I enter all friends stories those
+    /// are not working well."
+    ///
+    /// ⚠️ THE VIEWER PUBLISHES A BARE GROUP ID AND IT ALWAYS HAS. `StoryViewer.publishActive` writes
+    /// `setActive(sourceKey: g.id, …)` — the author's uid, nothing else, because for years every
+    /// unpinned door registered its cards under exactly that. The all-friends page does not: its
+    /// cards were given a `friendspage-` prefix of their own earlier today, precisely so they would
+    /// stop fighting the strip for one key. The prefix works for the OPEN, which is handed the real
+    /// key, and is then thrown away by the first `onUserChanged` — which fires at the open, before
+    /// the finger ever touches the screen. From that instant the flight's key is the bare uid, which
+    /// names the STRIP's card on the tab underneath; a pushed page takes that view out of the
+    /// window, so `liveViewRect` answers nil, `heroEndpoints` gives up, and the pull-down does
+    /// nothing at all. The prefix fix could not have worked on its own.
+    ///
+    /// So the door remembers the shape of the key it was opened with — everything in front of the
+    /// group id — and puts a bare id back into it. Empty for every door that already passes the bare
+    /// id (the friends strip), which is why nothing else moves.
+    ///
+    /// ⚠️ FIXED HERE RATHER THAN AT THE PUBLISHER because the publisher does not know, and cannot:
+    /// it holds `StoryGroup`s, and how a SCREEN chose to key its cards is the screen's business,
+    /// carried in through `open(from:)`. This is the one place both facts are in the same room.
+    private(set) var keyPrefix = ""
+
+    /// Record the namespace from the key the door was opened with. `sourceKey` ending in the group's
+    /// own id means everything before it is the screen's prefix; anything else (a chat row keyed by
+    /// conversation, the uploading card's constant) has no prefix to derive and gets none.
+    func setKeyNamespace(openedWith sourceKey: String, groupId: String) {
+        keyPrefix = (!groupId.isEmpty && sourceKey.count > groupId.count && sourceKey.hasSuffix(groupId))
+            ? String(sourceKey.dropLast(groupId.count))
+            : ""
+    }
+
+    /// A bare id put back into the door's namespace. Idempotent: a key that already carries the
+    /// prefix is returned untouched, so the door's own writes (which pass the real key) are no-ops
+    /// here and only the viewer's bare ids are repaired.
+    func namespaced(_ key: String) -> String {
+        guard !keyPrefix.isEmpty, !key.isEmpty, !key.hasPrefix(keyPrefix) else { return key }
+        return keyPrefix + key
+    }
+
     /// Called by the viewer whenever the person on screen changes, and once at the open.
     func setActive(sourceKey: String, authorUid: String) {
+        let sourceKey = namespaced(sourceKey)
         if activeSourceKey != sourceKey { activeSourceKey = sourceKey }
         if activeAuthorUid != authorUid { activeAuthorUid = authorUid }
     }
@@ -82,6 +124,9 @@ import StoryUI
         restoreRowToUid = activeAuthorUid
         activeSourceKey = nil
         activeAuthorUid = nil
+        // The namespace belongs to the visit, not to the app. Left standing it would prefix the
+        // NEXT door's bare ids with the screen this one happened to be opened from.
+        keyPrefix = ""
     }
 }
 
@@ -136,6 +181,10 @@ enum StoryDoor {
         // pending row restore goes too: it belongs to a visit that is over, and letting it survive
         // into this one would scroll the row out from under the story that is opening.
         StoryDoorState.shared.restoreRowToUid = nil
+        // BEFORE `setActive`, and that order is the whole point: the namespace is derived from the
+        // key this screen handed us, and every bare id the viewer publishes from here on is put
+        // back into it. See `StoryDoorState.keyPrefix`.
+        StoryDoorState.shared.setKeyNamespace(openedWith: sourceKey, groupId: g.id)
         StoryDoorState.shared.setActive(sourceKey: sourceKey, authorUid: g.authorUid)
         // The tapped view is photographed HERE, at tap time, while it is definitely on screen: the
         // snapshot rides the flight as the cover the open wears. Nil (nothing registered, or the view
@@ -162,6 +211,11 @@ enum StoryDoor {
     /// to the fade landing exactly as before — a wrong-picture landing is worse than either.
     static func retarget(to sourceKey: String) {
         guard StoryZoomPresenter.isActive else { return }
+        // The viewer names the person by bare group id; the cards may be filed under a screen's own
+        // prefix. Same repair, same reason, as `setActive` — and it has to happen here too or the
+        // hole and the cover would follow the swipe on one screen while the flight followed it on
+        // another. See `StoryDoorState.keyPrefix`.
+        let sourceKey = StoryDoorState.shared.namespaced(sourceKey)
         // Already wearing him: nothing to do. This is also what keeps the OPEN out of here — the
         // first person's cover was photographed at tap time and his slot is the flight's to hide
         // (`stageHeroOpen`), and re-photographing the card mid-dip would trade a clean picture
@@ -183,6 +237,10 @@ enum StoryDoor {
                               onClosed: @escaping () -> Void = {}) {
         guard !StoryZoomPresenter.isActive else { return }
         request = nil
+        // No group id to derive a namespace from, and none is wanted: this door is pinned to one
+        // card and publishes nothing. Cleared rather than left, so the last visit's prefix cannot
+        // reach a later one. See `StoryDoorState.keyPrefix`.
+        StoryDoorState.shared.setKeyNamespace(openedWith: "", groupId: "")
         StoryDoorState.shared.uploadingOpen = true
         let finish: () -> Void = {
             StoryDoorState.shared.uploadingOpen = false
