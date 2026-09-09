@@ -464,20 +464,25 @@ struct GlowProfileView: View {
     private var postedStoriesCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
+                // ⛔ THE STATS CARD'S TYPE, NOT A BIGGER ONE — his report, 2026-09-09: "posted
+                // stories text size and type make it like glower text". The card above it says
+                // "4 Glowers · 9 Glowing" in `.headline`, and a 20pt bold heading beside it made the
+                // two cards look like they came from different screens. A system style also answers
+                // the phone's text size, which a frozen 20 never did.
                 Text("Posted stories")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.white)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
                 Spacer(minLength: 0)
                 NavigationLink {
                     PostedStoriesView(uid: uid, isMe: isMe,
                                       title: profile?.name ?? initialName)
                 } label: {
                     HStack(spacing: 3) {
-                        Text("See All").font(.system(size: 16, weight: .semibold))
+                        Text("See All").font(.subheadline.weight(.semibold))
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                 }
                 .buttonStyle(.plain)
             }
@@ -513,7 +518,9 @@ struct GlowProfileView: View {
     /// stray number here shows up as a tile that does not reach the card's edge.
     private enum PostedCard {
         static let pad: CGFloat = 14
-        static let gap: CGFloat = 8
+        /// The same air the page behind See All puts between two tiles, so the three on the card and
+        /// the three at the top of that page are spaced alike.
+        static var gap: CGFloat { StoryTileGrid.gap }
         /// How many fit across. The rest are behind See All.
         static let tiles: Int = 3
     }
@@ -685,10 +692,20 @@ struct PostedStoryTile: View {
     /// over a bright photograph; the capsule was doing that job and is the thing his picture does
     /// not have.
     private var tile: some View {
+        // ⛔ THE SHAPE IS DECIDED BY AN EMPTY BOX, NOT BY THE PICTURE — his report, 2026-09-09:
+        // "fix images looks long". A `.frame(maxWidth:)` followed by `.aspectRatio(_, .fit)` asks
+        // the IMAGE to solve its own shape against an unbounded height, so a tall photograph kept
+        // its own proportions and the tile grew with it. Three tiles of different heights in one
+        // row is what he is looking at.
+        //
+        // `Color.clear` carrying the aspect ratio is the layout-defining view, and the picture fills
+        // it as an overlay — the same recipe `ChatWallpaperBackground` uses, and for the same reason:
+        // a fill must never be allowed to feed layout back.
         ZStack(alignment: .bottomLeading) {
-            StoryImage(url: story.thumbUrl)
-                .frame(maxWidth: .infinity)
+            Color.clear
                 .aspectRatio(GlowStoryCardView.aspect, contentMode: .fit)
+                .overlay { StoryImage(url: story.thumbUrl).scaledToFill() }
+                .clipped()
 
             if story.views != nil {
                 LinearGradient(colors: [.black.opacity(0.45), .clear],

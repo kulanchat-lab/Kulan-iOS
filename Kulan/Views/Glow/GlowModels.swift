@@ -173,12 +173,31 @@ struct PostedStory: Identifiable, Equatable {
     /// asking for somebody else's would fail every time and cost a round trip per card to learn it.
     /// The badge in his screenshot is on his own profile; on somebody else's there is no number to
     /// show and the card draws none.
+    /// ⛔ AND IT COUNTS THE RECEIPTS WHEN THERE IS NO COUNTER — his report, 2026-09-09: the posted
+    /// stories on his own profile show no number at all.
+    ///
+    /// ⚠️ THE COUNTER DOCUMENT HAS NO WRITER YET. `fetchViewSummary` reads
+    /// `stories/{id}/meta/views`, a document a server function is supposed to keep, and that
+    /// function has never been built — it is still on the Glow feature's owed list. So the summary
+    /// returns nil for every story, and the badge drew nothing, correctly, about a number nobody
+    /// was keeping.
+    ///
+    /// The receipts themselves are real and are already author-readable: `stories/{id}/views` holds
+    /// one document per viewer, which is what the Seen-by sheet lists. Counting them is the same
+    /// number the counter would hold, derived instead of stored.
+    ///
+    /// ⚠️ THE SUMMARY IS STILL ASKED FIRST, and that order matters. When the function does land, its
+    /// count is authoritative and cheap; this fallback is one extra read per story and exists only
+    /// while the number has no other source. `nil` from the receipts read means the request failed,
+    /// not that nobody watched — the badge stays absent rather than claiming zero.
     func loadViewCounts(isMe: Bool) async {
         guard isMe, case .loaded(let rows) = state, !rows.isEmpty else { return }
         var updated = rows
         for (i, row) in rows.enumerated() {
             if let s = await StoriesService.shared.fetchViewSummary(storyId: row.id) {
                 updated[i].views = s.count
+            } else if let viewers = await StoriesService.shared.fetchViewers(storyId: row.id) {
+                updated[i].views = viewers.count
             }
         }
         state = .loaded(updated)

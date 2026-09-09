@@ -323,9 +323,15 @@ private struct PostedStoryGridTile: View {
 /// person's name and face on every card; this is the tighter three-column one for plain tiles.
 enum StoryTileGrid {
     static let columns: Int = 3
-    static let gap: CGFloat = 6
-    static let margin: CGFloat = 6
+    /// ⛔ MEASURED OFF HIS CONCEPT, 2026-09-09, against a screenshot of ours beside it: "spaces and
+    /// corners make it exactly like image 2". In his picture the gap between two tiles is about a
+    /// ninth of a tile's width, which on three columns of a 430pt screen is 12, and the page's own
+    /// side margin is a little wider than the gap at 14. Ours were both 6, which is what made the
+    /// grid read as one block rather than as tiles.
+    static let gap: CGFloat = 12
+    static let margin: CGFloat = 14
     /// Smaller than the story cards' own 34, because a tile is about a third of the width and a
-    /// 34pt arc on something this narrow eats the picture.
-    static let corner: CGFloat = 18
+    /// 34pt arc on something this narrow eats the picture. 16 is his concept's corner measured the
+    /// same way as the gap above.
+    static let corner: CGFloat = 16
 }
