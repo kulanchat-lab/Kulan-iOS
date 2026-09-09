@@ -790,10 +790,12 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         lastKnownDistanceFromBottom = max(0, maxContentOffsetY - collectionView.contentOffset.y)
     }
 
-    /// ⚠️ AT REST ONLY, NEVER PER FRAME. This encodes a value and writes `UserDefaults`, and it
-    /// used to hang off `recordDistanceFromBottom`, which runs on EVERY scroll tick — sixty to a
-    /// hundred and twenty main-thread writes a second, in exactly the frames that need headroom,
-    /// with the equality dedupe useless because the offset changes every frame. Theirs saves from a
+    /// ⚠️ AT REST ONLY, NEVER PER FRAME. This walks the viewport for the top-most row and asks the
+    /// layout for its attributes, and it used to hang off `recordDistanceFromBottom`, which runs on
+    /// EVERY scroll tick — sixty to a hundred and twenty of those a second, in exactly the frames
+    /// that need headroom, with the equality dedupe useless because the offset changes every frame.
+    /// (It cost a `UserDefaults` write per tick as well, back when the position went to disk; the
+    /// store is in memory for one app run now, and the rule is the same either way.) Theirs saves from a
     /// 0.1s timer gated on `!isUserScrolling, !isWaitingForDeceleration`, and writes asynchronously.
     /// Ours is called from the two settle points instead. `recordDistanceFromBottom` stays per-tick,
     /// because it is one subtraction.
