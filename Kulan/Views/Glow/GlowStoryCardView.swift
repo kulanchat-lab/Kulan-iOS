@@ -271,13 +271,33 @@ enum GlowCardPress {
     /// `corner` is the radius the LIFTED picture is cut with, and it has to be the one the card on
     /// screen was drawn with or the lift is a different shape from the thing under the finger. The
     /// all-friends page draws its cards at the tighter tile corner, the grids at the card's own.
+    ///
+    /// ⛔ `assumeIsolated`, AND NOT AN `@MainActor` ANNOTATION. This was three compile errors on the
+    /// first build that ever reached this code (2026-09-09) — the helper was written a day earlier
+    /// and had no call sites, so nothing had made the compiler look at it: "call to main
+    /// actor-isolated static method 'key' in a synchronous nonisolated context", and the same for
+    /// `liveRect` and `drawnRect`.
+    ///
+    /// ⚠️ ANNOTATING THIS `@MainActor` DOES NOT WORK, and it is worth saying why so the next session
+    /// does not try it. The closure this feeds is stored as a plain `(CGPoint) -> StoryMenuTarget?`
+    /// on `StoryRowLongPress`, and it is called from `gestureRecognizerShouldBegin` on a
+    /// `Coordinator: NSObject` that is not actor-annotated either. Isolating this end would just
+    /// move the same three errors to that call site, and isolating THAT end means annotating a
+    /// `UIGestureRecognizerDelegate` conformance.
+    ///
+    /// The whole chain is main-thread by construction: every caller is a UIKit gesture callback.
+    /// `StoryPressVisual` in `StoryRowLongPress.swift` records the identical decision for the
+    /// identical reason and stays unannotated. This asserts at runtime what that file asserts in
+    /// prose.
     static func target(_ rectKey: String, at p: CGPoint, actions: [CMAction],
                        corner: CGFloat = GlowStoryCardView.corner) -> StoryMenuTarget? {
         guard !rectKey.isEmpty else { return nil }
-        let key = MediaOpenRects.key(.storyRow, rectKey)
-        guard let r = MediaOpenRects.liveRect(key), r.contains(p) else { return nil }
-        return StoryMenuTarget(key: key, rect: MediaOpenRects.drawnRect(key) ?? r,
-                               actions: actions, cornerRadius: corner)
+        return MainActor.assumeIsolated {
+            let key = MediaOpenRects.key(.storyRow, rectKey)
+            guard let r = MediaOpenRects.liveRect(key), r.contains(p) else { return nil }
+            return StoryMenuTarget(key: key, rect: MediaOpenRects.drawnRect(key) ?? r,
+                                   actions: actions, cornerRadius: corner)
+        }
     }
 }
 
