@@ -2004,6 +2004,18 @@ struct ChatsView: View {
                 let vc = UIHostingController(rootView: ChatPeekPreview(cid: conv.id, me: me))
                 vc.view.backgroundColor = .clear
                 vc.preferredContentSize = ChatPeekPreview.platterSize
+                // ⛔ AND THE CORNERS COME BACK WITH THE BACKGROUND — his report, 2026-09-09, once
+                // the wallpaper was showing: "when I long press chat preview corners is going to
+                // change". Clearing the view's background is what fixed the picture and is also
+                // what squared it off: the platter's rounding is applied to the controller's own
+                // backdrop, so once that is transparent there is nothing rounded left and the
+                // wallpaper runs to four square corners.
+                //
+                // The view clips itself instead. `continuous` because every other rounded surface in
+                // this app is, and a circular corner beside them reads as the odd one out.
+                vc.view.clipsToBounds = true
+                vc.view.layer.cornerRadius = 12
+                vc.view.layer.cornerCurve = .continuous
                 return vc
             }
         )

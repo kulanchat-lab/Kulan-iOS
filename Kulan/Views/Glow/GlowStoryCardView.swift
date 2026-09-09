@@ -95,6 +95,12 @@ struct GlowStoryCardView: View {
     /// means every existing call site keeps the number it was measured with.
     var corner: CGFloat = GlowStoryCardView.corner
 
+    /// How far the name sits from the card's left and bottom edges. One number for both, and it
+    /// tracks the corner: text inset by `d` from two edges only clears a corner of radius `r` when
+    /// `d > r(1 - 1/√2)`, about `0.293r`. The floor of 10 keeps the tighter tile cards from pushing
+    /// the name flat against the picture's edge.
+    private var nameInset: CGFloat { max(10, ceil(0.41 * corner)) }
+
     /// ⛔ THE PRESS DIP, AND IT LIVES ON THE CARD RATHER THAN AT THE FOUR CALL SITES — his report the
     /// last time a press was wired up on a SwiftUI card ("now long press is working but there's no
     /// animation", 2026-08-21). The UIKit strip's cards are `UIControl`s and get `isHighlighted` on
@@ -168,14 +174,20 @@ struct GlowStoryCardView: View {
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    // ⛔ ONE NUMBER FOR THE LEFT AND THE BOTTOM, AND IT IS THE FACE'S — same report:
-                    // "Name Left angel and buttom angel Make same numbar space". The name sat at 14
-                    // on both edges while the face sat at 10 on its two, so the card's four corners
-                    // were inset by two different amounts and the name hung further in than the
-                    // thing beside it. Derived from `avatarInset` rather than typed, so the four
-                    // corners cannot drift apart again.
-                    .padding(.leading, Self.avatarInset)
-                    .padding(.bottom, Self.avatarInset)
+                    // ⛔ EQUAL ON BOTH EDGES, BUT NOT 10 — his second report on this, 2026-09-09:
+                    // "glowing stories names is tucking angels, bottom angel and left angel".
+                    //
+                    // ⚠️ I CAUSED THAT. His first note asked for the left and bottom gaps to be one
+                    // number, and I took the face's 10 for both. On a 34pt corner that puts the
+                    // text's own corner INSIDE the curve: a point inset by d from both edges clears
+                    // an arc of radius r only when d is greater than about 0.293r, which is 10.0 at
+                    // r = 34. Exactly on the boundary, which is what tucking looks like.
+                    //
+                    // So the inset is derived from the arc it has to clear, and stays equal on both
+                    // edges. The wide grids get their old 14 back; the three-column pages, drawn at
+                    // an 18pt corner, keep 10 because 10 clears 18 with room to spare.
+                    .padding(.leading, nameInset)
+                    .padding(.bottom, nameInset)
                     // clear of the face: its width, its inset, and 4 of daylight between the two
                     .padding(.trailing, Self.avatar + Self.avatarInset + 4)
             }
