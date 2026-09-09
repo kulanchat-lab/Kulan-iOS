@@ -160,14 +160,22 @@ struct GlowStoryCardView: View {
                 // margins, so about 100 points of room — which cuts most people off mid-surname,
                 // and a name you cannot read is the one thing this card has to get right. Two lines
                 // of 15pt is 36 points inside a 90pt scrim, so nothing else has to move.
+                // ⛔ 13, DOWN FROM 15 — owner, 2026-09-09, with two names ringed on the Glowing
+                // grid: "now is looks big make small". Two lines of 13 is 32 points inside the 90pt
+                // scrim, so it still clears and nothing around it moves.
                 Text(name)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    // 14, not 12 — clearance from the bigger corner arc. See `corner`.
-                    .padding(.leading, 14)
-                    .padding(.bottom, 14)
+                    // ⛔ ONE NUMBER FOR THE LEFT AND THE BOTTOM, AND IT IS THE FACE'S — same report:
+                    // "Name Left angel and buttom angel Make same numbar space". The name sat at 14
+                    // on both edges while the face sat at 10 on its two, so the card's four corners
+                    // were inset by two different amounts and the name hung further in than the
+                    // thing beside it. Derived from `avatarInset` rather than typed, so the four
+                    // corners cannot drift apart again.
+                    .padding(.leading, Self.avatarInset)
+                    .padding(.bottom, Self.avatarInset)
                     // clear of the face: its width, its inset, and 4 of daylight between the two
                     .padding(.trailing, Self.avatar + Self.avatarInset + 4)
             }
