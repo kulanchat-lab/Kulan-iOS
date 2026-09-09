@@ -362,13 +362,45 @@ struct GlowProfileView: View {
         return "by " + names.joined(separator: ", ")
     }
 
-    /// POSTED STORIES — a horizontal rail of live stories with a view badge, and a See All row.
+    /// POSTED STORIES — three tiles filling the card, the heading and See All sharing the top line.
+    ///
+    /// ⛔ HIS CONCEPT IMAGE, 2026-09-09: "make it the image concept I sent you exactly". Three
+    /// changes from what was here, and two of them overturn earlier decisions of his, which is worth
+    /// naming so neither is quietly undone later:
+    ///
+    ///   1. THE HEADING MOVED INSIDE THE CARD and See All moved up beside it. It used to sit above
+    ///      the card as a free-standing title with See All as a row at the bottom behind a divider.
+    ///      The All Media card was moved the same way on 2026-09-05, so the two now match, which is
+    ///      what his two concept images show side by side.
+    ///   2. ⚠️ SEE ALL IS ALWAYS THERE NOW. His 2026-09-02 rule was "more than 3 stories show the
+    ///      See All button", on the reasoning that under four the rail already showed everything.
+    ///      His concept draws exactly three tiles WITH See All, so the newer picture wins. If he
+    ///      wants the old rule back it is one `if rows.count > 3` around the link.
+    ///   3. ⚠️ THE RAIL NO LONGER SCROLLS. Three tiles are sized to fill the card's width, the way
+    ///      the picture shows them, so a fourth story is reached through See All rather than by
+    ///      dragging sideways.
     private var postedStoriesCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Posted stories")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(.leading, 2)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Posted stories")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.white)
+                Spacer(minLength: 0)
+                NavigationLink {
+                    PostedStoriesView(uid: uid, isMe: isMe,
+                                      title: profile?.name ?? initialName)
+                } label: {
+                    HStack(spacing: 3) {
+                        Text("See All").font(.system(size: 16, weight: .semibold))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, PostedCard.pad)
+            .padding(.top, PostedCard.pad)
 
             VStack(spacing: 0) {
                 switch stories.state {
@@ -379,40 +411,29 @@ struct GlowProfileView: View {
                 case .loaded(let rows) where rows.isEmpty:
                     cardMessage(isMe ? "You have no live stories." : "No live stories.", retry: false)
                 case .loaded(let rows):
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(rows) { s in
-                                PostedStoryTile(story: s) { openPosted() }
-                            }
+                    // Three across, each taking an equal share of what the card's padding leaves,
+                    // so the row ends flush with the heading above it however wide the screen is.
+                    HStack(spacing: PostedCard.gap) {
+                        ForEach(rows.prefix(PostedCard.tiles)) { s in
+                            PostedStoryTile(story: s) { openPosted() }
                         }
-                        .padding(.horizontal, 12)
                     }
-                    .frame(height: 172)
+                    .padding(.horizontal, PostedCard.pad)
                     .padding(.top, 12)
-
-                    // ⛔ ONLY PAST THREE — owner, 2026-09-02: "more than 3 stories show the See All
-                    // button". Under four the rail already shows everything, so the row offered a
-                    // page identical to what you were looking at.
-                    if rows.count > 3 {
-                    Divider().overlay(Color.white.opacity(0.12)).padding(.top, 10)
-                    NavigationLink {
-                        PostedStoriesView(uid: uid, isMe: isMe,
-                                          title: profile?.name ?? initialName)
-                    } label: {
-                        HStack {
-                            Text("See All").font(.system(size: 16, weight: .semibold))
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14).padding(.vertical, 13)
-                    }
-                    .buttonStyle(.plain)
-                    }
                 }
             }
-            .background(cardColor, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(.bottom, PostedCard.pad)
         }
+        .background(cardColor, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    /// The posted stories card's own spacing, named because his concept fixes all three and a
+    /// stray number here shows up as a tile that does not reach the card's edge.
+    private enum PostedCard {
+        static let pad: CGFloat = 14
+        static let gap: CGFloat = 8
+        /// How many fit across. The rest are behind See All.
+        static let tiles: Int = 3
     }
 
     private func cardMessage(_ text: String, retry: Bool) -> some View {
@@ -546,6 +567,13 @@ struct GlowProfileView: View {
 /// reference), so the wrapper that used to carry a segmented picker above it is gone.
 
 /// One story in the profile's rail: the poster, and the view badge from his screenshot.
+/// The corner the card's tiles and the page's tiles share, so a story keeps its shape when he
+/// taps See All. Smaller than the story cards' own 34 because these tiles are about a third of
+/// the width, and a 34 arc on a tile this narrow eats the picture.
+enum PostedTile {
+    static let corner: CGFloat = 18
+}
+
 struct PostedStoryTile: View {
     let story: PostedStory
     /// ⛔ THE TILE OPENS THE STORY — owner, 2026-09-02: "when I click a story it is not opening,
@@ -566,20 +594,38 @@ struct PostedStoryTile: View {
             .disabled(onTap == nil)
     }
 
+    /// ⛔ NO FIXED WIDTH ANY MORE — his concept, 2026-09-09. The tile was 104 by 150 because it
+    /// lived on a rail that scrolled; it now takes whatever share of the card three tiles and two
+    /// gaps leave, and its height follows from the story shape the rest of the app uses, so the
+    /// same picture is the same shape here, on the grids and on the page behind See All.
+    ///
+    /// ⚠️ THE COUNT LOST ITS CAPSULE. His image reads it as plain white on the picture, so what
+    /// carries it now is a short gradient along the bottom edge. A scrim is what keeps it legible
+    /// over a bright photograph; the capsule was doing that job and is the thing his picture does
+    /// not have.
     private var tile: some View {
         ZStack(alignment: .bottomLeading) {
             StoryImage(url: story.thumbUrl)
-                .frame(width: 104, height: 150)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .frame(maxWidth: .infinity)
+                .aspectRatio(GlowStoryCardView.aspect, contentMode: .fit)
+
+            if story.views != nil {
+                LinearGradient(colors: [.black.opacity(0.45), .clear],
+                               startPoint: .bottom, endPoint: .top)
+                    .frame(height: 52)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .allowsHitTesting(false)
+            }
+
             if let v = story.views {
                 Label(GlowCount.short(v), systemImage: "eye.fill")
                     .labelStyle(.titleAndIcon)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 7).padding(.vertical, 4)
-                    .background(.black.opacity(0.55), in: Capsule())
-                    .padding(8)
+                    .padding(.leading, 8)
+                    .padding(.bottom, 8)
             }
+
             if story.isVideo {
                 Image(systemName: "play.fill")
                     .font(.system(size: 11, weight: .bold))
@@ -590,7 +636,8 @@ struct PostedStoryTile: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
         }
-        .frame(width: 104, height: 150)
+        .compositingGroup()
+        .clipShape(RoundedRectangle(cornerRadius: PostedTile.corner, style: .continuous))
     }
 }
 

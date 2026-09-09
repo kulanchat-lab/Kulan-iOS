@@ -64,29 +64,32 @@ struct PostedStoriesView: View {
     @Environment(\.dismiss) private var dismiss
 
     /// ⛔ THE APP'S OWN STORY GRID, NOT A FOURTH ONE — owner, 2026-09-05, item 17: "Posted stories
-    /// page: redesign exactly like the image (grid + view counts)."
-    ///
-    /// Two flexible columns on `GlowStoryCardView.gutter` — the identical geometry the Glowing
-    /// grid and both Stories-tab grids already draw. What was here was a 3-column, 3pt-gutter
-    /// mosaic with square corners, so the same picture posted by the same person came out at one
-    /// size on the Glowing grid and another size here, with a different corner on a different
-    /// margin. One app, one story grid.
-    ///
-    /// ⚠️ THE NUMBERS ARE READ OFF `GlowStoryCardView`, NEVER RETYPED. Its own header states the
-    /// rule — four copies of a corner radius are four places for it to drift — and every one of
-    /// those numbers was measured off a reference screenshot on 2026-09-02 (aspect 0.655, corner
-    /// 34, gutter 16, margin 20). A typed 16 here would outlive the next time he re-measures them.
-    ///
-    /// ⚠️ THE COLUMN COUNT IS THE ONE THING HIS PICTURE WOULD SETTLE. Two is what every other
-    /// story grid in the app does, so two is the honest guess until the image says otherwise.
+    /// page: redesign exactly like the image (grid + view counts)." What was here was a mosaic with
+    /// square corners on a 3pt gutter, so the same picture came out at one shape here and another
+    /// on every other story grid.
     ///
     /// ⚠️ COMPUTED, NOT A STORED `let` WITH A DEFAULT. A stored property's initialiser runs outside
     /// the view's main-actor context, and these Glow screens have already failed the compiler three
     /// times on exactly that class of mistake. `GlowStoriesGridView` builds its columns inside
     /// `body` for the same reason; this is the same thing with a name.
+    ///
+    /// ⛔ THREE ACROSS, ON HIS CONCEPT IMAGE OF THIS PAGE — 2026-09-09, "make it exactly like this
+    /// image". An earlier pass this same day put two here to match the Glowing grid, which was the
+    /// honest guess before the picture arrived; the picture settles it at three, with the tighter
+    /// gap and side margin that three columns need to breathe.
+    ///
+    /// ⚠️ This is deliberately NOT `GlowStoryCardView.gutter`. That 16 is the air between two
+    /// person-cards on a two-column grid; at three columns it takes a third of the row.
     private var columns: [GridItem] {
-        [GridItem(.flexible(), spacing: GlowStoryCardView.gutter),
-         GridItem(.flexible(), spacing: GlowStoryCardView.gutter)]
+        Array(repeating: GridItem(.flexible(), spacing: PostedGrid.gap),
+              count: PostedGrid.columns)
+    }
+
+    /// The page's grid metrics, from his concept image.
+    private enum PostedGrid {
+        static let columns: Int = 3
+        static let gap: CGFloat = 6
+        static let margin: CGFloat = 6
     }
 
     var body: some View {
@@ -182,7 +185,7 @@ struct PostedStoriesView: View {
                     // Row spacing is the SAME gutter as the columns, so the air between two cards
                     // reads the same in both directions — the rule the Glowing grid already
                     // follows.
-                    LazyVGrid(columns: columns, spacing: GlowStoryCardView.gutter) {
+                    LazyVGrid(columns: columns, spacing: PostedGrid.gap) {
                         // ⛔ THE CELL OPENS THE STORY — owner, 2026-09-02: "when I click a story
                         // it is not opening". Same omission as the profile's rail: the tile was
                         // drawn and never wired to anything.
@@ -191,9 +194,9 @@ struct PostedStoriesView: View {
                                 .buttonStyle(.plain)
                         }
                     }
-                    // Same side margin and same top gap as `GlowStoriesGridView`, so the two story
-                    // pages share one left edge.
-                    .padding(.horizontal, GlowStoryCardView.margin)
+                    // The tiles run close to the screen's edges in his image, so the margin matches
+                    // the gap between them rather than the wide inset a two-column grid takes.
+                    .padding(.horizontal, PostedGrid.margin)
                     .padding(.top, 8)
                 }
                 .refreshable {
@@ -271,20 +274,26 @@ private struct PostedStoryGridTile: View {
                 // show and this draws none rather than a confident 0. That mistake is on the
                 // record: `fetchViewSummary`'s own note, and the 2026-08-18 batch where a counter
                 // doc saying 0 was trusted over receipts that named a viewer.
+                // ⛔ NO CAPSULE, AND A SCRIM INSTEAD — his concept image of this page, 2026-09-09.
+                // He reads the count as plain white sitting on the photograph. A gradient along the
+                // bottom edge is what keeps it readable over a bright picture, which is the job the
+                // capsule was doing and the thing his image does not have.
+                //
+                // The clearances come down with the corner: 8 is right against an 18pt arc, where
+                // 14 was clearance from 34.
+                if story.views != nil {
+                    LinearGradient(colors: [.black.opacity(0.45), .clear],
+                                   startPoint: .bottom, endPoint: .top)
+                        .frame(height: 52)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .allowsHitTesting(false)
+                }
                 if let v = story.views {
                     Label(GlowCount.short(v), systemImage: "eye.fill")
-                        // 13, not 11 — the tile is a two-column card now, near twice the width it
-                        // was in the 3-column mosaic, and 11pt on it reads as a leftover. The name
-                        // on the card this geometry comes from is 15; the count sits just under it.
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(.black.opacity(0.55), in: Capsule())
-                        // ⚠️ 14, NOT 6 — clearance from the 34pt corner arc, the same number the
-                        // card's own name moved to for the same reason. At 6 the capsule's bottom
-                        // left is inside the curve and the clip below would cut it.
-                        .padding(.leading, 14)
-                        .padding(.bottom, 14)
+                        .padding(.leading, 8)
+                        .padding(.bottom, 8)
                 }
             }
             .overlay(alignment: .topTrailing) {
@@ -295,8 +304,8 @@ private struct PostedStoryGridTile: View {
                         .padding(5)
                         .background(.black.opacity(0.45), in: Circle())
                         // Same arc clearance as the count, on the corner it sits in.
-                        .padding(.trailing, 14)
-                        .padding(.top, 14)
+                        .padding(.trailing, 8)
+                        .padding(.top, 8)
                 }
             }
             // ⚠️ ONE CLIP, LAST, OVER THE FINISHED TILE — and `compositingGroup()` before it. Both
@@ -305,6 +314,6 @@ private struct PostedStoryGridTile: View {
             // the corners under the open/close transform. `.clipped()` (a square crop, halfway up
             // the chain) was what stood here.
             .compositingGroup()
-            .clipShape(RoundedRectangle(cornerRadius: GlowStoryCardView.corner, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: PostedTile.corner, style: .continuous))
     }
 }
