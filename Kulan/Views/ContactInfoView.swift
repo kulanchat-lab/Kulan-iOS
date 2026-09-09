@@ -390,15 +390,13 @@ struct ContactInfoView: View {
         if !isSelf { settingsCard.padding(.top, 8).allowsHitTesting(!isPreview) }
         // Reserved on the FIRST frame from the remembered count, so the page never shifts when the
         // real media arrives. No media ever sent → mediaHint is 0 and nothing is drawn, ever.
-        // A HEADED section gets the reference app's taller run-up: their header inset is
-        // `defaultSpacingBetweenSections (20) + 12` above the title, so 12 on top of this
-        // container's 20 — where a plain card keeps the 8 used elsewhere on the page.
+        //
+        // ⚠️ NO `sectionHeader` HERE ANY MORE. The heading moved INSIDE the card in his 2026-09-05
+        // concept, so this is now a plain card and takes the plain card's 8pt run-up — the same one
+        // Notes and Settings above it use — instead of the taller inset a headed section gets. The
+        // Groups section below still has its title outside its card and still gets the 12.
         if !media.isEmpty || mediaHint > 0 {
-            VStack(alignment: .leading, spacing: 10) {
-                sectionHeader("All Media")
-                mediaCard
-            }
-            .padding(.top, 12)
+            mediaCard.padding(.top, 8)
         }
         if !isSelf && Flags.groupsEnabled {
             VStack(alignment: .leading, spacing: 10) {
@@ -1642,8 +1640,9 @@ struct ContactInfoView: View {
     }
 
     /// The five actions as icon-only glass circles, on BOTH headers — the labelled pills they
-    /// replaced are gone, so there is one row to keep right instead of two that drift. Order follows
-    /// the reference: voice, video, mute, search, more.
+    /// replaced are gone, so there is one row to keep right instead of two that drift. Order runs
+    /// glow, call, mute, search, more; the call circle holds both kinds of call in a menu, and the
+    /// voice circle the reference row starts with is what Glow took.
     ///
     /// Every rule the pills enforced is enforced here: a blocked person cannot be called, your own
     /// profile cannot call itself, and Search only appears where there is a chat to search.
@@ -1680,25 +1679,21 @@ struct ContactInfoView: View {
             // them, not theirs about me, and a button that says "you blocked this person" is not
             // information anybody needs on their own screen.
             if !isSelf && !blocked {
-                // THE CALL SCREEN GROWS OUT OF THESE TWO (owner, 2026-08-20). The cover itself is
-                // declared at the root so a call can be restored from any screen, so the namespace
-                // it zooms in comes down through the environment — see `CallZoomNamespaceKey`. A
-                // separate id each, or the page would grow out of whichever was registered last
-                // instead of the one under his thumb.
+                // THE CALL SCREEN GROWS OUT OF THE CALL CIRCLE (owner, 2026-08-20). The cover itself
+                // is declared at the root so a call can be restored from any screen, so the
+                // namespace it zooms in comes down through the environment — see
+                // `CallZoomNamespaceKey`. The id is per call KIND, and `callMenuButton` explains
+                // which kind this one circle now carries.
                 // ⛔ GLOW TOOK THE VOICE-CALL BUTTON'S PLACE — owner, 2026-09-02: "remove voice call
-                // button to change Glow button". Video stays, so a call is still one tap from here;
-                // what went is the second call button, and Glow is the thing he wants people to
-                // reach on somebody's profile.
+                // button to change Glow button". Glow is the thing he wants people to reach on
+                // somebody's profile, and the row keeps its five circles rather than growing a
+                // sixth. Voice did not lose the profile, it moved: it lives in the call button's
+                // menu now — see `callMenuButton`.
                 //
                 // ⚠️ TWO DOORS TO ONE ACTION, HIS ASK: this button AND "Glow Story" in the ••• menu
                 // below. They call the same thing — a second door is only a second door.
                 glowActionButton
-                Button { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl,
-                                                      video: true, fromProfile: true) } label: {
-                    PosterActionIcon(icon: "video.fill", onPhoto: hasPhotoHeader)
-                }
-                .tint(.primary)
-                .modifier(CallZoomSourceModifier(video: true))
+                callMenuButton
             }
             if !isSelf {
                 Menu { muteMenuItems } label: {
@@ -1716,6 +1711,44 @@ struct ContactInfoView: View {
 
 
 
+    /// BOTH KINDS OF CALL BEHIND ONE CIRCLE — owner, 2026-09-05, circling the video button: tapping
+    /// it opens a menu offering "Voice call" and "Video call" instead of dialling video where his
+    /// finger lands.
+    ///
+    /// This is also where voice comes home. Glow took the voice circle in September, which left the
+    /// profile with one call button and no way to place a voice call from it; a menu gives both
+    /// kinds a place again without adding a sixth circle to a row he has already signed off.
+    ///
+    /// ⚠️ NEITHER CALL IS STARTED ANY DIFFERENTLY. Both items call the same `startCall` this button
+    /// called, with the same `fromProfile: true`. That flag is not decoration: it tells `CallService`
+    /// to raise the "this person does not take calls" sheet on THIS page rather than on a screen the
+    /// user has already walked away from, and the block gate sits inside `startCall` where it covers
+    /// every dial site at once. Dropping either would be a silent hole in the privacy answer.
+    ///
+    /// The label is the same `PosterActionIcon`, and `Menu` is the shape Mute and ••• already use in
+    /// this row, so the glass circle is unchanged.
+    private var callMenuButton: some View {
+        Menu {
+            Button { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl,
+                                                  video: false, fromProfile: true) } label: {
+                Label("Voice call", systemImage: "phone.fill")
+            }
+            Button { CallService.shared.startCall(to: otherUid, name: name, photo: photoUrl,
+                                                  video: true, fromProfile: true) } label: {
+                Label("Video call", systemImage: "video.fill")
+            }
+        } label: {
+            PosterActionIcon(icon: "video.fill", onPhoto: hasPhotoHeader)
+        }
+        .tint(.primary)
+        // ⚠️ THE ZOOM SOURCE STAYS ON VIDEO, because a source is registered per call KIND and there
+        // is one circle here for two kinds. Video keeps the id this button has always carried, so
+        // the video call still grows out of the circle under his thumb. A voice call from the menu
+        // gets the ordinary presentation, which is what voice has had from every other dial site in
+        // the app since Glow took the voice circle — nothing regressed, it simply is not zoomed.
+        .modifier(CallZoomSourceModifier(video: true))
+    }
+
     /// GIVE OR TAKE BACK A GLOW, from the profile — his 2026-09-02 design, and the only place in
     /// the app a glow can be given.
     ///
@@ -1726,8 +1759,17 @@ struct ContactInfoView: View {
     @ViewBuilder private var glowActionButton: some View {
         if glow.isGlowing(otherUid) {
             Menu {
-                Button("Remove Glowing", systemImage: "xmark", role: .destructive) {
-                    glow.remove(to: otherUid)
+                // ⛔ THE GLOW MARK ON THE REMOVE ROW, NOT AN ✕ — owner, 2026-09-05, with a shot of
+                // this row. The ✕ described the mechanic, which is that a row closes something; the
+                // mark names the thing being taken away. Filled is the glyph a live glow already
+                // wears everywhere else in the app, so the row shows exactly what ends.
+                //
+                // The role is still `.destructive`, so the row is still red and still asks before
+                // anything happens — his rule that removing is never a bare tap. The mark is a
+                // template image, so it takes that red the same way the ✕ did; the wording and the
+                // action are untouched and only the glyph changed.
+                Button(role: .destructive) { glow.remove(to: otherUid) } label: {
+                    Label { Text("Remove Glowing") } icon: { GlowStyle.mark(20, filled: true) }
                 }
             } label: {
                 // The ticked mark, which is what his mockup shows on an already-glowing profile.
@@ -1751,8 +1793,11 @@ struct ContactInfoView: View {
     /// The ••• menu's Glow entry — the second of his two doors. Same two states as the button.
     @ViewBuilder private var glowMenuItem: some View {
         if glow.isGlowing(otherUid) {
-            Button("Remove Glowing", systemImage: "xmark", role: .destructive) {
-                glow.remove(to: otherUid)
+            // Same row as the button's menu, down to the glyph — see `glowActionButton`. Two doors
+            // to one action means two rows that have to read identically, or the second door looks
+            // like a different action.
+            Button(role: .destructive) { glow.remove(to: otherUid) } label: {
+                Label { Text("Remove Glowing") } icon: { GlowStyle.mark(20, filled: true) }
             }
         } else {
             // Same door, same sheet — see `glowActionButton`.
@@ -1809,27 +1854,79 @@ struct ContactInfoView: View {
         }
     }
 
+    /// ⛔ ONE SIZE, ONE RADIUS, ONE GAP FOR EVERY TILE IN THE ROW. He circled a row whose tiles did
+    /// not agree with each other, so the three numbers are named once here and read by both kinds of
+    /// tile — the grey placeholder and the photograph are literally the same square, one of them
+    /// with a picture in it, and they cannot drift apart again.
+    ///
+    /// 84 is the height this row already had, and the height the page reserves for it while the
+    /// media loads, so nothing on the page moves when the real thumbnails land.
+    ///
+    /// 12 is half the card's own 24. The strictly concentric value would be 10 (the card's 24 less
+    /// the 14pt inset the tiles sit at); 2pt over that is invisible at this size, and it reads as a
+    /// rounded thumbnail rather than a slightly-softened square, which is what his concept draws.
+    ///
+    /// 8 is the page's own rhythm, and it is the gap between every pair of tiles including the
+    /// placeholders — evenly spaced was the other half of what he asked for.
+    private static let mediaTile: CGFloat = 84
+    private static let mediaTileRadius: CGFloat = 12
+    private static let mediaGap: CGFloat = 8
+    /// The card's inner margin, unchanged from the padding this card already had.
+    private static let mediaInset: CGFloat = 14
+
+    private var mediaTileShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Self.mediaTileRadius, style: .continuous)
+    }
+
+    /// ALL MEDIA AS ONE CONTAINER — his 2026-09-05 concept. The heading sits at the top left of the
+    /// card and "See All ›" at the top right, on one line, with a single row of thumbnails beneath
+    /// them that runs off the right edge of the card so the row says it scrolls without a control
+    /// having to say so.
+    ///
+    /// Two things moved to get there. The heading came IN from the page (which is why the section
+    /// above no longer draws a `sectionHeader`), and "See All" came UP from the bottom of the card
+    /// to the end of the heading line — the card now reads in the order he drew it.
+    ///
+    /// ⚠️ THE ROW RUNS THE FULL WIDTH OF THE CARD AND THE CARD CLIPS IT. The scroll view used to sit
+    /// inside the card's padding and clip 14pt short of the edge, which stopped the tiles dead in
+    /// open space and is what made the row look like it ended rather than continued. Now the inset
+    /// is on the row's CONTENT, so the first tile still lines up under the heading while the last
+    /// visible one is cut by the card itself.
+    ///
+    /// Nothing about what a tile opens, or where the media comes from, is touched here.
     private var mediaCard: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("All Media").font(.headline)
+                Spacer(minLength: 8)
+                // Not its own button: the CARD takes the tap, as it always has, so the whole heading
+                // line opens the gallery rather than a few points of chevron.
+                HStack(spacing: 3) {
+                    Text("See All").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+                    Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, Self.mediaInset)
+            .padding(.top, Self.mediaInset)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(spacing: Self.mediaGap) {
                     // Reserved space, filled: while the real thumbnails load, the row holds the same
                     // number of quiet placeholder tiles the chat had last time. The section's height
                     // is therefore identical before and after the load, so nothing shifts.
                     if media.isEmpty {
                         ForEach(0..<min(mediaHint, 12), id: \.self) { _ in
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            mediaTileShape
                                 .fill(Color.primary.opacity(0.07))
-                                .frame(width: 84, height: 84)
+                                .frame(width: Self.mediaTile, height: Self.mediaTile)
                         }
                     }
                     ForEach(media.prefix(12)) { m in
                         // Videos carry thumbUrl/thumbEnc (no imageUrl) — they were invisible here.
                         if let url = m.imageUrl ?? m.thumbUrl {
                             SecureImageView(imageUrl: url, enc: m.imageUrl != nil ? m.enc : m.thumbEnc, cid: cid)
-                                .frame(width: 84, height: 84)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .frame(width: Self.mediaTile, height: Self.mediaTile)
+                                .clipShape(mediaTileShape)
+                                .contentShape(mediaTileShape)
                                 // Own namespace — the chat and All Media register these same ids.
                                 .modifier(MediaRectReporter(id: m.id, scope: .profile))
                                 // OPEN LIKE THE CHAT: fly the thumb's media out of its tile (one
@@ -1850,16 +1947,19 @@ struct ContactInfoView: View {
                         }
                     }
                 }
+                // The card's margin, carried by the CONTENT rather than by the scroll view — the
+                // leading 14 lines the first tile up under the heading, and the trailing 14 gives
+                // the last tile the same air once the row is scrolled to its end.
+                .padding(.horizontal, Self.mediaInset)
             }
-            HStack {
-                Text("See All").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
-                Spacer()
-                Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
-            }
+            .padding(.bottom, Self.mediaInset)
         }
-        .padding(14)
+        // Clipped to the card's own shape, so a tile that runs past the right edge is cut by the
+        // card and not by open space. This has to come BEFORE the surface: the fill and its hairline
+        // are drawn behind and over the clipped content, so the card itself keeps its full size.
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .profileSurface(plain: cardColor)   // iOS 26 corners
-        // Tap anywhere on the CARD (See All row / background) → the full media page. The thumbnails'
+        // Tap anywhere on the CARD (heading line / background) → the full media page. The thumbnails'
         // own tap wins over this for their area, so a photo tap opens just that photo.
         .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .onTapGesture { showAllMedia = true }

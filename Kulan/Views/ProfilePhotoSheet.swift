@@ -6,7 +6,8 @@ import UIKit
 // redesign it, show a full page like image 2, exactly like that".
 //
 // His reference: ✕ / "Edit Photo" / ✓ across the top, the picture large in the middle wearing a
-// remove badge, one "Choose a Photo" button under it, then Recents and Emoji.
+// remove badge, one "Add a Photo" button under it, then Recents and Emoji. The button read
+// "Choose a Photo" until 2026-09-05, when he renamed it; nothing about what it does changed.
 //
 // ⛔ THE SHEET DECIDES, IT DOES NOT DO. Unchanged from the small version and the one rule on this
 // screen that must not be relaxed: every action is recorded here and run by the presenter in
@@ -146,16 +147,16 @@ struct ProfilePhotoSheet: View {
         }
     }
 
-    /// ⛔ A MENU, NOT TWO BUTTONS — his instruction: "when the user clicks Choose a Photo show a
-    /// context menu: camera, photo library". The old page carried both as separate capsules; one
-    /// button and a menu is his reference and it is also the honest shape, since the two are the
-    /// same decision made two ways.
+    /// ⛔ A MENU, NOT TWO BUTTONS — his instruction, when this button was still called "Choose a
+    /// Photo": "when the user clicks Choose a Photo show a context menu: camera, photo library".
+    /// The old page carried both as separate capsules; one button and a menu is his reference and it
+    /// is also the honest shape, since the two are the same decision made two ways.
     private var choosePhotoButton: some View {
         Menu {
             Button { choose(.camera) } label: { Label("Camera", systemImage: "camera") }
             Button { choose(.library) } label: { Label("Photo Library", systemImage: "photo.on.rectangle") }
         } label: {
-            Text("Choose a Photo")
+            Text("Add a Photo")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(ink)
                 // ⛔ 44, HIS NUMBER — 2026-09-02, with the button ringed. It was 52, which is a
@@ -196,25 +197,58 @@ struct ProfilePhotoSheet: View {
 
     // MARK: - Emoji
 
+    /// ⛔ HIS OWN EMOJI, NOT ONES THE APP PICKED — his instruction, 2026-09-05, with the old block
+    /// ringed: no generated suggestions. What stood here was a stated grid of twelve faces read off
+    /// a reference screenshot, which is the app choosing his content for him. This row shows the
+    /// emoji HE has reached for, newest first, capped at ten, and nothing else.
+    ///
+    /// ⚠️ SILENT WHEN THERE IS NOTHING TO SHOW, the same rule Recents follows above: a heading over
+    /// a blank strip reads as broken rather than empty. Somebody who has never used an emoji in the
+    /// app therefore sees no emoji section at all, and the page is the picture, the button and
+    /// Recents. That is the honest empty state, not a gap to be filled with a default set.
     @ViewBuilder private var emojiSection: some View {
-        sectionTitle("Emoji")
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 4),
-                  spacing: 16) {
-            // The first cell opens the system keyboard's whole set. Drawn as a face on a neutral
-            // disc so it reads as one more choice rather than a control among pictures.
-            ForEach(Self.emoji, id: \.0) { pair in
-                Button { choose(.emoji(Self.render(pair.0, on: pair.1))) } label: {
-                    ZStack {
-                        Circle().fill(Color(pair.1))
-                        Text(pair.0).font(.system(size: 34))
+        if !recentEmoji.isEmpty {
+            sectionTitle("Emoji")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(recentEmoji, id: \.self) { e in
+                        Button { choose(.emoji(Self.render(e, on: Self.disc(for: e)))) } label: {
+                            ZStack {
+                                Circle().fill(Color(Self.disc(for: e)))
+                                Text(e).font(.system(size: 34))
+                            }
+                            // ⚠️ 76, THE TILE THE GRID USED. Kept deliberately rather than resized:
+                            // it is the size he screenshotted, and it is also the Recents circle
+                            // directly above, so the two strips line up instead of stepping.
+                            .frame(width: 76, height: 76)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .frame(height: 76)
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
             }
+            .padding(.top, 12)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
+    }
+
+    /// The emoji this person has actually used, newest first.
+    ///
+    /// ⚠️ ONE STORE, SHARED WITH REACTIONS. `ReactionRecents` is the only record the app keeps of
+    /// which emoji somebody reaches for — it is written every time a reaction is set, in ThreadView's
+    /// `react` — and it already trims itself to ten. Reading it here rather than starting a second
+    /// list means this page and the reaction bar can never disagree about what "recent" means. If
+    /// the app ever gains a second place emoji are chosen, it should write to this same store.
+    private var recentEmoji: [String] { Array(ReactionRecents.get().prefix(10)) }
+
+    /// The disc an emoji is drawn on.
+    ///
+    /// ⚠️ THE APP'S EXISTING COLOUR RULE, NOT A NEW ONE. The old grid carried a stated colour per
+    /// face, which was only possible because those twelve faces were known in advance; a recents
+    /// list is not. `AvatarPalette` already answers "what colour is this string" for every letter
+    /// avatar in the app, so an emoji is coloured the same way a name is: stable for a given emoji,
+    /// and taken from eight deep tones, none of them pale enough to swallow the glyph on top.
+    private static func disc(for emoji: String) -> UIColor {
+        UIColor(AvatarPalette.gradient(for: emoji)[0])
     }
 
     private func sectionTitle(_ t: String) -> some View {
@@ -225,26 +259,6 @@ struct ProfilePhotoSheet: View {
         .padding(.horizontal, 20)
         .padding(.top, 26)
     }
-
-    /// The set from his reference, each on the disc colour it wears there.
-    ///
-    /// ⚠️ STATED RATHER THAN GENERATED. A hash of the character would give a stable colour with no
-    /// list to keep, and it would also give some of these a colour that fights the glyph — a yellow
-    /// face on yellow. These are read off his screenshot.
-    private static let emoji: [(String, UIColor)] = [
-        ("😂", UIColor(red: 0.85, green: 0.45, blue: 0.75, alpha: 1)),
-        ("❤️", UIColor(red: 0.22, green: 0.55, blue: 0.92, alpha: 1)),
-        ("😍", UIColor(red: 0.22, green: 0.55, blue: 0.92, alpha: 1)),
-        ("😒", UIColor(red: 0.36, green: 0.72, blue: 0.86, alpha: 1)),
-        ("👌", UIColor(red: 0.45, green: 0.33, blue: 0.22, alpha: 1)),
-        ("☺️", UIColor(red: 0.24, green: 0.66, blue: 0.62, alpha: 1)),
-        ("😊", UIColor(red: 0.22, green: 0.55, blue: 0.92, alpha: 1)),
-        ("😘", UIColor(red: 0.32, green: 0.66, blue: 0.40, alpha: 1)),
-        ("😭", UIColor(red: 0.48, green: 0.36, blue: 0.78, alpha: 1)),
-        ("😩", UIColor(red: 0.90, green: 0.40, blue: 0.32, alpha: 1)),
-        ("💕", UIColor(red: 0.78, green: 0.66, blue: 0.50, alpha: 1)),
-        ("🔥", UIColor(red: 0.90, green: 0.55, blue: 0.20, alpha: 1)),
-    ]
 
     /// Draw an emoji onto a filled disc at avatar resolution.
     ///
