@@ -196,7 +196,11 @@ struct MainShell: View {
         // subtracted out of the back one to keep the gap between them, which is boolean geometry
         // and not something to hand-write into a path. One solid card behind one outlined card
         // reads as "selected" and keeps the mark he approved.
-        Label { Text("Stories") } icon: { MenuIcon(tab == 0 ? "ic_stories_fill" : "ic_stories", size: 25) }
+        // ⛔ ALWAYS THE FILLED MARK — owner, 2026-09-09, with the bar photographed: "icons i need
+        // always Is Filled not outline". The outline asset is no longer reached from here; selection
+        // is carried by the colour and by the bar's own pill, which is what he is looking at when he
+        // says the filled one is how it looked before.
+        Label { Text("Stories") } icon: { MenuIcon("ic_stories_fill", size: 25) }
             .foregroundStyle(tab == 0 ? Color.primary : Color.secondary)
     }
 
@@ -221,7 +225,10 @@ struct MainShell: View {
         Label {
             Text("Chats")
         } icon: {
-            MenuIcon(tab == 2 ? "ic_chat" : "ic_chat_outline", size: 25)
+            // ⛔ ALWAYS FILLED — owner, 2026-09-09. `ic_chat_outline` is no longer reached from the
+            // tab bar; the note above about the swap being live still explains why the closure form
+            // is used, and it stays because the colour below depends on the same re-evaluation.
+            MenuIcon("ic_chat", size: 25)
         }
         .foregroundStyle(tab == 2 ? Color.primary : Color.secondary)
     }
@@ -259,9 +266,13 @@ struct MainShell: View {
             // `MenuIcon(system:)`, which does work, and the smooth fill needs a hand-built tab bar —
             // which is how the reference app does it: no system tab bar at all, and each icon is a
             // one-shot animation file (`AnimatedStickerNode`, `playbackMode: .once`, TabBarNode).
-            Image(systemName: tab == 1 ? "phone.fill" : "phone")
-                .environment(\.symbolVariants, .none)
-                .contentTransition(.symbolEffect(.replace))
+            // ⛔ ALWAYS FILLED — owner, 2026-09-09. Everything above is the history of fighting the
+            // bar to get an OUTLINE phone when Calls was not selected. He has now asked for the
+            // opposite on all four tabs, so the fight is over: the bar wants to fill a symbol, and
+            // we want it filled. `.environment(\.symbolVariants, .none)` is removed rather than left
+            // in place, because it existed only to refuse the fill and would now be working against
+            // the thing it sits next to.
+            Image(systemName: "phone.fill")
         }
         .foregroundStyle(tab == 1 ? Color.primary : Color.secondary)
     }
@@ -273,8 +284,10 @@ struct MainShell: View {
             if let ui = settingsIcon {
                 Image(uiImage: ui).renderingMode(.original)
             } else {
-                Image(systemName: tab == 3 ? "person.crop.circle.fill" : "person.crop.circle")
-                    .contentTransition(.symbolEffect(.replace))   // smooth fill<->outline swap
+                // ⛔ ALWAYS FILLED — owner, 2026-09-09. This branch is only reached before his photo
+                // has loaded; the photo itself is already a filled circle, so the fallback now
+                // matches it instead of flicking from an outline to a face.
+                Image(systemName: "person.crop.circle.fill")
             }
         }
     }
