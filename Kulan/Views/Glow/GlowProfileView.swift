@@ -288,6 +288,23 @@ struct GlowProfileView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 2)
             }
+            // ⛔ "Joined May 2026" — his concept, 2026-09-09, a small pill under the bio and above
+            // the stats card.
+            //
+            // ⚠️ ABSENT WHEN THE DATE IS UNKNOWN, AND THAT IS NOT A BUG. It reads the account
+            // document's own creation stamp. An account written before anything recorded one has
+            // no answer, and a profile page must not invent a joining date — a wrong one is worse
+            // than no line. Month and year only, which is what his picture shows and as much as
+            // this ever needs to say.
+            if let joined = profile?.joinedAt {
+                Text("Joined \(joined.formatted(.dateTime.month(.wide).year()))")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(cardColor, in: Capsule())
+                    .padding(.top, 8)
+            }
             if !isMe { glowButton.padding(.top, 12) }
         }
         .padding(.top, -Self.photoHeight * 0.10)
@@ -374,9 +391,17 @@ struct GlowProfileView: View {
                 // ⛔ THE SYSTEM'S OWN PAIR — owner, 2026-09-09: "make real apple page not custom".
                 // A hand-set 16 semibold over a 0.7 white is what `.headline` over `.secondary`
                 // already is, and unlike the numbers it follows the phone's text size.
+                // ⛔ ROOM FOR THE WHOLE LINE — his report, 2026-09-09: "make good size for enough
+                // text". With counts in the hundreds of thousands this line is long, and it was
+                // being squeezed between the faces and the chevron until it truncated. It may wrap
+                // to a second line now and the card grows to hold it, which is what his concept
+                // shows; the size follows the phone's text setting either way.
                 Text("\(GlowCount.short(glowers)) Glowers  ·  \(GlowCount.short(glowing)) Glowing")
                     .font(.headline)
                     .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.9)
+                    .fixedSize(horizontal: false, vertical: true)
                 // His reference's own second line: "by <name>, <name>". Named people beat a generic
                 // sentence, and it falls back to one when there are no names yet.
                 Text(byLine)
@@ -384,7 +409,7 @@ struct GlowProfileView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: 4)
             if isMe {
                 // The grouped-list disclosure indicator, at the weight and colour the system draws
                 // it. `.secondary` rather than a mixed white so it sits at the same weight as the
@@ -395,7 +420,19 @@ struct GlowProfileView: View {
             }
         }
         .padding(14)
-        .background(cardColor, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(cardColor, in: RoundedRectangle(cornerRadius: ProfileCard.corner,
+                                                    style: .continuous))
+    }
+
+    /// ⛔ ONE CORNER FOR EVERY CARD ON THIS PAGE — his report, 2026-09-09: "fix rounded corners, use
+    /// apple corners". The stats card was cut at 20 and the posted stories card at 22, which is the
+    /// kind of difference you cannot name but can see when two cards sit one above the other.
+    ///
+    /// 22 rather than a smaller radius because these are wide content cards on a photograph, not
+    /// rows in a grouped list, and `.continuous` because every other rounded surface in this app is
+    /// the squircle rather than the circular arc.
+    private enum ProfileCard {
+        static let corner: CGFloat = 22
     }
 
     /// ⛔ A CLUSTER, NOT A ROW — owner, 2026-09-02, with his reference beside ours: one large face
@@ -511,7 +548,8 @@ struct GlowProfileView: View {
             }
             .padding(.bottom, PostedCard.pad)
         }
-        .background(cardColor, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(cardColor, in: RoundedRectangle(cornerRadius: ProfileCard.corner,
+                                                    style: .continuous))
     }
 
     /// The posted stories card's own spacing, named because his concept fixes all three and a

@@ -65,6 +65,11 @@ struct UserProfile: Identifiable, Equatable {
     /// rules refuse to hand over for anybody but yourself.
     var glowerCount: Int = 0
     var glowingCount: Int = 0
+    /// ⛔ WHEN THIS ACCOUNT WAS MADE — his concept, 2026-09-09: a "Joined May 2026" pill under the
+    /// bio. Optional, and the pill is simply absent when it is nil, because it genuinely is unknown
+    /// for anyone whose account document was written before the field existed. A profile page must
+    /// not invent a date; a wrong joining date is worse than no line at all.
+    var joinedAt: Date?
     /// Set when the owner asks for deletion. The account is HIDDEN from everyone else from that moment
     /// but nothing is destroyed until this date passes, so signing back in can restore it. nil = live.
     var deletionScheduledFor: Date?
@@ -94,6 +99,9 @@ struct UserProfile: Identifiable, Equatable {
         // which is the truth for somebody nobody has glowed.
         self.glowerCount = data["glowerCount"] as? Int ?? 0
         self.glowingCount = data["glowingCount"] as? Int ?? 0
+        // `createdAt` is the account document's own creation stamp. Nil for accounts written before
+        // anything recorded it — see `joinedAt`.
+        self.joinedAt = (data["createdAt"] as? Timestamp)?.dateValue()
     }
 }
 
