@@ -209,24 +209,29 @@ struct ProfilePhotoSheet: View {
     @ViewBuilder private var emojiSection: some View {
         if !recentEmoji.isEmpty {
             sectionTitle("Emoji")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 14) {
-                    ForEach(recentEmoji, id: \.self) { e in
-                        Button { choose(.emoji(Self.render(e, on: Self.disc(for: e)))) } label: {
-                            ZStack {
-                                Circle().fill(Color(Self.disc(for: e)))
-                                Text(e).font(.system(size: 34))
-                            }
-                            // ⚠️ 76, THE TILE THE GRID USED. Kept deliberately rather than resized:
-                            // it is the size he screenshotted, and it is also the Recents circle
-                            // directly above, so the two strips line up instead of stepping.
-                            .frame(width: 76, height: 76)
+            // ⛔ FOUR ACROSS, WRAPPING, AT THE CONCEPT'S SIZE — his report, 2026-09-09: "make it
+            // recent emojis up to like 10, exactly same size like this concept". His picture is a
+            // grid four wide with circles noticeably larger than ours, not a strip that scrolls
+            // sideways. Ten recents fill three rows there and one long row here, which is what made
+            // ours look like a different screen.
+            //
+            // ⚠️ THE SIZE IS NOT TYPED, IT IS WHAT FOUR COLUMNS LEAVE. On his phone that lands near
+            // 87, which is the circle he measured; typing 87 would be right on one screen width and
+            // wrong on every other.
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4),
+                      spacing: 14) {
+                ForEach(recentEmoji, id: \.self) { e in
+                    Button { choose(.emoji(Self.render(e, on: Self.disc(for: e)))) } label: {
+                        ZStack {
+                            Circle().fill(Color(Self.disc(for: e)))
+                            Text(e).font(.system(size: 38))
                         }
-                        .buttonStyle(.plain)
+                        .aspectRatio(1, contentMode: .fit)
                     }
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 20)
             }
+            .padding(.horizontal, 20)
             .padding(.top, 12)
         }
     }
