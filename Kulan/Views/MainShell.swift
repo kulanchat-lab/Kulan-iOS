@@ -1666,19 +1666,28 @@ struct ChatsView: View {
     /// ⚠️ THE ICONS ARE THE SAME TWO KINDS THE SwiftUI MENU USED — an `ic_` name is one of our own
     /// drawings, anything else is an SF Symbol — so this reads the identical asset names rather than
     /// substituting system glyphs that are merely close.
+    ///
+    /// ⛔ AND ALL FIVE GO THROUGH `ChatListIcon` SO THEY COME OUT ONE SIZE — his report, 2026-09-05
+    /// off build 733, with the menu screenshotted: Unread / Mute / Pin / Archive / Delete do not
+    /// match each other. `UIMenu` does not size the images it is handed, and the two kinds arrive at
+    /// wildly different sizes — a symbol is a glyph already rendered at the body text style, our
+    /// drawings are authored at 64pt. The full arithmetic, the measured artwork sizes and why the box
+    /// is taken off the symbols rather than chosen are all on `ChatListIcon` in `ChatListTable.swift`.
+    /// Do not go back to bare `UIImage(systemName:)` / `UIImage(named:)` here, in either direction:
+    /// mixing one sized image with one unsized one is the whole of what he circled.
     private func chatMenuElements(_ conv: Conversation) -> [UIMenuElement] {
         let nowMs = Date().timeIntervalSince1970 * 1000
         var out: [UIMenuElement] = []
 
         if !conv.isBlockedByMe(me) && conv.hasUnreadMark(me) {
-            out.append(UIAction(title: "Read", image: UIImage(systemName: "envelope.open")) { _ in
+            out.append(UIAction(title: "Read", image: ChatListIcon.symbol("envelope.open")) { _ in
                 // Full parity with opening the chat: reset MY counter, send read receipts, and drop
                 // its delivered notifications + fix the app badge.
                 Task { await ChatService.resetUnread(conv.id); await ChatService.markRead(conv.id) }
                 NotificationCleaner.clear(cid: conv.id)
             })
         } else {
-            out.append(UIAction(title: "Unread", image: UIImage(named: "ic_menu_unread")) { _ in
+            out.append(UIAction(title: "Unread", image: ChatListIcon.asset("ic_menu_unread")) { _ in
                 Task { await ChatService.markUnread(conv.id) }
             })
         }
@@ -1686,7 +1695,7 @@ struct ChatsView: View {
         if OfficialChannel.isOfficial(conv.id) {
             let quiet = conv.isMuted(me, now: nowMs)
             out.append(UIAction(title: quiet ? "Unmute" : "Mute",
-                                image: UIImage(systemName: quiet ? "bell" : "bell.slash")) { _ in
+                                image: ChatListIcon.symbol(quiet ? "bell" : "bell.slash")) { _ in
                 Task { await ChatService.setMuted(conv.id, !quiet) }
             })
         } else {
@@ -1709,20 +1718,20 @@ struct ChatsView: View {
             mutes.append(UIAction(title: "Mute Always") { _ in
                 Task { await ChatService.setMute(conv.id, until: ChatService.muteUntil(nil)) }
             })
-            out.append(UIMenu(title: "Mute", image: UIImage(systemName: "bell.slash"), children: mutes))
+            out.append(UIMenu(title: "Mute", image: ChatListIcon.symbol("bell.slash"), children: mutes))
         }
 
         let pinned = conv.isPinned(me)
         out.append(UIAction(title: pinned ? "Unpin" : "Pin",
-                            image: pinned ? UIImage(systemName: "pin.slash") : UIImage(named: "ic_pin_menu")) { _ in
+                            image: pinned ? ChatListIcon.symbol("pin.slash") : ChatListIcon.asset("ic_pin_menu")) { _ in
             Task { await ChatService.setPinned(conv.id, !pinned) }
         })
-        out.append(UIAction(title: "Archive", image: UIImage(named: "ic_archive")) { _ in
+        out.append(UIAction(title: "Archive", image: ChatListIcon.asset("ic_archive")) { _ in
             Task { await ChatService.setArchived(conv.id, true) }
         })
         // `.destructive` reddens the row itself, which is what `MenuIcon(ink: .systemRed)` was doing
         // by hand on the SwiftUI side. The delete still goes through the app's own alert.
-        out.append(UIAction(title: "Delete", image: UIImage(systemName: "trash"),
+        out.append(UIAction(title: "Delete", image: ChatListIcon.symbol("trash"),
                             attributes: .destructive) { _ in
             pendingDelete = conv
         })

@@ -435,6 +435,11 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
         let t = UITableView(frame: .zero, style: .grouped)
         t.separatorStyle = .none
         t.backgroundColor = .clear
+        // ⚠️ THESE TWO NOW SPEAK ONLY FOR THE STRANGER ROWS. A chat row's height is answered
+        // outright by `heightForRowAt` / `estimatedHeightForRowAt` (see "Row height" below, and his
+        // 2026-09-05 report of cells overlapping while swiping through the list) — a delegate answer
+        // wins over `rowHeight` in every case, so what is left here is the fallback the `.people`
+        // section still self-sizes against.
         t.rowHeight = UITableView.automaticDimension
         t.estimatedRowHeight = 80          // our row: 56pt avatar + 12 above and below
         // ⛔ THE GREY UNDER EVERY ROW IS THE GROUPED STYLE'S, AND IT HAS TO BE TURNED OFF HERE TOO —
@@ -520,7 +525,14 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
         // The heading's height is computed from the headline font, so a change to the phone's text
         // size changes it. Nothing else asks the table to re-measure a header, and this is rare
         // enough that a full reload is the honest answer rather than an optimisation.
+        //
+        // ⚠️ THE ROW HEIGHT IS THE SAME KIND OF ANSWER AND HAS TO BE DROPPED HERE TOO. It is cached
+        // from the same two fonts, so a text-size change is the one event that can move it — the
+        // reference clears their own `conversationCellHeightCache` on a reset for exactly this
+        // reason. Cleared BEFORE the reload, or the reload re-reads the stale number it just asked
+        // us to forget.
         registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (vc: ChatListTableController, _) in
+            vc.chatRowHeight = nil
             vc.tableView.reloadData()
         }
     }
@@ -746,6 +758,94 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
         }
     }
 
+    // MARK: - Row height
+
+    /// ⛔ A CHAT ROW'S HEIGHT IS ARITHMETIC, NOT A SELF-MEASUREMENT — his report, 2026-09-05, off
+    /// build 733: "when swiping through the chats, the text and chat cells overlap each other".
+    ///
+    /// `rowHeight = .automaticDimension` plus an `estimatedRowHeight` is what caused it. A
+    /// self-sizing table lays every row out at the ESTIMATE first and corrects it afterwards, and
+    /// inside a `beginUpdates`/`endUpdates` block holding deletes, inserts and a `moveRow` those
+    /// corrections land against offsets the same transaction is already moving. A pin re-sorts the
+    /// list, so the pin is the action that shows it worst: two rows correcting toward the same y and
+    /// drawing on top of each other.
+    ///
+    /// ⛔ THEIRS IS NOT AUTOMATIC EITHER, AND THAT IS THE ANSWER — `CLVTableDataSource.swift:574-581`.
+    /// Their `heightForRowAt` returns `UITableView.automaticDimension` ONLY for the non-conversation
+    /// rows (reminders, the archive button, the filter footer, the backup progress views); every
+    /// `.pinned` / `.unpinned` row goes through `measureConversationCell`, which caches ONE height in
+    /// `conversationCellHeightCache` (same file, lines 632-640) and hands that same number to every
+    /// conversation in the list. `ChatListViewController+Loading.swift:83` is the only thing that
+    /// clears it, and only on a full reset. Do not put `.automaticDimension` back on the chat rows.
+    ///
+    /// ⚠️ ONE NUMBER FOR EVERY CHAT ROW IS RIGHT HERE FOR THE REASON IT IS RIGHT FOR THEM: the height
+    /// cannot vary with the content. `ChatRow` reserves exactly two preview lines whatever the
+    /// preview turns out to be — the hidden `Text(" \n ")` in the same style — so nothing a message
+    /// can contain moves it, and only the phone's text size does. So the number is computed rather
+    /// than measured, exactly as `ChatListSectionHeader.height(for:)` already computes the heading's,
+    /// and for the same reason: a measurement needs a cache that can go stale behind you, and
+    /// arithmetic does not.
+    ///
+    /// The two columns, both sets of numbers taken from `ChatRow`'s own body:
+    ///
+    ///     avatar column = 56 + 12 + 12                     (`avatarStackConfig`, vMargin 12) = 80
+    ///     text column   = 7 + headline + 1 + 2 × subheadline + 9
+    ///                     ↑   ↑         ↑   ↑                 ↑
+    ///                     │   the name  │   the two reserved preview lines
+    ///                     │             the VStack's spacing of 1
+    ///                     `vStackConfig` margins — 7 above and 9 below, asymmetrical on purpose
+    ///
+    /// The row is the taller of the two: 80 at the default text size, and the text column above it.
+    /// Each line height is `ceil`ed before it is added, so the sum can never land a fraction of a
+    /// point short of the label it has to hold.
+    private static let avatarSide: CGFloat = 56
+    private static let avatarVMargin: CGFloat = 12
+    private static let textTopMargin: CGFloat = 7
+    private static let textBottomMargin: CGFloat = 9
+    private static let nameToPreviewSpacing: CGFloat = 1
+    private static let reservedPreviewLines: CGFloat = 2
+
+    /// Their `conversationCellHeightCache`. Cleared on a text-size change and nowhere else, because
+    /// nothing else can move the answer.
+    private var chatRowHeight: CGFloat?
+
+    private func conversationRowHeight() -> CGFloat {
+        if let h = chatRowHeight { return h }
+        let headline = UIFont.preferredFont(forTextStyle: .headline, compatibleWith: traitCollection)
+        let subheadline = UIFont.preferredFont(forTextStyle: .subheadline, compatibleWith: traitCollection)
+        let avatarColumn = Self.avatarSide + Self.avatarVMargin * 2
+        let textColumn = Self.textTopMargin
+            + ceil(headline.lineHeight)
+            + Self.nameToPreviewSpacing
+            + Self.reservedPreviewLines * ceil(subheadline.lineHeight)
+            + Self.textBottomMargin
+        let h = max(avatarColumn, textColumn)
+        chatRowHeight = h
+        return h
+    }
+
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        // ⚠️ A STRANGER'S ROW STAYS SELF-SIZING, deliberately. It is a different cell holding a view
+        // this file does not own (`personRow`, handed in from the screen), so its height is not ours
+        // to compute — and it is the one section that never takes part in the pin transaction: a
+        // person from the search is inserted and removed with the query and never moves between
+        // sections, so the estimate-then-correct pass it costs cannot collide with anything.
+        guard ChatListSection(rawValue: indexPath.section) != .people else {
+            return UITableView.automaticDimension
+        }
+        return conversationRowHeight()
+    }
+
+    /// ⚠️ THE ESTIMATE HAS TO BE THE SAME NUMBER, or the bug comes back for the rows that are off
+    /// screen. With a non-zero `estimatedRowHeight` set on the table, UIKit asks `heightForRowAt`
+    /// only for the rows it is about to show and uses the estimate for everything else — so a row
+    /// that scrolls or animates into view would still arrive at 80 and then correct. Answering with
+    /// the real height here means there is nothing to correct for a chat row, ever.
+    func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard ChatListSection(rawValue: indexPath.section) != .people else { return 80 }
+        return conversationRowHeight()
+    }
+
     // MARK: - Swipes
 
     /// ⛔ THEIR ORDER, READ FROM `ThreadContextualActionProvider`: leading is READ-STATE then
@@ -771,7 +871,7 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
         let read = UIContextualAction(style: .normal, title: c.hasUnreadMark(p.me) ? "Read" : "Unread") { _, _, done in
             p.onToggleRead(c); done(true)
         }
-        read.image = UIImage(systemName: c.hasUnreadMark(p.me) ? "envelope.open.fill" : "envelope.badge.fill")
+        read.image = ChatListIcon.symbol(c.hasUnreadMark(p.me) ? "envelope.open.fill" : "envelope.badge.fill")
         read.backgroundColor = .systemBlue
 
         let pinned = c.isPinned(p.me)
@@ -780,11 +880,17 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
         }
         // ⛔ OUR OWN DRAWING FOR PIN, NOT `pin.fill` — it is the mark he sent for this swipe, and the
         // SwiftUI list used it here (`MenuIcon("ic_pin_menu")`). The port had quietly substituted the
-        // SF Symbol, which is the same idea drawn by somebody else. `.alwaysTemplate` so the platter
-        // tints it white the way it tints a symbol; an asset defaults to its own colours and would
-        // have come out as a dark pin on orange.
-        pin.image = pinned ? UIImage(systemName: "pin.slash.fill")
-                           : UIImage(named: "ic_pin_menu")?.withRenderingMode(.alwaysTemplate)
+        // SF Symbol, which is the same idea drawn by somebody else.
+        //
+        // ⛔ AND IT HAS TO BE GIVEN A SIZE, WHICH IS HIS 2026-09-05 REPORT: the pin drew far bigger
+        // than the envelope on the platter beside it. `ic_pin_menu.svg` is authored at 64pt and a
+        // `UIContextualAction` draws the image it is handed at the size it is handed, while the
+        // symbols around it arrive already sized at the body text style. `ChatListIcon` redraws the
+        // asset into the symbols' own measured box and re-marks it as a template, which is also what
+        // makes the platter tint it white — an asset left in its own colours is a black pin on
+        // orange, and black on black in the dark.
+        pin.image = pinned ? ChatListIcon.symbol("pin.slash.fill")
+                           : ChatListIcon.asset("ic_pin_menu")
         pin.backgroundColor = .systemOrange
 
         return UISwipeActionsConfiguration(actions: [read, pin])
@@ -799,7 +905,12 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
         // ⛔ THE SOLID DRAWING, `ic_archive_fill` — the SwiftUI swipe used it and its note says it is
         // "the one he sent for the swipe specifically". `ic_archive` (the outline) is the MENU's, and
         // the two are not interchangeable.
-        archive.image = UIImage(named: "ic_archive_fill")?.withRenderingMode(.alwaysTemplate)
+        //
+        // ⚠️ THROUGH THE SAME SIZER AS THE PIN, THOUGH HE DID NOT REPORT THIS ONE. Its artwork is
+        // authored at 24 rather than 64, which is near enough to a symbol that nobody has noticed it
+        // — but "near enough" and "the same" are different, and now that the pin beside it is exact
+        // this one would be the odd platter. Nothing else about it changes.
+        archive.image = ChatListIcon.asset("ic_archive_fill")
         archive.backgroundColor = .systemGray
 
         // ⚠️ `.destructive` ON DELETE, AND IT IS NOT ONLY THE COLOUR. A destructive contextual
@@ -808,12 +919,12 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
         let del = UIContextualAction(style: .destructive, title: "Delete") { _, _, done in
             p.onDelete(c); done(true)
         }
-        del.image = UIImage(systemName: "trash.fill")
+        del.image = ChatListIcon.symbol("trash.fill")
 
         let mute = UIContextualAction(style: .normal, title: "Mute") { _, _, done in
             p.onMute(c); done(true)
         }
-        mute.image = UIImage(systemName: "bell.slash.fill")
+        mute.image = ChatListIcon.symbol("bell.slash.fill")
         mute.backgroundColor = .systemIndigo
 
         let cfg = UISwipeActionsConfiguration(actions: [archive, del, mute])
@@ -950,6 +1061,85 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
     }
 }
 
+/// ⛔ ONE SIZE FOR EVERY ICON IN THE CHAT LIST'S MENU AND ITS SWIPE PLATTERS — two of his reports on
+/// 2026-09-05, off build 733: the long-press menu's Unread / Mute / Pin / Archive / Delete "are
+/// different sizes", and the swipe-to-pin glyph is too big on the orange platter.
+///
+/// ⛔ THE CAUSE IS MEASURABLE AND IT IS NOT SUBTLE. The menu and the swipes draw two kinds of image:
+/// an SF Symbol, and one of our own drawings from the asset catalogue (the `ic_` convention this
+/// file and `ChatRow` already use). A symbol arrives ALREADY SIZED — it is a glyph rendered for a
+/// point size, and `UIImage(systemName:)` with no configuration comes out at the body text style,
+/// roughly a 20pt box. Our drawings arrive at whatever the artwork was authored at, and three of the
+/// four are authored at 64:
+///
+///     ic_pin_menu.svg      width="64" height="64"     (the menu's Pin, and the swipe's)
+///     ic_menu_unread.svg   width="64" height="64"     (the menu's Unread)
+///     ic_archive.svg       width="64" height="64"     (the menu's Archive)
+///     ic_archive_fill.svg  width="24" height="24"     (the swipe's Archive — near enough, and it is
+///                                                      the one platter he did not report)
+///
+/// Neither `UIMenu` nor `UIContextualAction` sizes the image it is handed. So a 64pt drawing is drawn
+/// at 64 beside a 20pt glyph, which is the whole of both reports.
+///
+/// ⚠️ THE BOX IS MEASURED OFF THE SYMBOLS, NOT CHOSEN. Picking a number here would be a fourth size
+/// to keep in step with Dynamic Type by hand. Instead the symbols are asked what they came out at,
+/// at the configuration they are actually built with, and the drawings are redrawn to fit that. The
+/// tallest of them wins, because a menu row's icons read as matching when their HEIGHTS agree —
+/// their widths differ from each other anyway (`bell.slash` is wider than `trash`).
+///
+/// ⚠️ AND IT IS A COMPUTED SIZE, NOT A `static let`. A stored one is resolved once and frozen for the
+/// life of the process, so the icons would keep the size they had when the first menu opened after a
+/// change to the phone's text size. Building four small images when a menu opens costs nothing.
+enum ChatListIcon {
+    /// The symbols' own size, stated rather than left implicit. `.body` is what `UIImage(systemName:)`
+    /// already resolves to with no configuration — naming it is what lets the drawings below be
+    /// measured against the same thing instead of against a guess.
+    static var configuration: UIImage.SymbolConfiguration { .init(textStyle: .body) }
+
+    /// The square our own drawings are redrawn into: the tallest symbol the chat list actually shows,
+    /// at that configuration. The fallback is the body font's own line height, which is the same
+    /// answer by a different route and only matters if a symbol name is ever mistyped away.
+    static var side: CGFloat {
+        let heights = ["envelope.open", "bell.slash", "pin.slash", "trash"]
+            .compactMap { UIImage(systemName: $0, withConfiguration: configuration)?.size.height }
+        return ceil(heights.max() ?? UIFont.preferredFont(forTextStyle: .body).lineHeight)
+    }
+
+    /// An SF Symbol at that size. Applying the configuration explicitly rather than relying on the
+    /// default is what makes the yardstick above honest: the things being measured and the things
+    /// being drawn are built the same way.
+    static func symbol(_ name: String) -> UIImage? {
+        UIImage(systemName: name, withConfiguration: configuration)
+    }
+
+    /// One of our own drawings, redrawn to fit the symbols' box and returned as a template so the
+    /// menu tints it with the row's colour and the swipe platter tints it white — an asset left in
+    /// its own colours comes out as a black pin on orange, and as black-on-black in dark mode.
+    ///
+    /// ⚠️ ASPECT-FIT, NOT A SQUARE STRETCH. Every one of these is authored square today, so the two
+    /// are the same answer; fitting is what keeps it the same answer if a future drawing is not.
+    ///
+    /// ⚠️ `.alwaysOriginal` GOING IN, `.alwaysTemplate` COMING OUT. The catalogue already marks these
+    /// as template artwork, and drawing a template image into a context is not defined to reproduce
+    /// its pixels — it is defined to stencil them. Taking the original guarantees the redraw copies
+    /// the drawing, and the result is re-marked so nothing downstream loses the tinting.
+    ///
+    /// The redraw is from the vector: all four assets carry `preserves-vector-representation`, so
+    /// scaling 64 down to 20 costs no sharpness the way a resampled bitmap would.
+    static func asset(_ name: String) -> UIImage? {
+        guard let art = UIImage(named: name)?.withRenderingMode(.alwaysOriginal),
+              art.size.width > 0, art.size.height > 0 else { return nil }
+        let box = side
+        let scale = min(box / art.size.width, box / art.size.height)
+        let fitted = CGSize(width: art.size.width * scale, height: art.size.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: fitted, format: format)
+            .image { _ in art.draw(in: CGRect(origin: .zero, size: fitted)) }
+            .withRenderingMode(.alwaysTemplate)
+    }
+}
+
 /// A cell that is nothing but a host for the SwiftUI row.
 private final class ChatListCell: UITableViewCell {
     static let reuseId = "ChatListCell"
@@ -957,6 +1147,47 @@ private final class ChatListCell: UITableViewCell {
     /// Mixing them under one identifier is how a recycled cell ends up holding the wrong hosting
     /// configuration for a frame.
     static let personReuseId = "ChatListPersonCell"
+
+    /// ⛔ THE CELL'S BACKGROUND IS DECIDED HERE, ON EVERY STATE CHANGE, AND NOWHERE ELSE — his
+    /// report, 2026-09-05 off build 733: after swiping a row, the row keeps a grey or coloured
+    /// remnant instead of going back to how it looked before the swipe.
+    ///
+    /// ⚠️ TWO THINGS WERE PAINTING THIS CELL AND NEITHER WAS ASKED AGAIN WHEN THE SWIPE CLOSED.
+    /// `cellForRowAt` assigns `backgroundColor = .clear` ONCE, at dequeue — that is the line that
+    /// took the grouped style's raised-card grey off the list — and `selectionStyle = .default`
+    /// leaves UIKit free to lay its own selected/highlighted fill over the top. But a cell carrying a
+    /// content configuration also carries a BACKGROUND configuration, and it re-resolves that one
+    /// against the cell's `UICellConfigurationState` every time the state moves. Swiping IS a state:
+    /// `isSwiped` is part of it. So the swipe re-resolved a background over the clear one set at
+    /// dequeue, and what the row was left wearing is whatever state it was left in.
+    ///
+    /// ⚠️ A ONE-OFF RESET — in `prepareForReuse`, or in the swipe's completion handler — WOULD BE THE
+    /// WRONG SHAPE, and it is worth saying why rather than just doing this instead. It repairs the
+    /// paths somebody thought of and leaves every one they did not: a swipe cancelled half open, a
+    /// platter closed by scrolling away, a row that re-sorts out from under an open swipe because a
+    /// message arrived. `updateConfiguration(using:)` is UIKit asking the cell what it looks like in
+    /// the state it is ACTUALLY in, which covers all of those and anything added later.
+    ///
+    /// The look is unchanged where he has not complained about it: clear at rest, the system's own
+    /// press fill while a finger is down. `selectionStyle` stays `.default` deliberately — a
+    /// background configuration replaces `selectedBackgroundView` outright, so it no longer draws
+    /// anything, but leaving it is what keeps UIKit delivering the highlighted state at all.
+    override func updateConfiguration(using state: UICellConfigurationState) {
+        super.updateConfiguration(using: state)
+        var background = UIBackgroundConfiguration.clear()
+        // ⚠️ HIGHLIGHTED ONLY, AND NEVER WHILE SWIPED. Out of Select mode a SELECTED row is a row on
+        // its way into a chat and `didSelectRowAt` deselects it in the same breath; inside Select
+        // mode the mark is the tick, and grey behind it would be a second answer to a question the
+        // circle already answers. While swiped the row must stay clear so the platter's colour is
+        // never seen through it.
+        if state.isHighlighted && !state.isSwiped {
+            // The system's own press fill, resolved for this state rather than picked by eye, so it
+            // is right in both themes and stays right if Apple changes it.
+            background.backgroundColor = UIBackgroundConfiguration.listPlainCell()
+                .updated(for: state).backgroundColor ?? .systemFill
+        }
+        backgroundConfiguration = background
+    }
 }
 
 /// The "Pinned" / "Chats" heading.
