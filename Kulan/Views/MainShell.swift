@@ -1967,7 +1967,27 @@ struct ChatsView: View {
             menuActions: { chatMenuElements($0) },
             // The peek is the same view the SwiftUI `contextMenu(preview:)` showed, in a hosting
             // controller because that is what `UIContextMenuConfiguration` takes.
-            peek: { conv in UIHostingController(rootView: ChatPeekPreview(cid: conv.id, me: me)) }
+            //
+            // ⛔ CLEAR BACKGROUND AND AN EXPLICIT CONTENT SIZE — his report, 2026-09-05: "the chat
+            // wallpaper is missing, preview looks half drawn". Both halves of that come from the
+            // hosting controller rather than from the view inside it, which is why reading
+            // `ChatPeekPreview` finds nothing wrong: it draws the wallpaper on its first line.
+            //
+            //   • A `UIHostingController`'s view takes an OPAQUE system background of its own. The
+            //     platter shows that, not the SwiftUI content's, wherever the two do not coincide.
+            //   • With no `preferredContentSize`, UIKit sizes the platter by asking the view what it
+            //     fits, and then lays the fixed-size SwiftUI content inside whatever it decided. The
+            //     picture is sized to the SCREEN's width, so a platter even slightly narrower leaves
+            //     the flat background showing down the sides — a preview half drawn, with the
+            //     wallpaper apparently missing.
+            //
+            // Telling it the size the view already committed to makes the two agree.
+            peek: { conv in
+                let vc = UIHostingController(rootView: ChatPeekPreview(cid: conv.id, me: me))
+                vc.view.backgroundColor = .clear
+                vc.preferredContentSize = ChatPeekPreview.platterSize
+                return vc
+            }
         )
     }
 
@@ -3803,10 +3823,16 @@ private struct ChatPeekPreview: View {
     }
 
     // Screen-proportional, like the platter the reference app gets for free from a full view controller.
-    private var size: CGSize {
+    //
+    // ⚠️ STATIC, SO THE HOSTING CONTROLLER CAN SAY THE SAME NUMBER. The view sizes itself with this
+    // and the controller hands the identical value to `preferredContentSize`; when only the view
+    // knew it, UIKit was free to pick a different platter and the difference showed as bare
+    // background around the picture.
+    static var platterSize: CGSize {
         let screen = UIScreen.main.bounds.size
         return CGSize(width: screen.width, height: screen.height * 0.62)
     }
+    private var size: CGSize { Self.platterSize }
 
     var body: some View {
         ZStack(alignment: .bottom) {
