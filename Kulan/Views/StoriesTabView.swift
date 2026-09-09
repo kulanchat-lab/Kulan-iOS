@@ -600,24 +600,26 @@ struct StoriesTabView: View {
                                          count: StoryTileGrid.columns),
                           spacing: StoryTileGrid.gap) {
                     if let mine = StoriesRepository.shared.mine, let newest = mine.stories.last {
-                        Button { openStoryFromRow(mine) } label: {
+                        let key = Self.friendsPageKey(mine.id)
+                        Button { openStoryFromRow(mine, sourceKey: key) } label: {
                             GlowStoryCardView(
                                 thumbUrl: newest.thumbUrl.isEmpty ? newest.mediaUrl : newest.thumbUrl,
                                 name: "My Story",
                                 authorPhoto: profile.me?.photoUrl,
                                 isMine: true,
-                                rectKey: mine.id,
+                                rectKey: key,
                                 corner: StoryTileGrid.corner)
                         }
                         .buttonStyle(.plain)
                     }
                     ForEach(visibleFriends) { g in
-                        Button { openStoryFromRow(g) } label: {
+                        let key = Self.friendsPageKey(g.id)
+                        Button { openStoryFromRow(g, sourceKey: key) } label: {
                             GlowStoryCardView(
                                 thumbUrl: g.stories.last.map { $0.thumbUrl.isEmpty ? $0.mediaUrl : $0.thumbUrl } ?? "",
                                 name: g.name,
                                 authorPhoto: g.photoUrl,
-                                rectKey: g.id,
+                                rectKey: key,
                                 corner: StoryTileGrid.corner)
                         }
                         .buttonStyle(.plain)
@@ -628,7 +630,10 @@ struct StoriesTabView: View {
                 // The same hold as the section this page opens from — the cards are the shared
                 // thing and so is what a press on one offers. Its own `ScrollView`, so the press
                 // installs on this page's scroller rather than the tab's.
-                .glowCardLongPress { friendsGridTarget(at: $0, corner: StoryTileGrid.corner) }
+                .glowCardLongPress {
+                    friendsGridTarget(at: $0, corner: StoryTileGrid.corner,
+                                      key: Self.friendsPageKey)
+                }
             }
             .navigationTitle("Friends")
             .navigationBarTitleDisplayMode(.inline)
@@ -746,19 +751,26 @@ struct StoriesTabView: View {
     /// ⚠️ `corner` IS PASSED IN BECAUSE THE SAME HELPER SERVES TWO SURFACES. The tab's friends grid
     /// draws its cards at the card's own 34; the pushed all-friends page draws them at the tile
     /// corner. The lift has to be cut with whichever the card under the finger was drawn with.
+    /// ⚠️ `key` MAPS A GROUP ID TO THE KEY THE CARD ACTUALLY REGISTERED, and the pushed page passes
+    /// its own. A press has to look under the same string the card filed itself under or it finds
+    /// the other screen's card — see `openStoryFromRow`.
     private func friendsGridTarget(at p: CGPoint,
-                                   corner: CGFloat = GlowStoryCardView.corner) -> StoryMenuTarget? {
+                                   corner: CGFloat = GlowStoryCardView.corner,
+                                   key: (String) -> String = { $0 }) -> StoryMenuTarget? {
         if let mine = StoriesRepository.shared.mine, !mine.stories.isEmpty,
-           let t = GlowCardPress.target(mine.id, at: p, actions: myStoryActions(mine),
+           let t = GlowCardPress.target(key(mine.id), at: p, actions: myStoryActions(mine),
                                         corner: corner) {
             return t
         }
         for g in visibleFriends {
-            if let t = GlowCardPress.target(g.id, at: p, actions: friendActions(g),
+            if let t = GlowCardPress.target(key(g.id), at: p, actions: friendActions(g),
                                             corner: corner) { return t }
         }
         return nil
     }
+
+    /// The all-friends page's key namespace. The same shape the all-Glowing page already uses.
+    private static func friendsPageKey(_ id: String) -> String { "friendspage-\(id)" }
 
     /// The same question for the Glowing grid.
     ///
@@ -828,9 +840,19 @@ struct StoriesTabView: View {
     /// `pinned: false` is what makes this door different from the chat list's ringed avatar: the
     /// viewer pages person to person, and the row has a card for whoever you paged to, so the
     /// anchor follows.
-    private func openStoryFromRow(_ g: StoryGroup) {
+    /// ⚠️ `sourceKey` DEFAULTS TO THE GROUP'S ID AND THE PUSHED PAGE OVERRIDES IT — his report,
+    /// 2026-09-09: closing a story returns to the right place from the friends strip, and does not
+    /// from the all-friends page.
+    ///
+    /// ⛔ THE REGISTRY HOLDS ONE VIEW PER KEY. The tab's own friends grid and the pushed page both
+    /// drew their cards under the bare `g.id`, and both are alive at once — a pushed page does not
+    /// dismantle the root beneath it. Whichever registered last owned the key, so the story opened
+    /// from the page flew back to the card on the TAB, which is behind it and usually off screen.
+    /// The all-Glowing page was given a prefix of its own when it was built and does not have this;
+    /// the all-friends page was not, and that asymmetry is the whole bug.
+    private func openStoryFromRow(_ g: StoryGroup, sourceKey: String? = nil) {
         let others = StoriesRepository.shared.others.filter { !StoryPrefs.isHidden($0.authorUid) }
-        StoryDoor.open(g, among: g.isMine ? [g] + others : others, from: g.id, pinned: false,
+        StoryDoor.open(g, among: g.isMine ? [g] + others : others, from: sourceKey ?? g.id, pinned: false,
                        // These came out of `StoriesRepository.others`, whose query is "recipientUids
                        // contains me" — so being here IS the author's audience choice, and the reply
                        // bar follows it rather than testing my chat list a second time.
