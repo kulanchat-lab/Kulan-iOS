@@ -208,16 +208,77 @@ struct ChatListRowChanges {
         //
         // Ours emitted `moveRow` for both, which is why the pin flight was right and every ordinary
         // re-sort landed stale.
+        // ⛔ A ROW THAT ONLY SHIFTED INDEX IS NOT A CHANGE, AND THIS IS THE PIN BUG — his fifth
+        // report, 2026-09-09, and the first one diagnosed by reading their diff rather than their
+        // table calls.
+        //
+        // ⚠️ WHAT THIS USED TO DO. Every surviving id whose index path was not identical became an
+        // operation. Pin the third of eight chats and the five rows BELOW it each shift up one, so
+        // each one was deleted and re-inserted — five fades out and five fades back in, playing
+        // over the top of the one row that is actually flying. Pin something near the bottom of a
+        // long list and nearly everything on screen flickers. That is "several bugs, especially the
+        // animation and transition"; it is not a timing problem and no animation constant would
+        // have touched it.
+        //
+        // ⛔ THEIRS EMITS NOTHING FOR THOSE ROWS. Their diff computes the MINIMAL set of moves over
+        // the ids present in both lists: it filters both sides down to the survivors and then only
+        // names a row that genuinely changed its ORDER relative to the others. On a pin the
+        // unpinned survivors are already in the same relative order, so their whole transaction is
+        // one delete and one insert, which their pin special case then collapses into a single
+        // cross-section `moveRow`. One operation, not eleven.
+        //
+        // The minimal set is the complement of the longest run of survivors that is already in the
+        // right order. Walk the new order, look each id up in the old order, and take the longest
+        // increasing run of those old positions: everything in that run is already sorted with
+        // respect to everything else in it and needs no operation. Every survivor outside it moved.
         for id in oldIds.intersection(newIds) {
-            guard let from = old.indexPath(of: id), let to = new.indexPath(of: id), from != to else { continue }
-            if from.section != to.section {
-                out.moves.append((from: from, to: to))
-            } else {
+            guard let from = old.indexPath(of: id), let to = new.indexPath(of: id) else { continue }
+            // A pin or unpin, and nothing else. Always a `moveRow` — see the note above.
+            if from.section != to.section { out.moves.append((from: from, to: to)) }
+        }
+        // Same-section reordering, section by section, over the survivors alone.
+        for section in ChatListSection.allCases {
+            let survivors = new.ids(in: section).filter {
+                oldIds.contains($0) && old.indexPath(of: $0)?.section == section.rawValue
+            }
+            guard survivors.count > 1 else { continue }
+            let oldPos = Dictionary(uniqueKeysWithValues:
+                old.ids(in: section).enumerated().map { ($0.element, $0.offset) })
+            let positions = survivors.compactMap { oldPos[$0] }
+            guard positions.count == survivors.count else { continue }
+            let stay = Set(Self.longestIncreasingRun(positions))
+            for (i, p) in positions.enumerated() where !stay.contains(p) {
+                let id = survivors[i]
+                guard let from = old.indexPath(of: id), let to = new.indexPath(of: id) else { continue }
                 out.deletes.append(from)
                 out.inserts.append(to)
             }
         }
         return out
+    }
+
+    /// The longest subsequence of `values` that is already increasing — the rows that may stay put.
+    ///
+    /// Patience sorting, so it is n log n rather than the quadratic table a longest-common-
+    /// subsequence would build. A chat list is small, but this runs on every message that re-sorts
+    /// it, which is the one place in this file that is genuinely hot.
+    static func longestIncreasingRun(_ values: [Int]) -> [Int] {
+        guard !values.isEmpty else { return [] }
+        var tailIndex: [Int] = []          // index into `values` of each pile's smallest tail
+        var previous = [Int](repeating: -1, count: values.count)
+        for i in 0..<values.count {
+            var lo = 0, hi = tailIndex.count
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if values[tailIndex[mid]] < values[i] { lo = mid + 1 } else { hi = mid }
+            }
+            if lo > 0 { previous[i] = tailIndex[lo - 1] }
+            if lo == tailIndex.count { tailIndex.append(i) } else { tailIndex[lo] = i }
+        }
+        var out: [Int] = []
+        var k = tailIndex.last ?? -1
+        while k >= 0 { out.append(values[k]); k = previous[k] }
+        return out.reversed()
     }
 }
 
@@ -504,6 +565,12 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
     /// place it is written onto the table. Called after every diff — see `updateUIViewController`.
     func syncTicks(selected: Set<String>) {
         guard tableView.isEditing else { return }
+        // ⚠️ AND NOT WHILE ROWS ARE MOVING. This is the one thing left that reaches the table after
+        // the transaction closes — theirs touches nothing after `endUpdates` and restores selection
+        // by id only on a full reload. It fires in Select mode alone, but there it issues
+        // `selectRow`/`deselectRow` against rows UIKit is still animating. Owed and replayed, the
+        // same way the content update is.
+        guard !isAnimatingRows else { ticksWereDeferred = selected; return }
         for section in ChatListSection.allCases {
             for (row, id) in state.ids(in: section).enumerated() {
                 let ip = IndexPath(row: row, section: section.rawValue)
@@ -683,6 +750,28 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
         // ⚠️ THIS DOES NOT BREAK THEIR "NOTHING RUNS AFTER THE BLOCK" RULE. That rule is about the
         // instant after `endUpdates()`, where a second table operation lands on top of a flight in
         // progress. This runs after the flight is over, which is the only safe moment there is.
+        // ⛔ THE ROWS THAT ARE ABOUT TO TRAVEL ARE REPAINTED FIRST, WHILE NOTHING IS MOVING.
+        //
+        // ⚠️ HIS "the pin icon appears after the row lands". A `moveRow` carries the cell it already
+        // has, so a row crossing between Pinned and Chats arrives still drawn as it was — and the
+        // pin glyph then fades in by itself a third of a second later, because the in-place update
+        // is fenced until the flight ends. Two motions where theirs has one.
+        //
+        // Theirs solves it upstream: `applyRowChanges` drops that thread's view-model and cell
+        // content from its caches BEFORE issuing the operation, so the cell is rebuilt correct and
+        // travels correct. We cannot drop a cache and get a rebuild — our content is assigned to the
+        // cell — so the equivalent is to assign it now, in the moment before the transaction opens,
+        // when no animation is running and touching a cell is free.
+        for m in changes.moves {
+            guard let s = ChatListSection(rawValue: m.from.section),
+                  let id = old.ids(in: s)[safe: m.from.row],
+                  let conv = host?.conversation(id),
+                  let cell = tableView.cellForRow(at: m.from) as? ChatListCell,
+                  let fresh = host.map({ $0.content(for: conv) })
+            else { continue }
+            configureChatCell(cell, id: id, content: fresh)
+        }
+
         isAnimatingRows = true
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
@@ -691,6 +780,10 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
             if self.refreshWasDeferred {
                 self.refreshWasDeferred = false
                 self.refreshVisibleContent()
+            }
+            if let owed = self.ticksWereDeferred {
+                self.ticksWereDeferred = nil
+                self.syncTicks(selected: owed)
             }
         }
         if animated {
@@ -712,6 +805,8 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
     private var isAnimatingRows = false
     /// Something wanted the in-place content update while rows were moving. It is owed once.
     private var refreshWasDeferred = false
+    /// The selection a `syncTicks` wanted to apply mid-flight, owed until the flight ends.
+    private var ticksWereDeferred: Set<String>?
 
     /// The rows whose CONTENT changed while their POSITION did not, addressed in the old model.
     ///
@@ -725,10 +820,18 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
         var out: [IndexPath] = []
         for s in ChatListSection.allCases where s != .people {
             for id in new.ids(in: s) {
+                // ⚠️ `configured[id]` IS NIL FOR EVERY ROW THAT HAS NEVER BEEN DEQUEUED, and
+                // without this guard the comparison below is always true for them — so a pin in a
+                // long list handed `reloadRows` most of the off-screen index paths above it, inside
+                // the same transaction as the flight. Theirs takes its update set from the ids the
+                // database reported changed, which can never include a row it has not seen.
+                // A row with no cell has nothing to repaint; it will be built correctly when it is
+                // first dequeued.
                 guard let from = old.indexPath(of: id), let to = new.indexPath(of: id),
                       from == to,
+                      let known = configured[id],
                       let conv = host.conversation(id) else { continue }
-                if configured[id] != host.content(for: conv) { out.append(from) }
+                if known != host.content(for: conv) { out.append(from) }
             }
         }
         return out
@@ -860,32 +963,34 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
     /// list, so the pin is the action that shows it worst: two rows correcting toward the same y and
     /// drawing on top of each other.
     ///
-    /// ⛔ AND THIS IS A DELIBERATE DIVERGENCE FROM THE REFERENCE. SAY SO, BECAUSE THE COMMENT THAT
-    /// STOOD HERE DID NOT.
+    /// ⛔ THIS FILE HAS NOW CARRIED TWO WRONG CLAIMS ABOUT THEIR ROW HEIGHTS. Here is the checked
+    /// one, and how it was checked, so a third is not written.
     ///
-    /// ⚠️ THE PREVIOUS VERSION OF THIS NOTE CITED THEIR SOURCE AND THE CITATION WAS FALSE. It said
-    /// their `heightForRowAt` measured conversation rows through a `measureConversationCell` at
-    /// `CLVTableDataSource.swift:574-581`, cached in `conversationCellHeightCache` at lines 632-640.
-    /// Their `CLVTableDataSource.swift` is 431 lines long and contains no `heightForRowAt`, no
-    /// `measureConversationCell` and no such cache; it implements heights for HEADERS and FOOTERS
-    /// only. Fetched and read on 2026-09-09, the second time a session has had to correct an
-    /// invented claim about their code in this file. Check a citation before you trust it.
+    /// ⚠️ THE FIRST WRONG CLAIM said their `heightForRowAt` measures conversation rows through a
+    /// `measureConversationCell` with a one-value cache. ⚠️ THE SECOND WRONG CLAIM, written on
+    /// 2026-09-09 to "correct" the first, said their data source has no `heightForRowAt` at all and
+    /// that their rows self-size. **The first was right and the second was written from a TRUNCATED
+    /// FETCH** — `gh api ... --raw` returned 431 lines of a 997-line file and the reader drew a
+    /// conclusion from what was in front of them. Check `wc -l` against the API's own byte count
+    /// before believing any fetch of their source.
     ///
-    /// What they actually do: `ChatListViewController.swift:60-61`, `rowHeight =
-    /// UITableView.automaticDimension` and `estimatedRowHeight = 60`. Their conversation rows
-    /// self-size. `conversationCellHeightCache` is real but lives on the view controller and is only
-    /// ever cleared, never read in the files that set it up — whatever reads it is the cell's own
-    /// measurement, not a data-source height.
+    /// WHAT THEY ACTUALLY DO, from the complete file: `CLVTableDataSource.heightForRowAt` returns
+    /// `automaticDimension` for their non-conversation rows only, and `measureConversationCell` for
+    /// the pinned and unpinned sections. That measures ONE cell and stores the answer in a single
+    /// `CGFloat?` on the view state, handing the same number to every conversation row. The
+    /// `rowHeight = .automaticDimension` and `estimatedRowHeight = 60` on their view controller are
+    /// the fallback their other sections use. They implement no `estimatedHeightForRowAt`.
     ///
-    /// ⛔ SO WHY DIVERGE. Their row is a `UIView` that lays out synchronously. OURS IS A SwiftUI
-    /// `ChatRow` INSIDE A `UIHostingConfiguration`, which reports its size back to the table
-    /// asynchronously. Self-sizing is safe for them and is not safe for us: inside a
-    /// `beginUpdates`/`endUpdates` block holding deletes, inserts and a `moveRow`, a size that
-    /// arrives a frame late lands against offsets the same transaction is still moving. That is his
-    /// overlap. Copying their `automaticDimension` would copy a decision that depends on a row type
-    /// we do not have.
+    /// ⛔ SO OURS IS THE SAME DESIGN, ARRIVED AT DIFFERENTLY: one number for every chat row, cached,
+    /// invalidated only by the thing that can move it. Theirs measures it once; ours computes it,
+    /// because a measurement needs a cache that can go stale behind you and arithmetic does not.
     ///
-    /// ⚠️ ONE NUMBER FOR EVERY CHAT ROW IS RIGHT HERE FOR A REASON OF OUR OWN: the height
+    /// We do implement `estimatedHeightForRowAt`, and that is a real and deliberate addition: our
+    /// row is a SwiftUI `ChatRow` inside a `UIHostingConfiguration`, which reports its size back
+    /// asynchronously, so leaving the estimate to the table's own 80 would let a first layout land
+    /// at the wrong height inside a transaction that is already moving rows. That is his overlap.
+    ///
+    /// ⚠️ ONE NUMBER FOR EVERY CHAT ROW IS RIGHT HERE FOR THE SAME REASON IT IS RIGHT FOR THEM: the height
     /// cannot vary with the content. `ChatRow` reserves exactly two preview lines whatever the
     /// preview turns out to be — the hidden `Text(" \n ")` in the same style — so nothing a message
     /// can contain moves it, and only the phone's text size does. So the number is computed rather
