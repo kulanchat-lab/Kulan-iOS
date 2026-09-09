@@ -1409,6 +1409,39 @@ struct ChatsView: View {
         Task { try? await ChatService.openConversation(other: u) }
     }
 
+    /// THE SEARCH PAGE, as one value. See the `.overlay` above for why it exists and where it sits.
+    ///
+    /// ⚠️ `AnyView`, AND FOR THIS FILE'S USUAL REASON. Nine arguments written inline in that chain is
+    /// exactly the kind of addition that has tipped this body into "unable to type-check this
+    /// expression in reasonable time" — the archive destination did it once and `visible`'s own
+    /// search filter did it twice. Erased here, the chain sees one already-solved view.
+    ///
+    /// ⚠️ THE TWO CALLBACKS ARE THE ONES THE LIST ALREADY USES, not new ones. `onOpenChat` is the
+    /// same push `ChatListTable.onOpen` makes and `onOpenPerson` is `openPerson` itself, so a chat
+    /// opened from the search page and the same chat opened from the list are the same navigation.
+    private var chatSearchOverlay: AnyView {
+        AnyView(
+            ChatSearchOverlay(
+                query: searchTrimmed,
+                me: me,
+                dark: dark,
+                searching: searchingUsers,
+                chats: { visible },
+                people: { newPeople },
+                personRow: { AnyView(newPersonRow($0)) },
+                onOpenChat: { conv in
+                    path.append(ChatTarget(id: conv.id, name: conv.displayName(me),
+                                           photo: conv.displayPhoto(me)))
+                    // ⚠️ THE QUERY IS CLEARED HERE AND NOT ONLY BY `dismissSearch`. The list
+                    // underneath is still filtered by `chatSearch`, so leaving the text behind means
+                    // coming back from that chat to an inbox showing one row. `openPerson` has
+                    // cleared it for the same reason since the search box was added.
+                    chatSearch = ""
+                },
+                onOpenPerson: { openPerson($0) })
+        )
+    }
+
     /// Ask the server who owns this username. Debounced by the trailing-edge check rather than by a
     /// timer: a stale answer is discarded when it lands, so a fast typist never sees the result of a
     /// query they have moved on from.
@@ -2267,6 +2300,23 @@ struct ChatsView: View {
             // more text". It said "Search chats and people", which was describing the feature rather
             // than labelling the field. What it searches has not changed: chats, and people you have
             // never chatted with, who still arrive under "Other people".
+            // ⛔ FOCUSING SEARCH OPENS A PAGE OF ITS OWN — owner, 2026-09-09, with a screenshot of
+            // what it did instead: "When I click search button, Chatlist page and search page they
+            // are different, because search page has Recent". Ours left the whole chat list — Pinned
+            // and Chats headings, every row — sitting under a keyboard. The reference app's field
+            // belongs to a `UISearchController` whose results controller is a SEPARATE table put
+            // over the inbox the instant the field is focused; `ChatSearchOverlay` is that, in the
+            // one place `\.isSearching` can be read.
+            //
+            // ⚠️ IT GOES BEFORE `.searchable`, WHICH IS THE WHOLE TRICK. The overlay has to be
+            // INSIDE the searchable scope to see `\.isSearching` at all, and it covers only the
+            // content — the field itself stays where the system draws it.
+            //
+            // ⚠️ `visible` AND `newPeople` ARE PASSED AS CLOSURES, NOT ARRAYS. Both sort and filter
+            // the whole conversation list on every read (see `visible`'s own note); handed as values
+            // they would be computed on every pass of this body whether anyone is searching or not.
+            // The page calls them only when it actually has results to draw.
+            .overlay { chatSearchOverlay }
             .searchable(text: $chatSearch, prompt: "Search")
             // ⚠️ `.task(id:)` RATHER THAN `.onChange`. It cancels the previous lookup when the query
             // moves on, so a slow answer to an abandoned query cannot land after a fast answer to
