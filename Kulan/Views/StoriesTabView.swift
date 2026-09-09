@@ -46,6 +46,16 @@ struct StoriesTabView: View {
     @AppStorage("storiesOptedOut") private var storiesOptedOut = false
     /// The header's search field — his reference, 2026-09-02, has one sitting under the title.
     @State private var search = ""
+    /// The person a long press asked to hide, and the alert that asks before it happens. The strip
+    /// puts up a `UIAlertController` from its own presenter; a SwiftUI grid says it this way, with
+    /// the same title, the same message and the same destructive button.
+    @State private var hideTarget: StoryGroup?
+    /// ⚠️ WHAT REDRAWS THE FRIENDS GRID AFTER A HIDE. `StoryPrefs.isHidden` is a `UserDefaults` read
+    /// behind a static, so nothing about hiding somebody publishes anything for SwiftUI to observe —
+    /// the row they were on would simply stay there until the next unrelated redraw. The UIKit strip
+    /// has `prefsChanged()` for this and the chat list has its own tick; this is the same idea, read
+    /// in the grid so the filter is re-run.
+    @State private var prefsTick = 0
 
     /// ⛔ 17, NOT 22 — owner, 2026-09-02, with "Glowing" ringed: "the text Glowing looks big".
     ///
@@ -473,6 +483,25 @@ struct StoriesTabView: View {
                     }
                 }
                 .padding(.horizontal, GlowStoryCardView.margin)
+                // ⛔ 10 BETWEEN THE HEADING AND THE FIRST CARD — owner, 2026-09-05, with that gap
+                // ringed: "add space between the Glowing text and the story".
+                //
+                // ⚠️ HERE AND NOT IN `sectionHeading`, WHICH IS THE WHOLE POINT. That heading's 14
+                // above and 8 below are the chat list's own numbers, taken from the reference app's
+                // source on his instruction, and Friends wears the same heading — moving them would
+                // change a heading he has already settled and drag the other section with it.
+                //
+                // 10 IS NOT A TASTE, IT IS THE NUMBER THE FRIENDS SECTION ALREADY HAS. The strip
+                // under the Friends heading carries `StoryRowMetrics.vPad` = 10 of its own air above
+                // its cards, so a friend's card starts 8 + 10 = 18 below the word. The Glowing grid
+                // had no such inset, so its cards started at 8 — and two sections whose headings sit
+                // at different heights above their own content is exactly what he was looking at.
+                // With this the two are identical, and the number came off the page rather than out
+                // of my eye.
+                //
+                // ⚠️ NOT ADDED TO THE `VStack`'s SPACING, which is 0 deliberately (see the note
+                // below): spacing there would also push the section away from what is above it.
+                .padding(.top, 10)
             }
             // ⛔ NOTHING — owner, 2026-09-02: "Glowing, copy the spacing from the chat list's Chats
             // text; use the top and bottom it uses".

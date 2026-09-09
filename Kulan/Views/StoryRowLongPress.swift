@@ -160,6 +160,18 @@ struct StoryMenuTarget {
     /// he circled on 2026-08-08, "make it only text". Rendered from the label, the strip is
     /// transparent everywhere the text is not. See `StoryCardShot.render`.
     var labelView: UIView? = nil
+    /// THE RADIUS THE LIFTED PICTURE IS CUT WITH, because the app now presses two different cards.
+    ///
+    /// This was a hardcoded 24 in the lift below, which is the strip card's own corner and was right
+    /// while the strip was the only thing that pressed. The Stories tab's big cards are drawn at 34
+    /// (`GlowStoryCardView.corner`), so lifting one under a 24 would square its corners off the
+    /// instant the finger passed the threshold — the card visibly changing shape as it rises, which
+    /// is the exact complaint his 2026-08-08 "dont change the runded corners" was about.
+    ///
+    /// ⚠️ THE DEFAULT IS THE STRIP'S NUMBER, so every existing caller keeps the corner it shipped
+    /// with and only a card that says otherwise gets a different one. It is declared last so the
+    /// memberwise initialiser's existing argument order is untouched.
+    var cornerRadius: CGFloat = 24
 }
 
 /// A picture of what is really on screen inside `rect`.
@@ -392,6 +404,21 @@ struct StoryRowLongPress: UIViewRepresentable {
     /// Which card is under this window point, and what its menu is. Asked at press time, so it
     /// always answers about the row as it stands right now rather than as it stood at layout.
     let target: (CGPoint) -> StoryMenuTarget?
+    /// ⛔ REFUSE A PRESS THAT IS NOT ON ONE OF OUR OWN CARDS — the Stories tab, 2026-09-05.
+    ///
+    /// A scroll-view anchor has always begun on every press inside its scroller and then found no
+    /// card and returned, which is harmless while that scroller holds nothing but the row. The
+    /// Stories tab is the first page where it is not: the friends STRIP is a UIKit scroll view
+    /// nested inside the page's own, and the strip runs a press of its own on that inner scroller.
+    /// A press on a strip card is delivered to both, and the two are mutually exclusive by the
+    /// simultaneity rule below — so the outer one recognising at 0.32s would cancel the strip's and
+    /// take the tap away with `StoryRowPress.began()`, killing the one long press on this page that
+    /// already works.
+    ///
+    /// Asking `target` before beginning is the same test the gated window anchor already makes; this
+    /// only lets a scroll-anchored press opt into it. Left false, the chat list's row behaves exactly
+    /// as it has shipped since `bf976c8d`, swallowed tap and all.
+    var requiresCard = false
 
     func makeUIView(context: Context) -> UIView {
         let v = Anchor()
@@ -403,6 +430,7 @@ struct StoryRowLongPress: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {
         context.coordinator.target = target
+        context.coordinator.requiresCard = requiresCard
         (uiView as? Anchor)?.coordinator = context.coordinator
         // A dead press only heals inside an install attempt, and the attempts above fire on
         // reparenting — which is exactly when the damage happens, but not the only time. If the
@@ -412,7 +440,7 @@ struct StoryRowLongPress: UIViewRepresentable {
         (uiView as? Anchor)?.heal()
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(target: target) }
+    func makeCoordinator() -> Coordinator { Coordinator(target: target, requiresCard: requiresCard) }
 
     /// Install and remove on the window change rather than in `dismantleUIView`: this view is the
     /// only thing that knows when the row is really on screen, and a UIView's own callback is
@@ -471,8 +499,14 @@ struct StoryRowLongPress: UIViewRepresentable {
         private var rampKey: String?
         /// Whether a recogniser is live — the Anchor's retry loop stops asking once it is.
         var isInstalled: Bool { press != nil }
+        /// See `StoryRowLongPress.requiresCard`. Defaulted, so the two UIKit callers that build a
+        /// coordinator by hand keep the behaviour they shipped with.
+        var requiresCard: Bool
 
-        init(target: @escaping (CGPoint) -> StoryMenuTarget?) { self.target = target }
+        init(target: @escaping (CGPoint) -> StoryMenuTarget?, requiresCard: Bool = false) {
+            self.target = target
+            self.requiresCard = requiresCard
+        }
 
         /// Anchored on the WINDOW rather than on a scroll view, so every press must prove it belongs
         /// to this row before it is allowed to begin. See `install`.
@@ -592,6 +626,13 @@ struct StoryRowLongPress: UIViewRepresentable {
         /// a press that finds no card, which the chat list has shipped with since `bf976c8d`.
         func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
             guard gated else {
+                // The opt-in half of the gate — see `StoryRowLongPress.requiresCard`. A page that
+                // shares its scroll view with another press has to prove the finger is on one of
+                // its own cards before it may cancel anything.
+                if requiresCard, target(g.location(in: nil)) == nil {
+                    StoryPressDebug.shared.noteGate("scroll anchor, but no card of ours here")
+                    return false
+                }
                 StoryPressDebug.shared.noteGate("open (scroll anchor, no gate)")
                 return true
             }
@@ -752,7 +793,10 @@ struct StoryRowLongPress: UIViewRepresentable {
                 let image = UIImageView(image: shot)
                 image.frame = CGRect(origin: .zero, size: t.rect.size)
                 image.contentMode = .scaleAspectFill   // only ever scales uniformly; belt anyway
-                image.layer.cornerRadius = 24
+                // The card's OWN radius, asked of the target rather than typed here — see
+                // `StoryMenuTarget.cornerRadius`. Two card sizes press now and they round
+                // differently.
+                image.layer.cornerRadius = t.cornerRadius
                 image.layer.cornerCurve = .continuous   // every card in this app is continuous
                 image.layer.masksToBounds = true
 

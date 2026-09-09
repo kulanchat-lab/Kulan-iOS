@@ -85,6 +85,26 @@ struct GlowStoryCardView: View {
     /// was built. Nil (or empty) registers nothing and degrades to the plain presentation.
     var rectKey: String? = nil
 
+    /// ⛔ THE PRESS DIP, AND IT LIVES ON THE CARD RATHER THAN AT THE FOUR CALL SITES — his report the
+    /// last time a press was wired up on a SwiftUI card ("now long press is working but there's no
+    /// animation", 2026-08-21). The UIKit strip's cards are `UIControl`s and get `isHighlighted` on
+    /// touch-down for free; a SwiftUI card has no pressed state of its own at all, so the press
+    /// publishes one and the card reads it.
+    ///
+    /// ⚠️ ONE READER, NOT FOUR. Every grid in the app draws this same view, so putting the dip here
+    /// gives the Glowing section, the Glowing page, the Friends grid and the Friends page the same
+    /// press with nothing to keep in step by hand — the rule this file's own header states.
+    ///
+    /// `StoryPressVisual` is deliberately not `@MainActor` for exactly this: `shared` has to be
+    /// reachable from a stored-property initialiser. See the note on that type.
+    @ObservedObject private var pressVisual = StoryPressVisual.shared
+
+    /// The key this card files its rectangle under, and the same one the press squeezes by.
+    private var pressKey: String? {
+        guard let rectKey, !rectKey.isEmpty else { return nil }
+        return MediaOpenRects.key(.storyRow, rectKey)
+    }
+
     init(thumbUrl: String, name: String, authorPhoto: String?, isMine: Bool = false,
          rectKey: String? = nil, onAvatarTap: (() -> Void)? = nil) {
         self.thumbUrl = thumbUrl
@@ -182,9 +202,73 @@ struct GlowStoryCardView: View {
             // exactly what the close does.
             .compositingGroup()
             .clipShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+            // 0.92 on a 0.28/0.7 spring, which is the chat row's dip and not the reference app's
+            // ramp — his order after seeing the two side by side. No `.animation` modifier: the
+            // spring lives in `fingerDown`/`fingerUp`, so the press and the release cannot drift
+            // apart from each other here.
+            //
+            // BEFORE the reporter, the same order the archive strip uses, so the rectangle the lift
+            // is cropped from is the card as it is DRAWN mid-dip rather than as the model says.
+            .scaleEffect(pressKey != nil && pressVisual.squeezedKey == pressKey
+                         ? StoryPressVisual.dipScale : 1)
             // LAST, so the rect it files is the whole card including its overlays — the flight lands
             // on a rectangle, and half a rectangle would land short.
             .modifier(MediaRectReporter(id: rectKey ?? "", scope: .storyRow,
                                         cornerRadius: Self.corner))
+    }
+}
+
+/// THE LONG PRESS FOR EVERY GRID OF THESE CARDS — his report, 2026-09-05: pressing a Glowing card,
+/// a card on the pushed Friends page, or one in the Friends grid that replaces the strip does
+/// nothing, while the friends strip beside it lifts.
+///
+/// ⛔ THE STRIP'S OWN PRESS, NOT A SECOND ONE. `StoryRowLongPress` is the app's story press —
+/// one `UILongPressGestureRecognizer` on the enclosing scroll view, the lift a photograph of the
+/// card that is really on screen, the menu `CMOverlay`. It was built as a representable for exactly
+/// this shape of caller and had no call site left after the archive strip took its own scroller;
+/// this is that call site. A `.contextMenu` here would be the thing that file exists to prevent: it
+/// does not lift the card, it BUILDS A SECOND ONE from a `preview:` closure, which on these cards
+/// means a `StoryImage` that starts loading again and an avatar in a different place.
+///
+/// ⚠️ IT DOES NOT FIGHT THE BUTTON, and that is the one thing to know before touching it. Each card
+/// sits in a SwiftUI `Button` inside a `LazyVGrid`, and a Button is backed by a recogniser that
+/// BEGINS ON TOUCH-DOWN — which is what killed this press on the archive strip five times over.
+/// `shouldBeRequiredToFailBy` in the coordinator is the fix that settled it: the Button waits for
+/// our press to fail, so a quick tap still opens the story the instant the finger lifts, and a hold
+/// past 0.32s cancels the Button so nothing opens behind the menu. The avatar's own
+/// `highPriorityGesture` is a recogniser inside the same scroller and is held to the same rule, so
+/// the face still opens the person on a tap.
+enum GlowCardPress {
+    /// The target for one card, if the finger is on it.
+    ///
+    /// ⚠️ THE HIT USES THE MODEL RECT AND THE LIFT USES THE DRAWN ONE, which is the rule the strip's
+    /// own `menuTarget` is built on: at press time the card is mid-dip, so a crop taken with the
+    /// model rectangle magnifies the picture. Both rectangles come from the registry the story
+    /// flight flies to, so the lift and the flight can never disagree about where a card is.
+    ///
+    /// No `labelRect`: these cards carry their name INSIDE the picture, so the crop already has it
+    /// and there is no second strip to photograph.
+    static func target(_ rectKey: String, at p: CGPoint, actions: [CMAction]) -> StoryMenuTarget? {
+        guard !rectKey.isEmpty else { return nil }
+        let key = MediaOpenRects.key(.storyRow, rectKey)
+        guard let r = MediaOpenRects.liveRect(key), r.contains(p) else { return nil }
+        return StoryMenuTarget(key: key, rect: MediaOpenRects.drawnRect(key) ?? r,
+                               actions: actions, cornerRadius: GlowStoryCardView.corner)
+    }
+}
+
+extension View {
+    /// Mount the story press over a grid of `GlowStoryCardView`s.
+    ///
+    /// ⚠️ A `.background`, WHICH IS HOW THE RECOGNISER FINDS ITS SCROLL VIEW. The representable
+    /// climbs its superviews for the enclosing `UIScrollView` and installs there; a `.background` is
+    /// inside the grid, so the climb is one page's worth of views and lands on the page's own
+    /// scroller. It draws nothing and takes no touches.
+    ///
+    /// ⛔ `requiresCard`, ALWAYS, AND IT IS NOT OPTIONAL HERE. On the Stories tab this scroll view
+    /// also holds the friends strip, which runs a press of its own; without the flag ours would
+    /// begin on a strip press and cancel it. See `StoryRowLongPress.requiresCard`.
+    func glowCardLongPress(_ target: @escaping (CGPoint) -> StoryMenuTarget?) -> some View {
+        background { StoryRowLongPress(target: target, requiresCard: true) }
     }
 }

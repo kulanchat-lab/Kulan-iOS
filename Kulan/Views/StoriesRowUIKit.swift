@@ -77,19 +77,23 @@ import StoryUI
     /// and cannot disagree with the width the SwiftUI row reported to MainShell before it.
     static var cardW: CGFloat { (UIScreen.main.bounds.width - hPad - spacing * 3) / 3.5 }
 
-    /// ⛔ THE HEIGHT DID NOT FOLLOW THE WIDTH, AND THAT IS HIS ANSWER RATHER THAN AN OVERSIGHT.
+    /// ⛔ THE HEIGHT FOLLOWS THE WIDTH AGAIN — owner, 2026-09-05 evening: "friends story is looks
+    /// short, only fix height, add height".
     ///
-    /// The card was 1.46 times as tall as it was wide. Widening it to show three and a half would
-    /// have taken the height from 131.4 to 158.5 on his phone and pushed the Glowing heading and its
-    /// whole grid down the page. Asked which he wanted, he chose to keep the height — so the card is
-    /// flatter now, about 1.21 rather than 1.46, and `rowH` below is unchanged, which is precisely
-    /// why nothing underneath the strip moved.
+    /// ⚠️ HE ASKED FOR THE OPPOSITE THIS AFTERNOON AND BOTH ANSWERS WERE RIGHT AT THE TIME. When the
+    /// card was widened to show three and a half, holding the height was one of two options and he
+    /// picked it. What that produced is a card of 1.21 rather than 1.46 — and a card that is wider
+    /// than it used to be while no taller is, precisely, a card that looks SHORT. He is reporting the
+    /// consequence of his own choice, seen on a phone rather than described in a sentence, which is
+    /// the only place a proportion can honestly be judged.
     ///
-    /// ⚠️ THIS IS THE OLD FOUR-CARD EXPRESSION, KEPT WHOLE RATHER THAN FROZEN AS A LITERAL. It reads
-    /// as arithmetic nobody can trace without this note, and that is the trade: a hardcoded 131.4
-    /// would be exactly right on his phone and wrong on every other screen size. It no longer has
-    /// anything to do with how wide a card is — it is only the height that width used to imply.
-    static var cardH: CGFloat { (UIScreen.main.bounds.width - hPad * 2 - spacing * 3) / 4 * 1.46 }
+    /// So it goes back to the ratio: 1.46, the reference app's own, which this row has used since it
+    /// was written. On his 430pt screen that is 108.57 wide by 158.51 tall, up from 131.40.
+    ///
+    /// ⚠️ `rowH` BELOW READS THIS, SO THE WHOLE STRIP GROWS BY 27pt AND THE GLOWING HEADING MOVES
+    /// DOWN THE PAGE WITH IT. That is not a side effect to be corrected — it is what "add height"
+    /// means on a page where the strip is the first thing.
+    static var cardH: CGFloat { cardW * 1.46 }
     static var labelH: CGFloat { ceil(labelFont.lineHeight) }
     /// What `sizeThatFits` reports and MainShell turns into the chat list's top content margin.
     static var rowH: CGFloat { vPad * 2 + cardH + labelGap + labelH }
