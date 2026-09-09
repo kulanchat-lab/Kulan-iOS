@@ -131,6 +131,9 @@ struct ContactInfoView: View {
     @State private var showClear = false
     @State private var showBlock = false
     @State private var showReport = false
+    /// The Delete Chat confirmation on a blocked person's page. Deleting a conversation cannot be
+    /// undone from here, so it asks first, the same way the chat list's own delete does.
+    @State private var showDeleteChat = false
     @State private var showShare = false
     /// What the share sheet said it did, shown briefly after it closes. Empty = nothing to say.
     @State private var shareToast = ""
@@ -414,6 +417,21 @@ struct ContactInfoView: View {
     private var dangerCard: some View {
         VStack(spacing: 0) {
             if blocked {
+                // ⛔ TWO WAYS OUT OF A BLOCK, NOT ONE — owner, 2026-09-05: "Blocked user: two
+                // buttons, Delete Chat and Unblock." Unblock was the only thing here, so a person
+                // he had blocked left him holding the conversation with no way to be rid of it
+                // short of unblocking them first.
+                //
+                // ⚠️ DELETE IS THE CHAT LIST'S OWN DELETE, NOT A SECOND ONE. `ChatService
+                // .deleteForMe` is what the list's swipe and its menu already call, and writing a
+                // different delete here would be two answers to one question — the kind of pair
+                // that drifts apart the first time either is fixed. It marks the thread cleared for
+                // my uid alone, which hides every message in it, mine and theirs, and takes the row
+                // off my list. Their copy is untouched, which is what "on my side" means.
+                // A system symbol, not an "ic_" asset: the catalogue has no trash of its own, and
+                // `infoRow` routes anything without that prefix to SF Symbols.
+                infoRow("Delete Chat", "trash", tint: .red, chevron: false) { showDeleteChat = true }
+                rowDivider
                 infoRow("Unblock \(shownName)", "checkmark.circle", chevron: false) {
                     Task { await ChatService.setBlocked(cid, false); blocked = false }
                 }
@@ -1048,6 +1066,25 @@ struct ContactInfoView: View {
                             Task {
                                 await ChatService.report(reportedUid: otherUid, cid: cid, reason: "user")
                                 await ChatService.setBlocked(cid, true); blocked = true
+                            }
+                        },
+                       ])
+            // ⛔ THE PAGE CLOSES AFTER THE DELETE. What he was looking at is a conversation that no
+            // longer has a row on his list, so leaving him on it would mean the only way back is a
+            // back button into a list that no longer holds the thing he came from.
+            //
+            // The wording says "on this device" rather than naming the other person, because the
+            // one fact that matters here is whose copy goes: his. Theirs is untouched, and a dialog
+            // that did not say so would be letting him think otherwise.
+            .darkAlert("Delete this chat?",
+                       message: "Every message in this chat will be removed from this device. The other person keeps their own copy.",
+                       isPresented: $showDeleteChat,
+                       actions: [
+                        .cancel(),
+                        .destructive("Delete Chat") {
+                            Task {
+                                await ChatService.deleteForMe(cid)
+                                dismiss()
                             }
                         },
                        ])
