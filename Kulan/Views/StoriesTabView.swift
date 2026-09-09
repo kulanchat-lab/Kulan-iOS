@@ -49,12 +49,16 @@ struct StoriesTabView: View {
     /// The person a long press asked to hide, and the alert that asks before it happens. The strip
     /// puts up a `UIAlertController` from its own presenter; a SwiftUI grid says it this way, with
     /// the same title, the same message and the same destructive button.
+    ///
+    /// Set by `friendActions`, presented by `hidePrompt` on the stack in `body`.
     @State private var hideTarget: StoryGroup?
     /// ⚠️ WHAT REDRAWS THE FRIENDS GRID AFTER A HIDE. `StoryPrefs.isHidden` is a `UserDefaults` read
     /// behind a static, so nothing about hiding somebody publishes anything for SwiftUI to observe —
     /// the row they were on would simply stay there until the next unrelated redraw. The UIKit strip
     /// has `prefsChanged()` for this and the chat list has its own tick; this is the same idea, read
     /// in the grid so the filter is re-run.
+    ///
+    /// Bumped by the hide alert's destructive button, read by `visibleFriends`.
     @State private var prefsTick = 0
 
     /// ⛔ 17, NOT 22 — owner, 2026-09-02, with "Glowing" ringed: "the text Glowing looks big".
@@ -169,6 +173,27 @@ struct StoriesTabView: View {
         } message: {
             Text("You've posted \(StoriesService.dailyStoryLimit) stories today. "
                  + "You can post again in about \(storyBudget.dailyLimitHoursLeft) hours.")
+        }
+        // ⛔ THE STRIP'S HIDE CONFIRMATION, SAID IN SwiftUI — the grids' Hide entry raises this
+        // rather than hiding on the spot, because the strip has asked first since it was built and
+        // one action must not be two different promises. `StoriesRow.confirmHide` puts up a
+        // `UIAlertController` from its own presenter; a grid has none to reach for, so the same
+        // alert is stated here with the same title, the same sentence and the same destructive
+        // button. Change one and change both.
+        //
+        // ⚠️ ON THE STACK, NOT ON A GRID. Friends is one layout of this page, the "All story
+        // friends" page pushed on this same stack is another, and both raise it — an alert hung on
+        // either one would be missing from the other.
+        .alert("Hide Stories?", isPresented: hidePrompt, presenting: hideTarget) { g in
+            Button("Hide Stories", role: .destructive) {
+                StoryPrefs.setHidden(g.authorUid, true)
+                // What takes them off the grid — see `visibleFriends`.
+                prefsTick += 1
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { g in
+            Text("New story updates from \(g.name.isEmpty ? "this person" : g.name) "
+                 + "won't appear at the top of the stories list anymore.")
         }
         // Ask once when the page appears, so the compose button already knows the answer when it is
         // pressed rather than finding out after the picker.
@@ -378,7 +403,7 @@ struct StoriesTabView: View {
     /// - Parameter showsHeading: false on the page the heading itself opens — a nav bar already
     ///   says "Friends" there, and a second one under it is the same word twice.
     @ViewBuilder private func friendsGrid(showsHeading: Bool = true) -> some View {
-        let groups = StoriesRepository.shared.others.filter { !StoryPrefs.isHidden($0.authorUid) }
+        let groups = visibleFriends
         // 0, matching the Glowing section — the heading carries its own 8 below.
         VStack(alignment: .leading, spacing: 0) {
             if showsHeading { sectionHeading("Friends", route: .friends) }
@@ -413,6 +438,11 @@ struct StoriesTabView: View {
                 }
             }
             .padding(.horizontal, GlowStoryCardView.margin)
+            // ⛔ THE HOLD, WHICH THIS LAYOUT HAS NEVER HAD — owner, 2026-09-05: a long press does
+            // nothing on the grids. The press itself was written and left unattached; this is its
+            // call site. Same menu as the strip's cards, so the layout a person is looking at does
+            // not change what a hold on their card offers. See `GlowCardPress`.
+            .glowCardLongPress { friendsGridTarget(at: $0) }
         }
         .padding(.top, 4)
     }
@@ -483,6 +513,12 @@ struct StoriesTabView: View {
                     }
                 }
                 .padding(.horizontal, GlowStoryCardView.margin)
+                // ⛔ THE HOLD ON A GLOWING CARD — owner, 2026-09-05: a long press does nothing here.
+                // The placeholder branch above registers no rects at all, so while the pictures are
+                // still coming a press finds no card and returns — which is the right answer for two
+                // grey boxes. See `GlowCardPress` for why this is a `.background` and not a
+                // `.contextMenu`.
+                .glowCardLongPress { glowGridTarget(at: $0) }
                 // ⛔ 10 BETWEEN THE HEADING AND THE FIRST CARD — owner, 2026-09-05, with that gap
                 // ringed: "add space between the Glowing text and the story".
                 //
@@ -565,7 +601,7 @@ struct StoriesTabView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    ForEach(StoriesRepository.shared.others.filter { !StoryPrefs.isHidden($0.authorUid) }) { g in
+                    ForEach(visibleFriends) { g in
                         Button { openStoryFromRow(g) } label: {
                             GlowStoryCardView(
                                 thumbUrl: g.stories.last.map { $0.thumbUrl.isEmpty ? $0.mediaUrl : $0.thumbUrl } ?? "",
@@ -578,6 +614,10 @@ struct StoriesTabView: View {
                 }
                 .padding(.horizontal, GlowStoryCardView.margin)
                 .padding(.top, 8)
+                // The same hold as the section this page opens from — the cards are the shared
+                // thing and so is what a press on one offers. Its own `ScrollView`, so the press
+                // installs on this page's scroller rather than the tab's.
+                .glowCardLongPress { friendsGridTarget(at: $0) }
             }
             .navigationTitle("Friends")
             .navigationBarTitleDisplayMode(.inline)
@@ -665,6 +705,102 @@ struct StoriesTabView: View {
             return newest > glow.seenUpTo
         }
         return !glow.displayGlowers.isEmpty && glow.seenUpTo == Date(timeIntervalSince1970: 0)
+    }
+
+    // MARK: - The grids' long press
+
+    /// THE FRIENDS THIS PAGE SHOWS: everybody with a live story who has not been hidden.
+    ///
+    /// ⚠️ `prefsTick` IS READ HERE ON PURPOSE, and this is the property that read exists for.
+    /// `StoryPrefs.isHidden` is a `UserDefaults` read behind a static, so hiding somebody publishes
+    /// nothing at all — without a touch of the tick inside the filter itself, the person you just
+    /// hid stays on the grid until some unrelated redraw takes them off. The archive page's
+    /// `archivedStories` is the same three lines for the same reason.
+    ///
+    /// ⚠️ ONE FILTER, TWO GRIDS. The Friends section and the "All story friends" page both ask this,
+    /// so a hide from either one takes effect on both.
+    private var visibleFriends: [StoryGroup] {
+        _ = prefsTick
+        return StoriesRepository.shared.others.filter { !StoryPrefs.isHidden($0.authorUid) }
+    }
+
+    /// WHICH CARD ON A FRIENDS GRID IS UNDER THE FINGER, and what its menu says. Asked at press
+    /// time, so it describes the grid as it stands rather than as it stood at layout — the same
+    /// contract `StoriesRow.menuTarget` keeps for the strip.
+    ///
+    /// ⚠️ MY OWN CARD IS TESTED FIRST because it is drawn first, and under the SAME condition the
+    /// grid draws it under. Testing it unconditionally would offer "Posted Stories" over a card
+    /// that is not on the screen when I have posted nothing.
+    private func friendsGridTarget(at p: CGPoint) -> StoryMenuTarget? {
+        if let mine = StoriesRepository.shared.mine, !mine.stories.isEmpty,
+           let t = GlowCardPress.target(mine.id, at: p, actions: myStoryActions(mine)) {
+            return t
+        }
+        for g in visibleFriends {
+            if let t = GlowCardPress.target(g.id, at: p, actions: friendActions(g)) { return t }
+        }
+        return nil
+    }
+
+    /// The same question for the Glowing grid.
+    ///
+    /// ⚠️ THE KEY IS `glow-<uid>`, NOT THE BARE UID, and it has to be the one the card registers or
+    /// the lift photographs the wrong card — see the note at the grid itself, where the same string
+    /// is built for `rectKey`.
+    private func glowGridTarget(at p: CGPoint) -> StoryMenuTarget? {
+        for c in (glowStories.state.value ?? []) {
+            if let t = GlowCardPress.target("glow-\(c.person.id)", at: p,
+                                            actions: glowActions(c.person)) { return t }
+        }
+        return nil
+    }
+
+    /// ⛔ THE STRIP'S OWN MENU FOR A FRIEND, WORD FOR WORD AND IN ITS ORDER — the rule the archive
+    /// strip was already held to on 2026-08-25 ("why is it different, use the long press like it
+    /// does the regular time"). The same person's card in the strip and on the grid must answer a
+    /// hold the same way; the layout is the only thing that differs between them.
+    private func friendActions(_ g: StoryGroup) -> [CMAction] {
+        [CMAction(title: "Send Message", icon: "message") { openStoryChat(g) },
+         CMAction(title: "Open Profile", icon: "person.crop.circle") { profileGroup = g },
+         // The alert, not the hide: `StoryPrefs.setHidden` happens on the confirmation. See
+         // `hideTarget`.
+         CMAction(title: "Hide Stories", icon: "archivebox", destructive: true) { hideTarget = g }]
+    }
+
+    /// My own card's menu, the strip's again: the one action a card of my own stories offers that a
+    /// tap does not, plus the compose the ⊕ on it already performs.
+    private func myStoryActions(_ mine: StoryGroup) -> [CMAction] {
+        [CMAction(title: "Add Story", icon: "ic_stories") { composeStory() },
+         CMAction(title: "Posted Stories", icon: "circle.dashed") { openStoryFromRow(mine) }]
+    }
+
+    /// A GLOWING CARD'S MENU. A glower is somebody else with a live story, so it is the same two
+    /// entries a friend's card offers — one hold, one answer, wherever the app draws a person's
+    /// story.
+    ///
+    /// ⛔ NO "HIDE STORIES", AND THAT IS DELIBERATE RATHER THAN FORGOTTEN. `StoryPrefs.isHidden`
+    /// filters `StoriesRepository.others` — the FRIENDS list — and nothing filters this grid, which
+    /// comes from the glow relationship. The entry would leave the card exactly where it is while
+    /// quietly taking the same person off Friends: an action that appears to fail where it is
+    /// offered and works somewhere the person is not looking. If he asks for it, the fix is to
+    /// filter this grid too, not to add the button on its own.
+    private func glowActions(_ p: GlowPerson) -> [CMAction] {
+        [CMAction(title: "Send Message", icon: "message") {
+            // The same push `openStoryChat` makes; it takes a `StoryGroup` and a glow card has a
+            // person, so the cid is built here from the same helper.
+            path.append(ChatTarget(id: storyCid(p.id), name: p.name, photo: p.photoUrl))
+         },
+         // Exactly what the FACE on this card does, so one action cannot mean two things.
+         CMAction(title: "Open Profile", icon: "person.crop.circle") {
+            path.append(GlowRoute.profile(p.id, p.name, p.photoUrl ?? ""))
+         }]
+    }
+
+    /// The hide alert's presentation, derived from `hideTarget` rather than kept beside it as a
+    /// second flag — two pieces of state for one question is how an alert comes to be on screen
+    /// with nobody to act on.
+    private var hidePrompt: Binding<Bool> {
+        Binding(get: { hideTarget != nil }, set: { if !$0 { hideTarget = nil } })
     }
 
     // MARK: - The doors
