@@ -1,5 +1,5 @@
 import SwiftUI
-import UIKit   // `UIApplication`, for the window's safe-area inset — see `topInset`
+import UIKit   // `UIApplication`, for the window's safe-area inset — see `barBottom`
 
 /// THE GLOW PROFILE — his fifth screenshot, 2026-09-02.
 ///
@@ -38,18 +38,41 @@ struct GlowProfileView: View {
     /// The three faces on the stats card — my own glow people, resolved for their pictures.
     @State private var faces = GlowPeopleLoader()
     @State private var palette: ProfilePalette?
-    @Environment(\.dismiss) private var dismiss
     private var glow = GlowService.shared
-    /// The Edit sheet — my own profile only. See the button in `header`.
+    /// The Edit sheet — my own profile only. See `editItem`, the trailing bar button.
     @State private var showEdit = false
+    /// Is the photograph still the thing behind the navigation bar? Drives whether the bar keeps
+    /// its own material or gets out of the picture's way — see the note on the scroll view.
+    ///
+    /// ⚠️ TRUE ON THE FIRST FRAME, and that is not an optimistic guess: the page always opens with
+    /// the photograph at the top, and starting at `false` would flash a bar background over it for
+    /// one frame. `ContactInfoView` seeds the same answer the same way.
+    @State private var photoUnderBar = true
 
-    /// The status bar strip, read from the window. A view whose ancestor has given up the top safe
-    /// area cannot read it back from a `GeometryReader` — it has been consumed — so the controls
-    /// floating on the photograph get it from here.
-    private static var topInset: CGFloat {
-        UIApplication.shared.connectedScenes
+    /// The bottom of the navigation bar in screen coordinates — the status strip plus the bar's own
+    /// 44pt. Read from the window, because a view whose ancestor has given up the top safe area
+    /// cannot read it back from a `GeometryReader`: it has been consumed.
+    private static var barBottom: CGFloat {
+        (UIApplication.shared.connectedScenes
             .compactMap { ($0 as? UIWindowScene)?.keyWindow?.safeAreaInsets.top }
-            .first ?? 0
+            .max() ?? 59) + 44
+    }
+
+    /// The photograph's height. Named because three things now measure against it — the header's
+    /// own frame, the name that tucks up into its fade, and the bar's material — and a stray copy
+    /// of the number is how those three drift apart.
+    private static var photoHeight: CGFloat { UIScreen.main.bounds.width }
+
+    /// ⚠️ THE BAR'S SCHEME IS PINNED, AND ON iOS 26 IT IS `.light` — the same switch, and the same
+    /// reasoning, as `ContactInfoView.barScheme`, which was settled with him on 2026-08-19. The
+    /// page's own `\.colorScheme` never reaches the bar (the back item belongs to the navigation
+    /// stack, not to this view), so without this the chrome resolves in whatever the phone is set
+    /// to and a light-mode phone puts a black chevron on a photograph. iOS 27 draws the items'
+    /// glass from the backdrop and ignores the scheme, so `.dark` is right there; iOS 26 obeys it
+    /// for the material too and `.dark` gives the near-black discs he photographed and rejected.
+    private static var barScheme: ColorScheme {
+        if #available(iOS 27.0, *) { return .dark }
+        return .light
     }
 
     private var isMe: Bool { uid == (AuthService.shared.uid ?? "") }
@@ -79,9 +102,21 @@ struct GlowProfileView: View {
             // A full-bleed header means full bleed.
             .ignoresSafeArea(edges: .top)
 
-            // LAST IN THE STACK, so it draws over the scrolling content and stays put — see
-            // `pinnedChrome`.
-            pinnedChrome
+            // ⛔ THE BAR IS TRANSPARENT WHILE THE PHOTOGRAPH IS BEHIND IT, THEN TAKES ITS MATERIAL
+            // BACK — the same rule `ContactInfoView` follows, and this page has to measure it
+            // rather than let `.automatic` decide. `.automatic` asks "has content scrolled under
+            // me"; this page gives up the top safe area so the picture can reach the screen edge,
+            // so the answer is yes from the first frame and the bar would drop a material over the
+            // photograph immediately.
+            //
+            // The photograph starts at y = 0 and is `photoHeight` tall, so its bottom edge on
+            // screen is that height less however far the page has been scrolled. Tied to where the
+            // PICTURE is, never to a scroll threshold: the two part company on a wide screen.
+            .onScrollGeometryChange(for: CGFloat.self) { g in
+                g.contentOffset.y + g.contentInsets.top
+            } action: { _, scrolled in
+                photoUnderBar = Self.photoHeight - scrolled > Self.barBottom
+            }
         }
         // ⛔ NO TAB BAR ON THIS PAGE — owner, same report: "when I enter, hide the nav bottom bar".
         // It is a profile opened from a story, not a tab, and the bar was sitting over the Posted
@@ -94,11 +129,43 @@ struct GlowProfileView: View {
         // with a wallpaper follows, and for the same reason: light chrome on a lit picture washes
         // out. `\.colorScheme`, never `preferredColorScheme` — see the note in ThreadView.
         .environment(\.colorScheme, .dark)
-        .toolbar(.hidden, for: .navigationBar)
-        // ⛔ AND THE SWIPE BACK COMES WITH IT — owner, 2026-09-02: "swiping back doesn't work on
-        // this page, only the arrow button works". Hiding the navigation bar takes the interactive
-        // pop gesture with it, because UIKit hangs that gesture off the bar's back item: no back
-        // item, no swipe. Every full-bleed page in the app pays this and this one had not been told.
+        // ⛔ THE PAGE HAS A REAL NAVIGATION BAR AGAIN — owner, 2026-09-09: "my profile page looks
+        // fake page or custom page, fix, make real apple page not custom", and beside it "top
+        // buttons Back button and Edit button is wrong position, fix".
+        //
+        // ⚠️ THE BAR WAS HIDDEN AND THE CHROME WAS HAND-DRAWN ON THE PHOTOGRAPH. A round glass
+        // chevron and a glass "Edit" capsule were laid out by this file, at a status-bar inset it
+        // had to read off the window by hand, pinned over the scroll view — our own answer to a
+        // question the system already answers, and the two are never quite the same: the position,
+        // the size, the material, the press feel and the back label all come out slightly off,
+        // which is what reads as a custom page.
+        //
+        // Both are bar items now. Back is the SYSTEM's own — the page is pushed from Settings, so
+        // the stack already has one, carrying the previous screen's title the way every other push
+        // in the app does. Edit is a plain `Button` and the bar draws its own glass around it,
+        // which is the ruling he gave on the sibling profile page on 2026-08-22: he does not want
+        // the colour managed, he wants Apple's material.
+        //
+        // ⚠️ NO TITLE IN THE MIDDLE, and that is also his ruling (2026-08-20, `ContactInfoView`):
+        // you are already on the person's page with their picture filling the top of it and their
+        // name written underneath, so a second copy riding the bar is the same thing twice.
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { editItem }
+        // The system back chevron takes its colour from the tint, not from the page's
+        // `\.colorScheme` — that value stops at this view's own content and the back item belongs
+        // to the navigation stack. Same line, same reason, as `ContactInfoView`.
+        .tint(.white)
+        .toolbarBackground(photoUnderBar ? .hidden : .automatic, for: .navigationBar)
+        .toolbarColorScheme(Self.barScheme, for: .navigationBar)
+        // ⛔ THE SWIPE BACK — owner, 2026-09-02: "swiping back doesn't work on this page, only the
+        // arrow button works". Hiding the navigation bar took the interactive pop gesture with it,
+        // because UIKit hangs that gesture off the bar's back item: no back item, no swipe.
+        //
+        // ⚠️ IT STAYS EVEN THOUGH THE BAR IS BACK. With a real back item the system restores the
+        // gesture on its own, so this is belt and braces now rather than the only thing holding it
+        // up — but it is also what lets the swipe run alongside the page's own scrolling, and the
+        // swipe is a thing he has already had to report once. It comes out when he can test it, not
+        // on a guess from a machine that cannot build the app.
         .background(RestoreSwipeBack())
         .task { await load() }
         // Keyed on the relationship, so the faces appear the moment the listeners deliver rather
@@ -108,7 +175,7 @@ struct GlowProfileView: View {
 
     // MARK: - Header
 
-    /// The picture, full-bleed, with the back button floating on it. His screenshot's proportions:
+    /// The picture, full-bleed, running up under the navigation bar. His screenshot's proportions:
     /// the photograph is about the top 45% and the name sits just under it.
     private var header: some View {
         ZStack(alignment: .top) {
@@ -147,74 +214,83 @@ struct GlowProfileView: View {
                         .frame(height: w * 0.42)
                 }
             }
-            .frame(height: UIScreen.main.bounds.width)
+            .frame(height: Self.photoHeight)
         }
     }
 
-    /// ⛔ THE CHROME DOES NOT SCROLL — owner, 2026-09-02: "when I scroll down and up the buttons
-    /// follow me; that is not a real page".
+    /// ⛔ EDIT, TOP RIGHT, MINE ONLY — owner, 2026-09-02: "on my profile top right side add an edit
+    /// button; when I click it I can change name, bio, avatar, username like in Settings > Edit
+    /// profile". It is a bar item now, not a glass capsule laid on the photograph — owner,
+    /// 2026-09-09: "top buttons Back button and Edit button is wrong position, fix".
     ///
-    /// ⚠️ THEY WERE INSIDE THE SCROLL VIEW, which is the whole of it. The back button and Edit were
-    /// laid out on top of the photograph INSIDE `header`, and `header` is the first thing in the
-    /// scrolling stack — so they were content, and content moves. On every other page in this app
-    /// the back button belongs to the navigation bar and the bar does not move; this page hides its
-    /// bar to get a full-bleed picture, and hiding the bar took the one thing that was standing
-    /// still with it.
+    /// ⚠️ THE SAME `EditProfileView` SETTINGS PRESENTS, not a second editor. It already owns the
+    /// rules this page must not re-decide: nothing is written until Save, the username has its own
+    /// claim-and-release flow, and the avatar is cropped twice (the circle for lists, the tall one
+    /// for this very header). A copy of that here would be a second answer to all three.
     ///
-    /// As a sibling of the scroll view in the `ZStack` they are pinned to the screen, which is what
-    /// a navigation bar is. Nothing about how they look changes.
-    private var pinnedChrome: some View {
-        HStack {
-            CircleGlyphButton(system: "chevron.left") { dismiss() }
-            Spacer()
-            // ⛔ EDIT, TOP RIGHT, MINE ONLY — owner, 2026-09-02: "on my profile top right side
-            // add an edit button; when I click it I can change name, bio, avatar, username like
-            // in Settings > Edit profile".
-            //
-            // ⚠️ THE SAME `EditProfileView` SETTINGS PRESENTS, not a second editor. It already
-            // owns the rules this page must not re-decide: nothing is written until Save, the
-            // username has its own claim-and-release flow, and the avatar is cropped twice (the
-            // circle for lists, the tall one for this very header). A copy of that here would be
-            // a second answer to all three.
-            if isMe {
-                GlassTextButton(title: "Edit") { showEdit = true }
+    /// ⚠️ THE WORD, NOT A PENCIL — owner, 2026-09-02: "don't use an icon, use Edit text like when I
+    /// enter other people's profile; make it a text button, not an icon button". That ruling used
+    /// to live on a hand-built glass capsule; the capsule is gone and the ruling is not.
+    ///
+    /// ⚠️ A `ToolbarItem` PER STATE, and the `if` lives in the builder rather than inside one item.
+    /// `ContactInfoView` learned the same thing: an item that is sometimes absent is not the same
+    /// object as an item holding an `if`, and the bar animates the two differently.
+    ///
+    /// ⚠️ `.tint(.white)` ON THE WORD. The page pins the bar's scheme to `.light` on iOS 26 for the
+    /// material's sake (see `barScheme`), and a label left to follow that would go black on a
+    /// photograph. Only the letters are ours; the capsule behind them is the system's.
+    @ToolbarContentBuilder private var editItem: some ToolbarContent {
+        if isMe {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Edit") { showEdit = true }.tint(.white)
             }
         }
-        .padding(.horizontal, 16)
-        // ⚠️ THE INSET IS PUT BACK BY HAND. The page ignores the top safe area so the photograph can
-        // reach the screen edge, which also strips it from everything floating on that photograph —
-        // without this the two buttons sit under the clock.
-        .padding(.top, Self.topInset + 8)
-        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     /// Name, tick, @handle, bio — his screenshot's stack, centred.
+    ///
+    /// ⛔ TEXT STYLES AND SEMANTIC COLOURS, NOT POINT SIZES AND WHITE OPACITIES — owner,
+    /// 2026-09-09: "make real apple page not custom". Every line here was a hand-set number
+    /// (28/17/15) in a hand-mixed white, which is the same three sizes the system already names
+    /// and the same two greys it already owns:
+    ///
+    ///   • 28 bold → `.title.bold()`   • 17 → `.body`   • 15 → `.subheadline`
+    ///   • white 0.75 / 0.85 → `.secondary`, which IS white at that weight on a dark page
+    ///
+    /// The look is where it was, to the point. What changes is that the page now grows with the
+    /// phone's text size the way every Apple page does — a fixed 28 is the one thing a native
+    /// screen never has — and the greys are the system's, so they stay right if the page's colour
+    /// ever moves under them.
+    ///
+    /// ⚠️ `.primary`/`.secondary` ARE SAFE HERE because nothing in this stack is a button label.
+    /// They are hierarchical and resolve against a Button's TINT, which has bitten this app before
+    /// (2026-08-18); the page's forced `\.colorScheme` of `.dark` is what pins them to white.
     private var identity: some View {
         VStack(spacing: 6) {
             HStack(spacing: 6) {
                 Text(profile?.name ?? initialName)
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(.white)
+                    .font(.title.bold())
+                    .foregroundStyle(.primary)
                 if OfficialChannel.isOfficial(uid) { VerifiedTick(size: 20) }
                 else { VerifiedMark(uid: uid, size: 20) }
             }
             .multilineTextAlignment(.center)
 
             if let h = profile?.handle, !h.isEmpty {
-                Text("@\(h)").font(.system(size: 17))
-                    .foregroundStyle(.white.opacity(0.75))
+                Text("@\(h)").font(.body)
+                    .foregroundStyle(.secondary)
             }
             if let about = profile?.about, !about.isEmpty {
                 Text(about)
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
                     .padding(.top, 2)
             }
             if !isMe { glowButton.padding(.top, 12) }
         }
-        .padding(.top, -UIScreen.main.bounds.width * 0.10)
+        .padding(.top, -Self.photoHeight * 0.10)
     }
 
     /// GIVE OR TAKE BACK A GLOW — the one action this page has, and the only place in the app where
@@ -295,21 +371,27 @@ struct GlowProfileView: View {
                 faceCluster
             }
             VStack(alignment: .leading, spacing: 2) {
+                // ⛔ THE SYSTEM'S OWN PAIR — owner, 2026-09-09: "make real apple page not custom".
+                // A hand-set 16 semibold over a 0.7 white is what `.headline` over `.secondary`
+                // already is, and unlike the numbers it follows the phone's text size.
                 Text("\(GlowCount.short(glowers)) Glowers  ·  \(GlowCount.short(glowing)) Glowing")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
                 // His reference's own second line: "by <name>, <name>". Named people beat a generic
                 // sentence, and it falls back to one when there are no names yet.
                 Text(byLine)
                     .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
             if isMe {
+                // The grouped-list disclosure indicator, at the weight and colour the system draws
+                // it. `.secondary` rather than a mixed white so it sits at the same weight as the
+                // line beside it whatever colour the photograph gives the card.
                 Image(systemName: "chevron.right")
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(14)
@@ -438,7 +520,7 @@ struct GlowProfileView: View {
 
     private func cardMessage(_ text: String, retry: Bool) -> some View {
         VStack(spacing: 10) {
-            Text(text).font(.subheadline).foregroundStyle(.white.opacity(0.75))
+            Text(text).font(.subheadline).foregroundStyle(.secondary)
             if retry {
                 Button("Try Again") { stories.invalidate(); Task { await loadStories() } }
                     .font(.subheadline.weight(.semibold))
@@ -640,9 +722,12 @@ struct PostedStoryTile: View {
     }
 }
 
-/// The app's round glass glyph button, at the size this page's chrome uses. Local because the
-/// design-system `CloseXButton` is an X and this needs a chevron; same 44pt metric.
-/// Gives the interactive pop gesture back to a page that hides its navigation bar.
+/// Keeps the interactive pop gesture alive on a page whose picture runs under the navigation bar.
+///
+/// ⚠️ IT WAS WRITTEN FOR A PAGE WITH NO BAR AT ALL and the bar came back on 2026-09-09, so the
+/// system now hands this page a back item and the gesture with it. What is left that is still ours
+/// is the simultaneous recognition below, which lets the edge drag run without having to win a
+/// fight with the page's own scrolling.
 ///
 /// ⚠️ THE DELEGATE IS BORROWED AND PUT BACK. A `UINavigationController`'s pop recognizer is one
 /// object shared by every page on the stack, so taking its delegate and walking away would hand our
@@ -696,48 +781,6 @@ private struct RestoreSwipeBack: UIViewControllerRepresentable {
         func gestureRecognizer(_ g: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
             true
-        }
-    }
-}
-
-private struct CircleGlyphButton: View {
-    let system: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: system)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .liquidGlass(Circle(), interactive: true)
-        }
-    }
-}
-
-/// ⛔ THE WORD, NOT A PENCIL — owner, 2026-09-02: "don't use an icon, use Edit text like when I
-/// enter other people's profile; make it a text button, not an icon button".
-///
-/// He is right that the word is the app's own convention here: Settings' profile page puts a plain
-/// `Button("Edit")` in its top right, and a profile is the one screen where both of those live. A
-/// pencil was me matching the back button's shape instead of the app's habit.
-///
-/// The same 44pt height and the same glass as the circle beside it, so the two still read as one row
-/// of chrome floating on the photograph — a capsule rather than a circle only because a word is
-/// wider than a glyph.
-private struct GlassTextButton: View {
-    let title: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(height: 44)
-                .padding(.horizontal, 18)
-                .liquidGlass(Capsule(), interactive: true)
-                .contentShape(Capsule())
         }
     }
 }
