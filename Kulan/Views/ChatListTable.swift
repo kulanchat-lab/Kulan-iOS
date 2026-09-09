@@ -344,10 +344,18 @@ struct ChatListTable: UIViewControllerRepresentable {
         // the toolbar would say "2 Selected" over one visible tick. Syncing after the transaction
         // restores it from the id, which is the only thing that survives a re-sort.
         vc.syncTicks(selected: selection)
-        // ⛔ THEIR `.update` CASE, AND WITHOUT IT THE LIST FREEZES. A row whose content changed but
-        // whose position did not produces an empty diff, so nothing above this line touches it. See
-        // `ChatRowContent` for the five things that were silently broken.
-        vc.refreshVisibleContent()
+        // ⛔ THE `.update` CASE MOVED INSIDE `apply`, AND THE CALL THAT USED TO BE HERE IS GONE.
+        //
+        // ⚠️ THIS LINE WAS THE LAST PIECE OF HIS PIN REPORT. It ran after EVERY apply, including
+        // the ones carrying a pin, so on every pin the app reached into the live cells and assigned
+        // each one a fresh `UIHostingConfiguration` while the rows were still in flight — a SwiftUI
+        // layout pass landing on top of a UIKit animation. The same shape as the `reloadSections`
+        // that was removed on 2026-09-05, quiet enough to survive that pass.
+        //
+        // Theirs never does this when the transaction moved anything: `useFallBackUpdateMechanism`
+        // sends updated rows to `reloadRows` INSIDE the block and the in-place path is taken only
+        // when nothing structural happened. `apply` now makes that choice, which is also the only
+        // place that knows whether the diff was structural.
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -596,7 +604,11 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
         // change, and it is not a section reload either — see `syncHeaderTitles`.
         let headerChanged = old.titledSections() != new.titledSections()
 
-        guard !changes.isEmpty || headerChanged else { return }
+        // ⚠️ THE IN-PLACE UPDATE STILL HAPPENS ON THE WAY OUT. Most passes through here are not row
+        // changes at all — a theme flip, a new preview on a chat that is already at the top, a tick
+        // going from one to two — and all of them reach this line with an empty diff. Returning
+        // without the refresh is how the list would freeze; that defect is on the record.
+        guard !changes.isEmpty || headerChanged else { refreshVisibleContent(); return }
 
         // ⛔ `.automatic` WHEN ANIMATING, `.none` WHEN NOT — `defaultRowAnimation` in their source is
         // literally `animated ? .automatic : .none`. The old code passed `.automatic` unconditionally
@@ -627,6 +639,16 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
             // the block's, which is the other half of why the pin flight and the rows closing behind
             // it are one movement rather than two that happen to overlap.
             for m in changes.moves { self.tableView.moveRow(at: m.from, to: m.to) }
+            // ⛔ THEIR `.update` CASE, AND IT BELONGS INSIDE THE TRANSACTION WHENEVER THE
+            // TRANSACTION MOVED ANYTHING — their `useFallBackUpdateMechanism`. See the note above
+            // `apply` for why this is the last piece of his pin report.
+            //
+            // Old index paths, because everything in this block is applied against the model as it
+            // stood before it opened, and rows that MOVED are excluded: a same-section move is
+            // already a delete plus an insert, which rebuilds the row, and the cross-section pin
+            // move is the one row their comment says must NOT be reloaded.
+            let stale = self.contentChangedOldPaths(old: old, new: new)
+            if !stale.isEmpty { self.tableView.reloadRows(at: stale, with: .none) }
             self.tableView.endUpdates()
         }
 
@@ -645,6 +667,33 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
         } else {
             UIView.animate(withDuration: 0) { work() }
         }
+
+        // ⛔ AND NOTHING TOUCHES A LIVE CELL AFTERWARDS IF ANYTHING MOVED. When the diff was purely
+        // a content change the in-place update is theirs and is the cheap path; when the diff moved
+        // rows, the reload above has already done the work inside the transaction and reaching into
+        // the cells now would be the second pass all over again.
+        if changes.isEmpty { refreshVisibleContent() }
+    }
+
+    /// The rows whose CONTENT changed while their POSITION did not, addressed in the old model.
+    ///
+    /// A row that moved is deliberately absent: within a section it travels as a delete plus an
+    /// insert and is rebuilt on arrival, and across sections it is the pinned row in flight, which
+    /// their own comment says does not require reloading. Reloading either would be asking UIKit to
+    /// redraw a row it is in the middle of animating.
+    private func contentChangedOldPaths(old: ChatListRenderState,
+                                        new: ChatListRenderState) -> [IndexPath] {
+        guard let host else { return [] }
+        var out: [IndexPath] = []
+        for s in ChatListSection.allCases where s != .people {
+            for id in new.ids(in: s) {
+                guard let from = old.indexPath(of: id), let to = new.indexPath(of: id),
+                      from == to,
+                      let conv = host.conversation(id) else { continue }
+                if configured[id] != host.content(for: conv) { out.append(from) }
+            }
+        }
+        return out
     }
 
     // MARK: - Data source
@@ -770,15 +819,32 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
     /// list, so the pin is the action that shows it worst: two rows correcting toward the same y and
     /// drawing on top of each other.
     ///
-    /// ⛔ THEIRS IS NOT AUTOMATIC EITHER, AND THAT IS THE ANSWER — `CLVTableDataSource.swift:574-581`.
-    /// Their `heightForRowAt` returns `UITableView.automaticDimension` ONLY for the non-conversation
-    /// rows (reminders, the archive button, the filter footer, the backup progress views); every
-    /// `.pinned` / `.unpinned` row goes through `measureConversationCell`, which caches ONE height in
-    /// `conversationCellHeightCache` (same file, lines 632-640) and hands that same number to every
-    /// conversation in the list. `ChatListViewController+Loading.swift:83` is the only thing that
-    /// clears it, and only on a full reset. Do not put `.automaticDimension` back on the chat rows.
+    /// ⛔ AND THIS IS A DELIBERATE DIVERGENCE FROM THE REFERENCE. SAY SO, BECAUSE THE COMMENT THAT
+    /// STOOD HERE DID NOT.
     ///
-    /// ⚠️ ONE NUMBER FOR EVERY CHAT ROW IS RIGHT HERE FOR THE REASON IT IS RIGHT FOR THEM: the height
+    /// ⚠️ THE PREVIOUS VERSION OF THIS NOTE CITED THEIR SOURCE AND THE CITATION WAS FALSE. It said
+    /// their `heightForRowAt` measured conversation rows through a `measureConversationCell` at
+    /// `CLVTableDataSource.swift:574-581`, cached in `conversationCellHeightCache` at lines 632-640.
+    /// Their `CLVTableDataSource.swift` is 431 lines long and contains no `heightForRowAt`, no
+    /// `measureConversationCell` and no such cache; it implements heights for HEADERS and FOOTERS
+    /// only. Fetched and read on 2026-09-09, the second time a session has had to correct an
+    /// invented claim about their code in this file. Check a citation before you trust it.
+    ///
+    /// What they actually do: `ChatListViewController.swift:60-61`, `rowHeight =
+    /// UITableView.automaticDimension` and `estimatedRowHeight = 60`. Their conversation rows
+    /// self-size. `conversationCellHeightCache` is real but lives on the view controller and is only
+    /// ever cleared, never read in the files that set it up — whatever reads it is the cell's own
+    /// measurement, not a data-source height.
+    ///
+    /// ⛔ SO WHY DIVERGE. Their row is a `UIView` that lays out synchronously. OURS IS A SwiftUI
+    /// `ChatRow` INSIDE A `UIHostingConfiguration`, which reports its size back to the table
+    /// asynchronously. Self-sizing is safe for them and is not safe for us: inside a
+    /// `beginUpdates`/`endUpdates` block holding deletes, inserts and a `moveRow`, a size that
+    /// arrives a frame late lands against offsets the same transaction is still moving. That is his
+    /// overlap. Copying their `automaticDimension` would copy a decision that depends on a row type
+    /// we do not have.
+    ///
+    /// ⚠️ ONE NUMBER FOR EVERY CHAT ROW IS RIGHT HERE FOR A REASON OF OUR OWN: the height
     /// cannot vary with the content. `ChatRow` reserves exactly two preview lines whatever the
     /// preview turns out to be — the hidden `Text(" \n ")` in the same style — so nothing a message
     /// can contain moves it, and only the phone's text size does. So the number is computed rather
@@ -805,8 +871,9 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
     private static let nameToPreviewSpacing: CGFloat = 1
     private static let reservedPreviewLines: CGFloat = 2
 
-    /// Their `conversationCellHeightCache`. Cleared on a text-size change and nowhere else, because
-    /// nothing else can move the answer.
+    /// The cached answer. Cleared on a text-size change and nowhere else, because nothing else can
+    /// move it. Named after their `conversationCellHeightCache` only by analogy — see the correction
+    /// above; theirs is not a data-source height.
     private var chatRowHeight: CGFloat?
 
     private func conversationRowHeight() -> CGFloat {
