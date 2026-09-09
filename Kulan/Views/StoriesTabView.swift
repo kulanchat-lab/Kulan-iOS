@@ -223,6 +223,12 @@ struct StoriesTabView: View {
         } else {
             ScrollView {
                 VStack(spacing: 0) {
+                    // ⚠️ A DEBUG BAND, FOR ONE BUILD ONLY — 2026-09-09. It draws nothing unless
+                    // `StoryPressDebug.on`, which goes back to false in the very next build. The
+                    // long press on the grids below has now been reported dead six times and every
+                    // fix so far was reasoned out of the source rather than measured. These three
+                    // lines say which of the three failures it actually is. See `StoryPressDebug`.
+                    StoryPressDebugReadout()
                     // ⛔ FRIENDS BECOMES A GRID WHEN THERE IS NO GLOWING SECTION — his seventh
                     // reference, 2026-09-02: "when the user doesn't have Glow story, friends design
                     // like this", showing the big two-column cards filling the page.

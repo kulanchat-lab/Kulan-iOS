@@ -100,7 +100,21 @@ enum StoryRowPress {
     ///
     /// ⚠️ IT GOES BACK TO false BEFORE ANYTHING SHIPS TO ANYBODY BUT HIM, along with the whole
     /// section this sits in. It is a debug band drawn over a real page.
-    static let on = false
+    /// ⛔ ON AGAIN, FOR ONE BUILD, 2026-09-09 — and this time the readout is on the STORIES TAB as
+    /// well as the archive, because that is the page he is photographing.
+    ///
+    /// The Glowing grid and the all-friends page still answer no long press on build 734, which
+    /// wired both of them up. That makes this the sixth report and the fifth blind fix if I reason
+    /// out another one from this file. The three lines below name which of the three failures it
+    /// actually is, and no amount of reading here can substitute for them:
+    ///
+    ///   "scroll view UIScrollView"  installed fine — the fault is the gate or the hit test
+    ///   "window (gated)"            the climb found no scroll view and fell back
+    ///   "NONE — no scroll view…"    nothing to anchor on at all
+    ///   "NO CARD at x,y"            installed, but no registered card under the finger
+    ///
+    /// ⚠️ BACK TO false IN THE VERY NEXT BUILD. It is a debug band drawn over his real page.
+    static let on = true
 
     @Published var anchor = "anchor  —"
     @Published var gate   = "gate    —"
