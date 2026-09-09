@@ -568,10 +568,9 @@ struct GlowProfileView: View {
 
 /// One story in the profile's rail: the poster, and the view badge from his screenshot.
 /// The corner the card's tiles and the page's tiles share, so a story keeps its shape when he
-/// taps See All. Smaller than the story cards' own 34 because these tiles are about a third of
-/// the width, and a 34 arc on a tile this narrow eats the picture.
+/// taps See All. The number itself lives on `StoryTileGrid`, with the rest of the tile geometry.
 enum PostedTile {
-    static let corner: CGFloat = 18
+    static var corner: CGFloat { StoryTileGrid.corner }
 }
 
 struct PostedStoryTile: View {

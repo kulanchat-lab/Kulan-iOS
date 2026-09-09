@@ -85,6 +85,16 @@ struct GlowStoryCardView: View {
     /// was built. Nil (or empty) registers nothing and degrades to the plain presentation.
     var rectKey: String? = nil
 
+    /// ⛔ THE CORNER THIS ONE CARD IS CUT WITH — owner, 2026-09-09, of the all-friends page: "cards
+    /// and corners it will be same like page posted stories". That page moved to three tighter
+    /// columns, and `Self.corner` is 34 because it was measured against a card twice this wide; the
+    /// same arc on a third of the width eats the picture.
+    ///
+    /// ⚠️ A PARAMETER, NOT A SECOND CARD VIEW. This file's own header says two card views would be
+    /// two places for a corner radius to drift, and that still holds. Defaulting to `Self.corner`
+    /// means every existing call site keeps the number it was measured with.
+    var corner: CGFloat = GlowStoryCardView.corner
+
     /// ⛔ THE PRESS DIP, AND IT LIVES ON THE CARD RATHER THAN AT THE FOUR CALL SITES — his report the
     /// last time a press was wired up on a SwiftUI card ("now long press is working but there's no
     /// animation", 2026-08-21). The UIKit strip's cards are `UIControl`s and get `isHighlighted` on
@@ -106,12 +116,14 @@ struct GlowStoryCardView: View {
     }
 
     init(thumbUrl: String, name: String, authorPhoto: String?, isMine: Bool = false,
-         rectKey: String? = nil, onAvatarTap: (() -> Void)? = nil) {
+         rectKey: String? = nil, corner: CGFloat = GlowStoryCardView.corner,
+         onAvatarTap: (() -> Void)? = nil) {
         self.thumbUrl = thumbUrl
         self.name = name
         self.authorPhoto = authorPhoto
         self.isMine = isMine
         self.rectKey = rectKey
+        self.corner = corner
         self.onAvatarTap = onAvatarTap
     }
 
@@ -201,7 +213,7 @@ struct GlowStoryCardView: View {
             // cuts the finished image. That is what survives being scaled by a transform, which is
             // exactly what the close does.
             .compositingGroup()
-            .clipShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
             // 0.92 on a 0.28/0.7 spring, which is the chat row's dip and not the reference app's
             // ramp — his order after seeing the two side by side. No `.animation` modifier: the
             // spring lives in `fingerDown`/`fingerUp`, so the press and the release cannot drift
@@ -214,7 +226,7 @@ struct GlowStoryCardView: View {
             // LAST, so the rect it files is the whole card including its overlays — the flight lands
             // on a rectangle, and half a rectangle would land short.
             .modifier(MediaRectReporter(id: rectKey ?? "", scope: .storyRow,
-                                        cornerRadius: Self.corner))
+                                        cornerRadius: corner))
     }
 }
 
@@ -248,12 +260,16 @@ enum GlowCardPress {
     ///
     /// No `labelRect`: these cards carry their name INSIDE the picture, so the crop already has it
     /// and there is no second strip to photograph.
-    static func target(_ rectKey: String, at p: CGPoint, actions: [CMAction]) -> StoryMenuTarget? {
+    /// `corner` is the radius the LIFTED picture is cut with, and it has to be the one the card on
+    /// screen was drawn with or the lift is a different shape from the thing under the finger. The
+    /// all-friends page draws its cards at the tighter tile corner, the grids at the card's own.
+    static func target(_ rectKey: String, at p: CGPoint, actions: [CMAction],
+                       corner: CGFloat = GlowStoryCardView.corner) -> StoryMenuTarget? {
         guard !rectKey.isEmpty else { return nil }
         let key = MediaOpenRects.key(.storyRow, rectKey)
         guard let r = MediaOpenRects.liveRect(key), r.contains(p) else { return nil }
         return StoryMenuTarget(key: key, rect: MediaOpenRects.drawnRect(key) ?? r,
-                               actions: actions, cornerRadius: GlowStoryCardView.corner)
+                               actions: actions, cornerRadius: corner)
     }
 }
 

@@ -576,20 +576,23 @@ struct StoriesTabView: View {
         case .stories:
             GlowStoriesGridView()
         case .friends:
-            // ⛔ THE GLOWING PAGE'S GRID, BUILT HERE RATHER THAN BORROWED — owner, 2026-09-02, with
-            // this page photographed: "when I click the Friends text and it opens the friends
-            // cards, make it like this" (his Glowing grid), "also hide the bottom nav bar".
+            // ⛔ THE POSTED STORIES GRID, NOT THE GLOWING ONE — owner, 2026-09-09, with this page
+            // photographed twice: "cards and corners it will be same like page posted stories".
+            //
+            // ⚠️ THIS REVERSES HIS 2026-09-02 CHOICE AND BOTH WERE RIGHT WHEN MADE. That day he
+            // photographed this page and asked for the Glowing grid, so it took two wide columns.
+            // Today he photographed it again, full of cards too big to read, and named the posted
+            // stories page as the thing to match. Three tighter columns is that page's geometry, and
+            // it now comes from one place so the two cannot drift.
             //
             // ⚠️ IT USED TO CALL `friendsGrid`, WHICH IS THE STORIES TAB'S OWN SECTION — a `VStack`
             // carrying its heading, its top padding and its section spacing, all of which are that
-            // page's business and none of which belong on a page of its own. Sharing it looked like
-            // one definition and was really one definition serving two jobs; what he photographed is
-            // what that costs. The cards are the shared thing and they still are: same
-            // `GlowStoryCardView`, same two columns, same margins as Glowing.
+            // page's business and none of which belong on a page of its own. That stays true; only
+            // the numbers below have changed.
             ScrollView {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: GlowStoryCardView.gutter),
-                                    GridItem(.flexible(), spacing: GlowStoryCardView.gutter)],
-                          spacing: GlowStoryCardView.gutter) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: StoryTileGrid.gap),
+                                         count: StoryTileGrid.columns),
+                          spacing: StoryTileGrid.gap) {
                     if let mine = StoriesRepository.shared.mine, let newest = mine.stories.last {
                         Button { openStoryFromRow(mine) } label: {
                             GlowStoryCardView(
@@ -597,7 +600,8 @@ struct StoriesTabView: View {
                                 name: "My Story",
                                 authorPhoto: profile.me?.photoUrl,
                                 isMine: true,
-                                rectKey: mine.id)
+                                rectKey: mine.id,
+                                corner: StoryTileGrid.corner)
                         }
                         .buttonStyle(.plain)
                     }
@@ -607,17 +611,18 @@ struct StoriesTabView: View {
                                 thumbUrl: g.stories.last.map { $0.thumbUrl.isEmpty ? $0.mediaUrl : $0.thumbUrl } ?? "",
                                 name: g.name,
                                 authorPhoto: g.photoUrl,
-                                rectKey: g.id)
+                                rectKey: g.id,
+                                corner: StoryTileGrid.corner)
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, GlowStoryCardView.margin)
+                .padding(.horizontal, StoryTileGrid.margin)
                 .padding(.top, 8)
                 // The same hold as the section this page opens from — the cards are the shared
                 // thing and so is what a press on one offers. Its own `ScrollView`, so the press
                 // installs on this page's scroller rather than the tab's.
-                .glowCardLongPress { friendsGridTarget(at: $0) }
+                .glowCardLongPress { friendsGridTarget(at: $0, corner: StoryTileGrid.corner) }
             }
             .navigationTitle("Friends")
             .navigationBarTitleDisplayMode(.inline)
@@ -731,13 +736,20 @@ struct StoriesTabView: View {
     /// ⚠️ MY OWN CARD IS TESTED FIRST because it is drawn first, and under the SAME condition the
     /// grid draws it under. Testing it unconditionally would offer "Posted Stories" over a card
     /// that is not on the screen when I have posted nothing.
-    private func friendsGridTarget(at p: CGPoint) -> StoryMenuTarget? {
+    ///
+    /// ⚠️ `corner` IS PASSED IN BECAUSE THE SAME HELPER SERVES TWO SURFACES. The tab's friends grid
+    /// draws its cards at the card's own 34; the pushed all-friends page draws them at the tile
+    /// corner. The lift has to be cut with whichever the card under the finger was drawn with.
+    private func friendsGridTarget(at p: CGPoint,
+                                   corner: CGFloat = GlowStoryCardView.corner) -> StoryMenuTarget? {
         if let mine = StoriesRepository.shared.mine, !mine.stories.isEmpty,
-           let t = GlowCardPress.target(mine.id, at: p, actions: myStoryActions(mine)) {
+           let t = GlowCardPress.target(mine.id, at: p, actions: myStoryActions(mine),
+                                        corner: corner) {
             return t
         }
         for g in visibleFriends {
-            if let t = GlowCardPress.target(g.id, at: p, actions: friendActions(g)) { return t }
+            if let t = GlowCardPress.target(g.id, at: p, actions: friendActions(g),
+                                            corner: corner) { return t }
         }
         return nil
     }

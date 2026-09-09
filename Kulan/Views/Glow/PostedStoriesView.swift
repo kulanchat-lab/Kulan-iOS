@@ -85,12 +85,7 @@ struct PostedStoriesView: View {
               count: PostedGrid.columns)
     }
 
-    /// The page's grid metrics, from his concept image.
-    private enum PostedGrid {
-        static let columns: Int = 3
-        static let gap: CGFloat = 6
-        static let margin: CGFloat = 6
-    }
+    private typealias PostedGrid = StoryTileGrid
 
     var body: some View {
         content
@@ -316,4 +311,21 @@ private struct PostedStoryGridTile: View {
             .compositingGroup()
             .clipShape(RoundedRectangle(cornerRadius: PostedTile.corner, style: .continuous))
     }
+}
+
+
+/// ⛔ THE STORY TILE GRID, IN ONE PLACE — his concept images of the posted stories page and of the
+/// all-friends page, 2026-09-09, and his instruction that the second should look like the first:
+/// "cards and corners it will be same like page posted stories".
+///
+/// Two pages draw this now and a third card borrows the corner, so the numbers live here rather
+/// than three times over. `GlowStoryCardView` holds the other grid, the two-column one with a
+/// person's name and face on every card; this is the tighter three-column one for plain tiles.
+enum StoryTileGrid {
+    static let columns: Int = 3
+    static let gap: CGFloat = 6
+    static let margin: CGFloat = 6
+    /// Smaller than the story cards' own 34, because a tile is about a third of the width and a
+    /// 34pt arc on something this narrow eats the picture.
+    static let corner: CGFloat = 18
 }
