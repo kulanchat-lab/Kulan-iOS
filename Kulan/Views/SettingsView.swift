@@ -68,6 +68,13 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                // ⛔ ONE CARD, AND THE FIRST CARD — his ask, 2026-09-05, item 16. Before this, his
+                // own identity was split in two: this header (photo, name, badge, handle) sat here
+                // on its own, transparent, while a second "My Profile" row — added 2026-09-02 —
+                // lived a whole section down, sandwiched between Account and Devices. Same person,
+                // two places. Both now live in one Section, still first on the screen, and it takes
+                // the plain grouped-card look every other section on this screen already uses
+                // (native `List`/`Section`, no bespoke background) rather than inventing a new one.
                 Section {
                     // THE CIRCLE, restored on the owner's word after seeing the poster here.
                     //
@@ -84,24 +91,26 @@ struct SettingsView: View {
                     // and the Edit button is always there. No photo = nothing to view, so the
                     // circle falls back to Edit, which is where a photo gets added.
                     profileHeader
-                }
-                .listRowBackground(Color.clear)
 
-                Section {
-                    NavigationLink { AccountSettingsView(onSignOut: onSignOut) } label: {
-                        SettingsRowLabel("Account", "ic_account")
-                    }
-                    // ⛔ MY PROFILE — his ask, 2026-09-02: "add My profile card in between account
-                    // and Devices". It opens `GlowProfileView` on his OWN uid, which is the page
-                    // that already exists for this: photo, name, handle, bio, the Glow stats card
-                    // and Posted stories. A second "my profile" screen would be a second place for
-                    // those to drift.
+                    // MY PROFILE, moved up from between Account and Devices to sit inside his own
+                    // card instead of a section below it (item 16, above). Destination is unchanged:
+                    // `GlowProfileView` on his OWN uid, the page that already exists for photo, name,
+                    // handle, bio, the Glow stats card and Posted stories. A second "my profile"
+                    // screen would be a second place for those to drift.
                     NavigationLink {
                         GlowProfileView(uid: AuthService.shared.uid ?? "",
                                         initialName: profile.me?.name ?? "",
                                         initialPhoto: profile.me?.photoUrl)
                     } label: {
                         SettingsRowLabel("My Profile", "ic_account")
+                    }
+                }
+
+                Section {
+                    // Account is data + session actions only — no profile fields here, they all
+                    // live above now (see AccountSettingsView's own note, user direction 2026-07-22).
+                    NavigationLink { AccountSettingsView(onSignOut: onSignOut) } label: {
+                        SettingsRowLabel("Account", "ic_account")
                     }
                     NavigationLink { DevicesView() } label: {
                         SettingsRowLabel("Devices", "ic_linked_devices")
