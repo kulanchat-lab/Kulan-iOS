@@ -970,6 +970,10 @@ struct ChatsView: View {
     // A page in the chat list's own stack. NavigationPath is type-erased, so one case is all the
     // archive needs to become a destination.
     enum ArchiveRoute: Hashable { case archive }
+    /// Message Requests, a page of the same stack — his 2026-09-09 ask. Its OWN type rather than a
+    /// second case on `ArchiveRoute`: the path is type-erased, so a route type that names one page
+    /// costs nothing and reads at the destination as the thing it actually is.
+    enum RequestsRoute: Hashable { case requests }
     @State private var showDeleteSelected = false
     @State private var storyLimitReached = false
     /// The server says this account may not post a story at all — see `AppLimits.storiesEnabled`.
@@ -1558,7 +1562,7 @@ struct ChatsView: View {
     private var editButton: some View {
         Button("Edit") { withAnimation(.smooth(duration: 0.35)) { selecting = true } }.tint(.primary)
     }
-    // Right: Mark all read + filter (All / Unread / Groups) + Archive.
+    // Right: Mark all read + filter (All / Unread / Groups) + Message Requests + Archive.
     private var filterMenu: some View {
         Menu {
             Button { markAllRead() } label: { Label("Mark All Read", systemImage: "checkmark.circle") }
@@ -1570,6 +1574,20 @@ struct ChatsView: View {
                 Button { chatFilter = 2 } label: { if chatFilter == 2 { Label("Groups", systemImage: "checkmark") } else { Text("Groups") } }
             }
             Divider()
+            // ⛔ MESSAGE REQUESTS — owner, 2026-09-09: "Message Requests put when users click ...
+            // Chats Open comtext menu inside chats". This is that menu, and the entry sits in the
+            // last group beside Archive because the two of them are the same kind of thing: the
+            // entries that LEAVE the chat list for another page, rather than change what the chat
+            // list is showing.
+            //
+            // ⚠️ IT IS A DOOR TO AN OLD FEATURE, NOT A NEW ONE. `MessageRequests` has owned the whole
+            // concept since it was built — a stranger's first message is a request, held in two
+            // fields on the conversation — and until today the only way to reach one was to notice it
+            // in the list. Which the "Automatically Archive New Chats From Unknown Users" setting
+            // could quietly hide in the archive. See `MessageRequestsView`.
+            Button { path.append(RequestsRoute.requests) } label: {
+                Label { Text("Message Requests") } icon: { MenuIcon(system: "person.crop.circle.badge.questionmark") }
+            }
             Button { path.append(ArchiveRoute.archive) } label: {
                 Label { Text("Archive") } icon: { MenuIcon("ic_archive") }
             }
@@ -2210,6 +2228,21 @@ struct ChatsView: View {
             }
             .navigationTitle("Chats")
             .navigationBarTitleDisplayMode(.inline)   // one row: avatar · Chats · compose
+            // ⛔ THE TITLE OPENS A MENU — owner, 2026-09-09: "Message Requests put when users click
+            // Chats, open context menu inside chats". He photographed the header with a chevron
+            // beside the word, which is what a title menu draws; there was none in the code, so
+            // tapping "Chats" did nothing and the entry had nowhere to live that matched his words.
+            //
+            // ⚠️ IT IS ALSO IN THE FILTER MENU, DELIBERATELY, AND THAT IS NOT A DUPLICATE BY
+            // ACCIDENT. That menu is where every other whole-list destination already is (Archive
+            // sits directly under it), so removing it from there would move Archive's neighbour
+            // somewhere Archive is not. `toolbarTitleMenu` is the affordance he asked for; the
+            // filter menu is where someone already looking for Archive will find it.
+            .toolbarTitleMenu {
+                Button { path.append(RequestsRoute.requests) } label: {
+                    Label { Text("Message Requests") } icon: { MenuIcon(system: "person.crop.circle.badge.questionmark") }
+                }
+            }
             // ⛔ SEARCH IS BACK ON THE PAGE — his call, 2026-08-30: "settings does not need search at
             // all, calls has one inside so the chat also will be like the one in the call page".
             // The detached search circle in the tab bar is gone with it. It was one control standing
@@ -2296,6 +2329,16 @@ struct ChatsView: View {
             // archive, which is what both references do and what a sheet could never do.
             .navigationDestination(for: ArchiveRoute.self) { _ in
                 ArchivedChatsView(pushed: true, onOpenChat: { t in path.append(t) })
+            }
+            // MESSAGE REQUESTS rides that same path, for the same reason (owner, 2026-09-09). A chat
+            // opened from inside it lands ON TOP of it, so Back returns to the requests page instead
+            // of dropping you at the chat list — which is what makes it a place in the app rather
+            // than a detour, and is the whole argument the archive's note above makes.
+            //
+            // ⚠️ IT DECLARES NO DESTINATION OF ITS OWN. It is inside this stack, which already
+            // answers for `ChatTarget`; the page hands the tap back up here through `onOpenChat`.
+            .navigationDestination(for: RequestsRoute.self) { _ in
+                MessageRequestsView(onOpenChat: { t in path.append(t) })
             }
             .navigationDestination(for: ChatTarget.self) { t in
                 // The official channel gets its own screen. ThreadView is built around a composer and
