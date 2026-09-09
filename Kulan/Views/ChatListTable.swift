@@ -662,11 +662,43 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
         // `ChatListViewController+Loading.swift`, the load path — `shouldAnimate = !suppressAnimations
         // && hasEverAppeared`, and when that is false the same `applyLoadResult` is called inside
         // `UIView.animate(withDuration: 0)`.
+        // ⛔ THE FLIGHT IS FENCED, AND THIS IS THE PIN REPORT'S LAST PIECE — his fifth, 2026-09-09,
+        // off a build that already had the four fidelity decisions AND the in-place update moved out
+        // of the caller: "several bugs when I pin or unpin, especially the animation and transition".
+        //
+        // ⚠️ THE INTERRUPTION HAD MORE THAN ONE DOOR AND ONLY ONE WAS CLOSED. Moving
+        // `refreshVisibleContent` off the caller stopped THIS apply from touching cells mid-flight.
+        // It did nothing about the NEXT one. `updateUIViewController` runs on every SwiftUI
+        // re-render of the parent — a new message on another chat, the theme, the selection, the
+        // search field, a repaint we do not control — and the pin's animation lasts about a third of
+        // a second, which is a long time for none of that to happen. Each of those arrives with an
+        // empty diff, takes the early return, and reaches the in-place update, which hands every
+        // visible cell a fresh hosting configuration. A SwiftUI layout pass on rows UIKit is still
+        // moving.
+        //
+        // So the fence is a flag with a real end, not a guess at one: `CATransaction`'s completion
+        // runs when the row animation has actually finished. Anything that wanted to refresh while
+        // it was up is remembered and done once, afterwards.
+        //
+        // ⚠️ THIS DOES NOT BREAK THEIR "NOTHING RUNS AFTER THE BLOCK" RULE. That rule is about the
+        // instant after `endUpdates()`, where a second table operation lands on top of a flight in
+        // progress. This runs after the flight is over, which is the only safe moment there is.
+        isAnimatingRows = true
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self else { return }
+            self.isAnimatingRows = false
+            if self.refreshWasDeferred {
+                self.refreshWasDeferred = false
+                self.refreshVisibleContent()
+            }
+        }
         if animated {
             work()
         } else {
             UIView.animate(withDuration: 0) { work() }
         }
+        CATransaction.commit()
 
         // ⛔ AND NOTHING TOUCHES A LIVE CELL AFTERWARDS IF ANYTHING MOVED. When the diff was purely
         // a content change the in-place update is theirs and is the cheap path; when the diff moved
@@ -674,6 +706,12 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
         // the cells now would be the second pass all over again.
         if changes.isEmpty { refreshVisibleContent() }
     }
+
+    /// True from the moment a row transaction opens until its animation has actually finished.
+    /// Everything that would reach into a live cell asks this first.
+    private var isAnimatingRows = false
+    /// Something wanted the in-place content update while rows were moving. It is owed once.
+    private var refreshWasDeferred = false
 
     /// The rows whose CONTENT changed while their POSITION did not, addressed in the old model.
     ///
@@ -789,6 +827,9 @@ final class ChatListTableController: UIViewController, UITableViewDataSource, UI
     /// that reserve is ever removed, this has to become `reconfigureRows` and the pin animation has
     /// to be re-checked.
     func refreshVisibleContent() {
+        // The fence — see `apply`. A refresh asked for mid-flight is owed, not dropped: the content
+        // that prompted it is real, it just may not be painted onto a row that is still moving.
+        guard !isAnimatingRows else { refreshWasDeferred = true; return }
         guard let host else { return }
         let p = host.parent
         // A theme flip changes every row and is not part of any row's content value.
