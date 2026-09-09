@@ -98,14 +98,36 @@ struct MediaDismissHost: UIViewRepresentable {
         /// later flight to sweep and the completion that would have cleaned up is never called.
         deinit {
             let leftovers = [clipWrap, container].compactMap { $0 }
-            guard !leftovers.isEmpty else { return }
+            // A coordinator that goes away mid-flight takes its animator's completion with it, so the
+            // hide it made on `.began` has nobody left to undo it. The flag is global and nothing else
+            // clears it, so the bubble would stay blank for the rest of the session.
+            let strandedHide = hiddenSourceId
+            guard !leftovers.isEmpty || strandedHide != nil else { return }
             DispatchQueue.main.async {
                 for v in leftovers { v.layer.removeAllAnimations(); v.removeFromSuperview() }
+                // Only if it is still ours — a newer flight may have hidden something else by now.
+                if let id = strandedHide, MediaSourceVisibility.shared.hiddenId == id {
+                    MediaSourceVisibility.shared.reveal()
+                }
             }
         }
         private var clipWrap: UIView?      // landing-only clipping view (the chat viewport), see finish()
         private var fromFrame: CGRect = .zero
         private var active = false
+        /// ⛔ THE SOURCE WE HID, SO EVERY WAY OUT CAN GIVE IT BACK — owner, 2026-09-05: drag a photo
+        /// down to close it and the message it came from is left showing an empty grey box where the
+        /// picture used to be.
+        ///
+        /// `MediaSourceVisibility` is one global flag for the whole app, and hiding a tile with it is
+        /// a promise to clear it again. This flight makes that promise on `.began` and used to keep it
+        /// on only two of the four ways it can end: the landing on the thumbnail, and the cancel
+        /// spring. A dismissal that found no rectangle to fly to took the fallback below, which
+        /// revealed nothing, and a coordinator torn down while its animator was still running never
+        /// reached any completion at all. The flag then stayed set for the rest of the session, and
+        /// because `MediaBubbleView.configure` re-applies it every time the cell is configured, the
+        /// bubble stayed blank through every scroll and every reload after that.
+        private var hiddenSourceId: String?
+
         private static let distanceToCompletion: CGFloat = 88    // visual scrub (scale/alpha) reference
         // Commit thresholds. Were 160pt / 800 — that much travel made closing feel like work (user:
         // "too hard"). the standard messengers commit around a short drag or any real flick, so a normal
@@ -223,6 +245,28 @@ struct MediaDismissHost: UIViewRepresentable {
             guard t > 0, !adoptingMidLife else { return }
             closeNow()
         }
+        /// Hide the tile we are flying towards, and remember that we did. Without the hide the copy
+        /// converges onto an already-visible thumbnail, so for a moment the same photo is on screen
+        /// twice and there is no cross-fade at the landing.
+        private func hideSource() {
+            let id = parent.targetId()
+            MediaSourceVisibility.shared.hide(id)
+            hiddenSourceId = id
+        }
+
+        /// Give the tile back. Idempotent, so every exit can call it without knowing what the other
+        /// exits did, and it is the ONLY place this flight clears the flag.
+        ///
+        /// ⚠️ ONLY IF IT IS STILL OURS, the same rule `MediaOpenRects.releaseView` follows. The
+        /// stories share this one flag, so revealing a hide we did not make would drop a story card
+        /// back into its row in the middle of somebody else's flight.
+        private func restoreSource() {
+            guard let id = hiddenSourceId else { return }
+            hiddenSourceId = nil
+            guard MediaSourceVisibility.shared.hiddenId == id else { return }
+            MediaSourceVisibility.shared.reveal()
+        }
+
         private func closeNow() {
             guard !active, parent.canBegin(), let m = parent.media(), buildCopy(m) != nil else {
                 parent.onDismiss()
@@ -230,7 +274,7 @@ struct MediaDismissHost: UIViewRepresentable {
             }
             active = true
             parent.onHideContent(true)
-            MediaSourceVisibility.shared.hide(parent.targetId())
+            hideSource()
             finish(offset: .zero)
         }
 
@@ -245,10 +289,7 @@ struct MediaDismissHost: UIViewRepresentable {
                 // JUMPS by ~10pt the instant the drag is picked up instead of starting under the finger.
                 g.setTranslation(.zero, in: root)
                 parent.onHideContent(true)   // exactly ONE SwiftUI update for the whole gesture
-                // Hide the tile we are flying towards. Without this the copy converges onto an
-                // already-visible thumbnail, so for a moment the same photo is on screen twice and there
-                // is no cross-fade at the landing.
-                MediaSourceVisibility.shared.hide(parent.targetId())
+                hideSource()
 
             case .changed:
                 guard active, let c = container else { return }
@@ -318,7 +359,16 @@ struct MediaDismissHost: UIViewRepresentable {
         // so the copy fades out from RIGHT WHERE IT WAS RELEASED with a small continued drift + shrink —
         // seeded with the release velocity so it carries the finger's motion. Then dismiss.
         private func finish(offset o: CGPoint, velocity: CGPoint = .zero) {
-            guard let c = container else { return }
+            // No copy means there is nothing to animate, but the tile has already stepped aside and
+            // the viewer has already been asked to close. Bare `return` left both of those half done:
+            // the bubble stayed blank and the cover stayed up.
+            guard let c = container else {
+                active = false
+                restoreSource()
+                parent.onHideContent(false)
+                parent.onDismiss()
+                return
+            }
             active = false
 
             // FLY HOME when we know where the media came from: the copy scales and travels into the
@@ -384,7 +434,7 @@ struct MediaDismissHost: UIViewRepresentable {
                 animator.addCompletion { _ in
                     // Reveal the tile BEFORE the copy goes, so the two overlap for a frame and the swap
                     // is invisible. Revealing after would flash the empty tile.
-                    MediaSourceVisibility.shared.reveal()
+                    self.restoreSource()
                     self.parent.onDismiss()
                     // The copy lives in the WINDOW now, so the cover's teardown no longer removes it.
                     // Drop it a tick later, once the dismissal has the real content underneath.
@@ -402,6 +452,12 @@ struct MediaDismissHost: UIViewRepresentable {
             // the reference app behaviour — drift on and fade out from where the finger let go.
             // Leave the SCREEN rather than evaporating on the spot. Drifting 40pt while fading read as
             // the photo dissolving in mid-air; carrying it a full frame-height down is an exit.
+            //
+            // ⛔ AND IT REALLY DOES FADE NOW — owner, 2026-09-05, "that image is gone never appearing
+            // or going real position". The comment above has promised a fade since it was written and
+            // the block below never animated alpha at all: the copy drifted down one media height at
+            // full opacity and was then snatched out of the window by the completion. On screen that
+            // is not an exit, it is the photograph blinking out halfway down the conversation.
             let target = CGPoint(x: fromFrame.midX + o.x,
                                  y: fromFrame.midY + o.y + fromFrame.height)
             let spring = UISpringTimingParameters(dampingRatio: 1,
@@ -410,10 +466,18 @@ struct MediaDismissHost: UIViewRepresentable {
             animator.addAnimations {
                 c.center = target
                 c.transform = CGAffineTransform(scaleX: 0.72, y: 0.72)
+                c.alpha = 0
                 c.layer.shadowOpacity = 0
                 self.root?.alpha = 0
             }
             animator.addCompletion { _ in
+                // ⛔ THE TILE COMES BACK EVEN THOUGH WE NEVER LANDED ON IT. This is the whole of his
+                // "empty grey box where the picture was": the drag hid the bubble's picture on
+                // `.began` so the copy would not be drawn twice, this branch closed the viewer
+                // without ever undoing that, and the flag is global and permanent. Landing on the
+                // tile is what the reveal used to be attached to, and a flight with nowhere to land
+                // still owes the conversation its photograph.
+                self.restoreSource()
                 self.parent.onDismiss()
                 // The copy is in the window, not the cover — remove it ourselves.
                 DispatchQueue.main.async {
@@ -430,7 +494,13 @@ struct MediaDismissHost: UIViewRepresentable {
         // and frame math under a non-identity transform is what made the snap-back visibly choppy.
         private func cancel(velocity: CGPoint = .zero) {
             active = false
-            guard let c = container else { parent.onHideContent(false); return }
+            // Same debt as `finish`'s missing copy: the tile stepped aside for a flight that is not
+            // going to happen, so it has to be put back before this returns.
+            guard let c = container else {
+                restoreSource()
+                parent.onHideContent(false)
+                return
+            }
             let home = CGPoint(x: fromFrame.midX, y: fromFrame.midY)
             let spring = UISpringTimingParameters(dampingRatio: 1,
                                                   initialVelocity: Self.springVelocity(velocity, from: c.center, to: home))
@@ -447,7 +517,7 @@ struct MediaDismissHost: UIViewRepresentable {
                 // Un-hide the source bubble. The drag's .began hid it, and only finish() ever revealed
                 // it — a CANCELLED drag left the bubble invisible in the chat, which showed the moment
                 // the viewer was later closed with the X instead of another drag.
-                MediaSourceVisibility.shared.reveal()
+                self.restoreSource()
                 c.removeFromSuperview()
                 self.container = nil
             }
